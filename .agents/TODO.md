@@ -183,6 +183,12 @@ Goal: macOS 26.7.1 boots from OpenCore on the GOP framebuffer, everything except
           complete 10-bit tags (Linux leaves the requester off)
     - [x] 2026-11-19 **Wi-Fi works** (boot 4): boot-arg `pci=0x8000000` in the `base` stage; MtkWirelessWifi 1.1.1,
           802.11ax 5 GHz 80 MHz, 780 Mbit/s, WPA2/WPA3; Vermilion unaffected
+    - [ ] **Wi-Fi throughput drops periodically** (owner, 2026-11-19): fine for about 5 minutes, then very slow for
+          about 30 seconds, repeating. Investigate later (owner's call). Leads, all unverified: background scans
+          (Location Services, `airportd`), AWDL leaving the AP channel (MtkWireless boot-args `amtk_awdl=0`,
+          `amtk_awdl_offchan=0`), in-driver roaming (`amtk_roam=0`), 802.11ax (`amtk_he=0`), power save. Measure
+          first: a ping/throughput log over 15 min next to `log stream --predicate 'process == "airportd"'`, so
+          the slow windows can be matched to an event; then one boot-arg per boot
     - [ ] Fix it (then Wi-Fi and probably Ethernet work)
   - [ ] AirDrop/Continuity over Wi-Fi: AirportMtkWlan's AWDL is off unless `-mtkawdl` (2.2.x AWDL builds panicked
         and were pulled); only after Wi-Fi is stable

@@ -69,7 +69,11 @@ Music no longer crashes but loads very slowly; Maps still crashes (17:14), now w
 sandbox). Maps: ~7630 live buffers, tiny private buffers "REFUSED VRAM (RM refused it) -> -2" with 6144 MB free, RADV
 `bo create failed ... -12`, then a 256x256 texture nil ("VRAM full and no system-memory type takes it") and VectorKit
 aborts ("Metal returned null texture"). Cause: the kext's 4095 BO handles per process, held by Managed buffers' VRAM
-copies (finding `2026-11-25-maps-allocation-limit.md`); #29 (merged) pools small device-local buffers, deploy next.
+copies (finding `2026-11-25-maps-allocation-limit.md`); #29 (merged) pools small device-local buffers. #29 deploy
+2026-11-25 ~17:45: NVMTLDriver `327a082e` (rollback `~/vermilion-rollback/NVMTLDriver.pre-allocfix-20261125`,
+`15204728`, trusted as `-previous`); **EFI change 36**: VermilionTrust 1.0.4 with 16 cdhashes, `diff -rq` only the
+VermilionTrust binary, `OC.prev` = change 35 (also `~/vermilion-rollback/EFI-OC.change35-20261125`). Expected:
+`list=16 denied_unlisted=0`, `327a082e` listed, `SUCCESS`, 240 Hz, a `buffer pool: device-local` log line.
 Logs in `~/vermilion-captures/2026-11-25-maps/` (outside git). In zsh `log` is a builtin: use `/usr/bin/log`.
 Music after #25: no crash, but a slow first launch (`MusicUI bootstrap took: 32.374500 seconds`). The cause isn't in the
 plugin: Music's main thread waits 30.36 s on accountsd, which waits on a freshly started passd. passd retries the

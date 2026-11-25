@@ -69,7 +69,29 @@ Music no longer crashes but loads very slowly; Maps still crashes (17:14), now w
 sandbox). Maps: ~7630 live buffers, tiny private buffers "REFUSED VRAM (RM refused it) -> -2" with 6144 MB free, RADV
 `bo create failed ... -12`, then a 256x256 texture nil ("VRAM full and no system-memory type takes it") and VectorKit
 aborts ("Metal returned null texture"). Cause: the kext's 4095 BO handles per process, held by Managed buffers' VRAM
-copies (finding `2026-11-25-maps-allocation-limit.md`); #29 (merged) pools small device-local buffers, deploy next.
+copies (finding `2026-11-25-maps-allocation-limit.md`); #29 (merged) pools small device-local buffers. #29 deploy
+2026-11-25 ~17:45: NVMTLDriver `327a082e` (rollback `~/vermilion-rollback/NVMTLDriver.pre-allocfix-20261125`,
+`15204728`, trusted as `-previous`); **EFI change 36**: VermilionTrust 1.0.4 with 16 cdhashes, `diff -rq` only the
+VermilionTrust binary, `OC.prev` = change 35 (also `~/vermilion-rollback/EFI-OC.change35-20261125`). Expected:
+`list=16 denied_unlisted=0`, `327a082e` listed, `SUCCESS`, 240 Hz, a `buffer pool: device-local` log line. **Live and
+passed** on the boot of 2026-11-25 17:52 (all of these; `SUCCESS at 17:54:33`). Owner: Maps no longer crashes.
+`tests/plugin/test_private_pool_gpu.m` (owner's OK) all passed: 12000 Managed + 4000 Private buffers, the 256x256
+texture, bytes kept, reused ranges zero; `debug.phxvm` handles refusals 0 before and after. Open: Maps fullscreen
+is very slow (owner: "choppy"); agent on `ownback/maps-fullscreen-perf`. Captures 18:48-18:54 with the owner panning
+(`~/vermilion-captures/2026-11-25-appcap/`): window 70-125 frames/s with the GPU at 94-98 % and ~200 W; fullscreen
+mean 135 frames/s (60-190 per second), GPU 50-95 %; fullscreen with Maps in `debug.phxbo_vram_proc` (VRAM placement
+confirmed) mean 144: system memory is not the main cause. Uneven frame pacing and a near-saturated GPU are the leads.
+The owner also sees tiles appear late, patch by patch ("like Minecraft chunks"). Lead: the ~255/s VideoToolbox tile
+conversions, each a GPU readback with a fence wait on the plugin's single serial worker that also hands frames to
+WindowServer (first agent's counters).
+passd: the owner chose the honest "SSE not supported" `AppleSSE` kext (finding on #30); new private repo
+ownback/ryzentosh-sse with its own thread; it hands the kext to the megamind for an EFI change.
+#31 (async `replaceRegion:` uploads, review fixes) merged; deploy 2026-11-25 ~20:00: NVMTLDriver `62f86c5d` (rollback
+`~/vermilion-rollback/NVMTLDriver.pre-asyncup-20261125`, `327a082e`, trusted as `-previous`); **EFI change 37**:
+VermilionTrust 1.0.4 with 17 cdhashes, `diff -rq` only the VermilionTrust binary, `OC.prev` = change 36 (also
+`~/vermilion-rollback/EFI-OC.change36-20261125`). Expected: `list=17 denied_unlisted=0`, `62f86c5d` listed, `SUCCESS`,
+240 Hz; Maps' log `vk: async texture upload ON`, WindowServer's OFF. **Live and passed** on the boot of 2026-11-25 19:58 (`SUCCESS at 20:00:18`, `list=17 denied_unlisted=0`, `62f86c5d` listed, Maps ON / WindowServer OFF, 240 Hz). Owner: Maps feels the same (expected: WindowServer's composite is the larger GPU cost); Music opens fast (the `local.phxpassd` agent started passd). DP audio appears only at the daemon's `audio:` step (~2.5 min after boot, 20:00:20 this boot): not standard, in the parity plan. GPU-time captures before it (19:49-19:52,
+`fs3d-gpu`, `run2-gpu`): WindowServer 37-42 % of GPU wall, Maps 17-24 %; agent on `ownback/ws-composite-cost`.
 Logs in `~/vermilion-captures/2026-11-25-maps/` (outside git). In zsh `log` is a builtin: use `/usr/bin/log`.
 Music after #25: no crash, but a slow first launch (`MusicUI bootstrap took: 32.374500 seconds`). The cause isn't in the
 plugin: Music's main thread waits 30.36 s on accountsd, which waits on a freshly started passd. passd retries the
@@ -129,7 +151,7 @@ mode setting).
 | WebGPU in Safari | broken (20 of 43 samples; render bundles crash the GPU process) | Phase 2 item 10 | A15 |
 | Vulkan for apps | works (opt-in loader) | Phase 4 | A18 |
 | Games | slow (Horizon 292 vs 4370 fps on Linux) | Phase 4 | A17 |
-| Music, Maps | broken (plugin crashes) | Phase 2 item 2 | A7, A8 |
+| Music, Maps | works, slow (crashes fixed by #25, #29; Maps choppy, tiles late: #31 live, WindowServer composite cost open; Music's 30 s first launch: passd, login agent + ryzentosh-sse) | Phase 2 item 2 | A7, A8 |
 | GPU hang or lost GPU | missing recovery | Phase 2 item 7 | A6 |
 | GPU name, VRAM size, Activity Monitor GPU history | broken / missing | Phase 2 item 8 | A2-A4 |
 | Metal feature answers vs a real AMD Mac | not standard (untested claims, some wrong answers) | Conformance pass | A16 |

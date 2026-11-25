@@ -173,8 +173,10 @@ PROJECT_KNOWLEDGE.
   service that needs a T2. Music's account save waits for it through accountsd. First the owner test in the finding
   (cold vs warm passd). Then: find what makes `PKSecureElement registerObserver:` run on a Mac without a Secure
   Element, and report that from the platform (ryzentosh). Until then, a login agent that kickstarts passd is the
-  mitigation, unverified.
-- [ ] **Phase 2 item 2: Maps fullscreen, the phase-B GPU capture** (before the branch below is installed;
+  mitigation: `tools/phxctl/local.phxpassd.plist`, installed 2026-11-25 ~18:05 in `~/Library/LaunchAgents` (owner's
+  "go"; removal in the plist's header). Check at the next boot (unverified): `pgrep -x passd` within a minute of
+  login, Music's `MusicUI bootstrap took` ~1-2 s. Remove it once the platform fix works.
+- [x] **Done 2026-11-25 19:49-19:52 (fs3d-gpu, run2-gpu; WindowServer 37-42 % of GPU wall, Maps 17-24 %).** **Phase 2 item 2: Maps fullscreen, the phase-B GPU capture** (before the branch below is installed;
   [finding](findings/2026-11-25-maps-fullscreen-perf.md) section 5). The owner holds Maps in the 3D city view; the
   capture gets GPU time per process (`GPUTIME=1`) and per pass (`/tmp/nvmtl-passtime-request`) in fullscreen, in a
   window and with Maps in VRAM. It decides between Maps' passes (shaders, MSAA in system memory) and WindowServer's

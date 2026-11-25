@@ -7837,11 +7837,11 @@ static int nvmtl_vk_image_create_buffer_alias_lifetime_body(uint32_t w, uint32_t
     return 0;
 }
 
-typedef struct { size_t off, len; } pool_range;
+#include "nvmtl_pool_range.h"
 typedef struct pool_block {
-    struct pool_block *next; nvk_heap heap; size_t used; uint32_t nlive;
+    struct pool_block *next; nvk_heap heap; uint32_t nlive;
     int vram;
-    pool_range *fr; uint32_t nfr, cfr;
+    nvmtl_range_set rs;
 } pool_block;
 static pool_block *g_pool;
 #define NVMTL_VPOOL_BLOCK (8u << 20)
@@ -7863,31 +7863,8 @@ static size_t pool_align(void)
     }
     g_pool_align = a; return a;
 }
-static int pool_block_take(pool_block *blk, size_t len, size_t *off)
-{
-    for (uint32_t i = 0; i < blk->nfr; i++) {
-        if (blk->fr[i].len >= len) {
-            *off = blk->fr[i].off; blk->fr[i].off += len; blk->fr[i].len -= len;
-            if (!blk->fr[i].len) blk->fr[i] = blk->fr[--blk->nfr];
-            return 1;
-        }
-    }
-    if (blk->used + len <= blk->heap.size) { *off = blk->used; blk->used += len; return 1; }
-    return 0;
-}
-static void pool_block_give(pool_block *blk, size_t off, size_t len)
-{
-    if (off + len == blk->used) { blk->used = off; }
-    else {
-        for (uint32_t i = 0; i < blk->nfr; i++) {
-            if (blk->fr[i].off + blk->fr[i].len == off) { blk->fr[i].len += len; return; }
-            if (off + len == blk->fr[i].off) { blk->fr[i].off = off; blk->fr[i].len += len; return; }
-        }
-        if (blk->nfr == blk->cfr) { uint32_t c = blk->cfr ? blk->cfr * 2 : 64; pool_range *n = realloc(blk->fr, c * sizeof *n); if (!n) return; blk->fr = n; blk->cfr = c; }
-        blk->fr[blk->nfr].off = off; blk->fr[blk->nfr].len = len; blk->nfr++;
-    }
-    if (!blk->nlive) { blk->used = 0; blk->nfr = 0; }
-}
+static int pool_block_take(pool_block *blk, size_t len, size_t *off) { return nvmtl_range_take(&blk->rs, blk->heap.size, len, off); }
+static void pool_block_give(pool_block *blk, size_t off, size_t len) { nvmtl_range_give(&blk->rs, off, len, blk->nlive); }
 static int vpool_on(void)
 {
     static int on = -1;
@@ -7972,7 +7949,7 @@ static void pool_buffer_release(nvk_buffer *b)
         if (empties > NVMTL_POOL_KEEP) {
             pool_block **pp = head; while (*pp && *pp != blk) pp = &(*pp)->next;
             if (*pp) { *pp = blk->next; const size_t hs = blk->heap.size; const int v = blk->vram;
-                nvmtl_vk_heap_destroy(&blk->heap); free(blk->fr); free(blk); g_pool_blocks--;
+                nvmtl_vk_heap_destroy(&blk->heap); free(blk->rs.fr); free(blk); g_pool_blocks--;
                 if (v) { g_vpool_blocks--; g_bar1_bytes -= hs; } }
         }
     }

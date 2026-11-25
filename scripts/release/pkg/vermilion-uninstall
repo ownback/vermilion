@@ -1,0 +1,118 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# vermilion-uninstall [--purge] [--rebuild-kc]: remove what Vermilion-<version>.pkg installed and put back the files it
+# replaced (docs/RELEASE.md, "Uninstaller"; docs/INSTALL.md section 6). Run it as root: sudo vermilion-uninstall.
+#   1. stops the boot daemon (launchctl bootout, its pending mark and fail record, NVRAM phxfb-squat / phxfb-boot
+#      where macOS can write NVRAM), puts the login-window value and the display overrides back;
+#   2. removes every file `pkgutil --files org.vermilion.pkg` lists, and then every path a rollback folder names,
+#      restoring the copy when the path existed before the first install (rollback folders are read oldest first, so
+#      an update never turns a Vermilion file into "the user's own");
+#   3. forgets the package receipt.
+# --purge also removes the firmware folder (~/gpu/fw/navi31); without it the firmware is kept.
+# --rebuild-kc runs `kmutil install --update-all` and `kmutil clear-staging` to drop VermilionAccel from the Auxiliary
+#   Kernel Collection (unverified on 26.7.1). Without it the commands are only printed.
+# It never touches the EFI partition: it prints which OpenCore entries and kexts to remove.
+# The rollback folder and /var/log/phxboot.log are kept.
+PKGID=org.vermilion.pkg
+LIBEXEC_DEFAULT=${VERMILION_ROOT:-}/usr/local/libexec/vermilion
+if [ -f "$LIBEXEC_DEFAULT/lib.sh" ]; then . "$LIBEXEC_DEFAULT/lib.sh"; else
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH
+  R=${VERMILION_ROOT:-}; LIBEXEC=$R/usr/local/libexec/vermilion; SUPPORT="$R/Library/Application Support/Vermilion"
+  say() { echo "Vermilion: $*"; }
+  fail() { echo "Vermilion: ERROR: $*" >&2; exit 1; }
+fi
+
+main() {
+  PURGE=0 REBUILD=0
+  for a in "$@"; do
+    case $a in --purge) PURGE=1 ;; --rebuild-kc) REBUILD=1 ;; *) fail "unknown option $a (usage: vermilion-uninstall [--purge] [--rebuild-kc])" ;; esac
+  done
+  [ "$(id -u)" = 0 ] || [ "${VERMILION_NOCHOWN:-0}" = 1 ] || fail "run as root: sudo vermilion-uninstall"
+  T=$(mktemp -d "${TMPDIR:-/tmp}/vermilion-uninstall.XXXXXX") || fail "no temporary folder"
+  U=$(awk '$1 == "user" { print $2 }' "$SUPPORT/installed" 2>/dev/null)
+  UH=""; [ -z "$U" ] || UH=$(user_home "$U" 2>/dev/null)
+  H=$R$UH; G=$H/gpu
+
+  # 1. daemon, login window, display overrides, NVRAM
+  launchctl bootout system/local.phxboot >/dev/null 2>&1 || true
+  rm -f "$R/var/db/phxboot.pending" "$R/var/db/phxboot.fails"
+  NVRAM_LEFT=""
+  for v in phxfb-squat phxfb-boot; do
+    if nvram -p 2>/dev/null | grep -q "^$v[[:space:]]"; then
+      nvram -d "$v" >/dev/null 2>&1 || true
+      ! nvram -p 2>/dev/null | grep -q "^$v[[:space:]]" || NVRAM_LEFT="$NVRAM_LEFT $v"
+    fi
+  done
+  g=$G/phxboot-b21guard.orig
+  if [ -f "$g" ]; then
+    case $(cat "$g") in
+      absent) defaults delete /Library/Preferences/com.apple.loginwindow SHOWFULLNAME >/dev/null 2>&1 || true ;;
+      0) defaults write /Library/Preferences/com.apple.loginwindow SHOWFULLNAME -bool false >/dev/null 2>&1 || true ;;
+    esac
+    rm -f "$g"; say "login-window value put back"
+  fi
+  for f in "$R"/Library/Displays/Contents/Resources/Overrides/DisplayVendorID-*/DisplayProductID-*; do
+    [ -f "$f" ] || continue
+    plutil -extract phx-override raw -o - "$f" >/dev/null 2>&1 && rm -f "$f" && say "removed display override $f"
+  done
+
+  # 2a. what the receipt lists
+  if pkgutil --pkg-info "$PKGID" >/dev/null 2>&1; then
+    loc=$(pkgutil --pkg-info "$PKGID" | sed -n 's/^location: *//p'); loc=${loc%/}
+    pkgutil --only-files --files "$PKGID" | while IFS= read -r f; do [ -n "$f" ] && rm -f "$R$loc/$f"; done
+    pkgutil --only-dirs --files "$PKGID" | sort -r | while IFS= read -r d; do
+      case $d in *[Vv]ermilion*|*NVMTLDriver*|*nvmtl*) rmdir "$R$loc/$d" 2>/dev/null || true ;; esac
+    done
+    say "files of $PKGID removed"
+  else
+    say "no receipt for $PKGID (already forgotten?): only the rollback folders decide below"
+  fi
+
+  # 2b. every path a rollback folder names: first line wins, oldest folder first
+  : >"$T/all"
+  for d in "$SUPPORT"/rollback/*/; do
+    d=${d%/}; [ -f "$d/MANIFEST" ] || continue
+    while IFS= read -r line; do
+      [ -n "$line" ] || continue
+      printf '%s\t%s\t%s\n' "$d" "${line%% *}" "${line#* }" >>"$T/all"
+    done <"$d/MANIFEST"
+  done
+  awk -F'\t' '!seen[$3]++' "$T/all" >"$T/decided"
+  restored=0 removed=0
+  TAB=$(printf '\t')
+  while IFS=$TAB read -r d st p; do
+    case $p in "$R"/?*/?*) ;; *) continue ;; esac               # an absolute path of depth 2 or more, below the root
+    case $p in */fw/navi31) [ $PURGE = 1 ] || continue ;; esac   # the firmware stays unless --purge
+    rm -rf "$p"; removed=$((removed+1))
+    if [ "$st" = E ] && [ -e "$d/files$p" ]; then
+      mkdir -p "$(dirname "$p")"; cp -Rp "$d/files$p" "$p" && restored=$((restored+1))
+    fi
+  done <"$T/decided"
+  say "$removed paths removed, $restored restored from the rollback folders"
+  rmdir "$R/Library/GPUBundles/nvmtl" 2>/dev/null || true
+
+  # 3. receipt and state
+  rm -rf "$LIBEXEC"
+  rm -f "$SUPPORT/installed" "$SUPPORT/.rollback-current"
+  pkgutil --forget "$PKGID" >/dev/null 2>&1 || true
+  rm -rf "$T"
+
+  # What is left for the user
+  echo
+  echo "Vermilion is removed from this system. Left for you:"
+  echo "  - VermilionAccel is still in the Auxiliary Kernel Collection until it is rebuilt. Run:"
+  echo "        sudo kmutil install --update-all && sudo kmutil clear-staging"
+  echo "    (unverified on macOS 26.7.1; uninstall --rebuild-kc runs it). Then restart."
+  [ $REBUILD = 0 ] || { say "rebuilding the Auxiliary Kernel Collection"; kmutil install --update-all && kmutil clear-staging || say "kmutil failed: run it by hand"; }
+  echo "  - The OpenCore part (this package never touches the EFI partition). Remove from EFI/OC/Kexts:"
+  echo "    VermilionBoot.kext, VermilionTrust.kext, VermilionAudio.kext (and Lilu.kext if you added it only for these),"
+  echo "    and from config.plist the entries of INSTALL.md section 3: their Kernel > Add lines, the"
+  echo "    AppleGraphicsDevicePolicy patch, boot-args phxdebug=1 and ipc_control_port_options=0, csr-active-config,"
+  echo "    SecureBootModel (put your own value back) and ResizeAppleGpuBars. One EFI change per boot."
+  [ -z "$NVRAM_LEFT" ] || echo "  - NVRAM variables macOS could not delete: $NVRAM_LEFT. Delete them from the OS that set them (INSTALL.md section 6)."
+  [ $PURGE = 1 ] || echo "  - The firmware in ${UH:-~}/gpu/fw/navi31 (kept; --purge removes it) and the other files in ${UH:-~}/gpu."
+  echo "  - The rollback folders in /Library/Application Support/Vermilion/rollback and /var/log/phxboot.log."
+  echo "  - This package left Software Update and sleep settings alone: nothing to put back."
+}
+main "$@"
+exit $?

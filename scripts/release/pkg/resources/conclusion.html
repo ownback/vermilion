@@ -1,0 +1,13 @@
+<!-- SPDX-License-Identifier: MIT -->
+<html><body style="font-family: -apple-system, sans-serif; font-size: 13px;">
+<h2>One step is left: the Allow click</h2>
+<ol>
+<li>Open <b>System Settings &gt; Privacy &amp; Security</b> and scroll to <b>Security</b>.</li>
+<li>Next to the message about blocked system software, click <b>Allow</b> and enter your password.</li>
+<li>Restart when macOS asks, and do not log in for about 3 minutes.</li>
+</ol>
+<p>Until you do, the VermilionAccel kext does not load and the Mac stays on the basic display. Click Allow again after
+every update that changes this kext. If the firmware download failed during the install, run
+<code>vermilion-firmware</code> as root once you have a network connection.</p>
+<p>The install log, with the rollback folder and any warning, is in <code>/var/log/install.log</code>.</p>
+</body></html>

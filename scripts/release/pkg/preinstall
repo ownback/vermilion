@@ -1,0 +1,42 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# preinstall of Vermilion-<version>.pkg (docs/RELEASE.md). Runs as root before the payload is laid down.
+# It refuses, with one sentence and no change, unless:
+#   - the target is the running system volume,
+#   - macOS is build 25G241 (Tahoe 26.7.1),
+#   - an AMD Radeon RX 7900 XTX (1002:744c, PCI revision 0xC8) is present and no other 744c board is,
+#   - a desktop user can be named for the install.
+# Then it opens this install's rollback folder and copies away every path the payload is about to replace.
+# The message of a refusal is in /var/log/install.log; the installer's window only says the install failed.
+# Installer arguments: $1 package, $2 destination, $3 target volume, $4 root.
+HERE=$(cd "$(dirname "$0")" && pwd)
+. "$HERE/lib.sh"
+
+[ "$(id -u)" = 0 ] || [ "${VERMILION_NOCHOWN:-0}" = 1 ] || refuse "the installer was not run as root."
+[ "${3:-/}" = / ] || [ -n "${VERMILION_ROOT:-}" ] || refuse "this package installs only on the running system volume, not on '$3'."
+
+build=$(sw_vers -buildVersion 2>/dev/null)
+[ "$build" = "$EXPECT_BUILD" ] || refuse "Vermilion supports macOS Tahoe 26.7.1 (build $EXPECT_BUILD) only; this Mac runs build ${build:-unknown}. Do not update macOS while Vermilion is installed."
+
+check_gpu
+
+U=$(console_user)
+[ -n "$U" ] || refuse "no desktop user could be found. Log in to the Mac's desktop as the user who will use it and run the installer again."
+
+# A manual install (docs/INSTALL.md 2.2) uses the same daemon label and the same files: this install replaces them,
+# and the rollback folder keeps what it replaces.
+if [ -f "$R/Library/LaunchDaemons/local.phxboot.plist" ] && [ ! -f "$SUPPORT/installed" ]; then
+  say "note: an install that this package did not make was found (local.phxboot). Its files that this package replaces are kept in the rollback folder."
+fi
+
+mkdir -p "$SUPPORT/rollback"
+rb_new
+say "rollback folder: $RB"
+if [ -f "$HERE/units-payload.txt" ]; then
+  while IFS= read -r p; do
+    [ -n "$p" ] || continue
+    rb_keep "$R$p"
+  done <"$HERE/units-payload.txt"
+fi
+say "checks passed (macOS $build, RX 7900 XTX, user $U)"
+exit 0

@@ -6654,10 +6654,12 @@ static int nvmtl_copy_has_image(const char *what, const nvk_image *img)
     return 0;
 }
 
-static void img_to(nvk_cmdbuf *c, nvk_image *img, VkImageLayout to,
-                   VkAccessFlags srcA, VkAccessFlags dstA, VkPipelineStageFlags srcS, VkPipelineStageFlags dstS)
+// The layout transition and its barrier; `always` emits the barrier when the image is already in `to` too (an ordering
+// with earlier work, not only a transition).
+static void img_barrier(nvk_cmdbuf *c, nvk_image *img, VkImageLayout to, VkAccessFlags srcA, VkAccessFlags dstA,
+                        VkPipelineStageFlags srcS, VkPipelineStageFlags dstS, int always)
 {
-    if ((VkImageLayout)img->layout == to) return;
+    if (!always && (VkImageLayout)img->layout == to) return;
     VkImageSubresourceRange r = { nvmtl_barrier_aspect(img), 0, img->mips ? img->mips : 1, 0, img->layers ? img->layers : 1 };
     VkImageMemoryBarrier b = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, NULL, srcA, dstA,
         (VkImageLayout)img->layout, to, VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, (VkImage)img->img, r };
@@ -6672,6 +6674,9 @@ static void img_to(nvk_cmdbuf *c, nvk_image *img, VkImageLayout to,
     pvkCmdPipelineBarrier(c->cb, srcS, dstS, 0, 0, NULL, 0, NULL, 1, &b);
     img->layout = to;
 }
+static void img_to(nvk_cmdbuf *c, nvk_image *img, VkImageLayout to,
+                   VkAccessFlags srcA, VkAccessFlags dstA, VkPipelineStageFlags srcS, VkPipelineStageFlags dstS)
+{ img_barrier(c, img, to, srcA, dstA, srcS, dstS, 0); }
 
 static void nvmtl_private_depth_layout(nvk_cmdbuf *c, nvk_image *img, VkImageLayout to)
 {
@@ -6726,16 +6731,14 @@ static int nvmtl_async_tex_upload(void)
 }
 typedef struct { nvmtl_inflight infl; nvk_buffer stage; nvk_cmdbuf cb; } nvmtl_asyncup;
 static pthread_mutex_t g_asyncup_mutex = PTHREAD_MUTEX_INITIALIZER;
-// Atomically read and clear an image's pending async-upload handle (the consume/finish-first decision).
-static void nvmtl_surfin_unlist(nvk_image *img);
+static nvmtl_uptab g_uptab;   // every pending async upload (nvmtl_async_surfin.c); under g_asyncup_mutex
+// Atomically read and clear an image's pending async-upload handle (the consume/finish-first decision); the image may
+// be freed next, so its table entry goes too.
 static uint64_t nvmtl_asyncup_take(nvk_image *img)
 {
     if (!img) return 0;
     pthread_mutex_lock(&g_asyncup_mutex);
-    nvmtl_up_state s = { img->up_token };
-    const uint64_t token = nvmtl_up_before_consume(&s);
-    img->up_token = 0;
-    if (token) nvmtl_surfin_unlist(img);
+    const uint64_t token = nvmtl_uptab_take(&g_uptab, &img->up_token);
     pthread_mutex_unlock(&g_asyncup_mutex);
     return token;
 }
@@ -6812,7 +6815,7 @@ int nvmtl_vk_image_write_region_level_layer(nvk_queue *q, nvk_image *img, const 
         const unsigned long long n = ++g_texup_async;
         if (n <= 4 || n % 4096 == 0)
             nvlog("async texture upload #%llu: %ux%u level %u submitted without a wait (%u pending, %zu KB; %llu took the sync path)",
-                  n, w, h, level, g_surfin_n, g_surfin_bytes >> 10, (unsigned long long)g_texup_sync);
+                  n, w, h, level, g_uptab.n, g_uptab.bytes >> 10, (unsigned long long)g_texup_sync);
         return 0;
     }
     return nvmtl_vk_submit_wait(c);

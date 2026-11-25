@@ -14,15 +14,10 @@
    its own staging buffer and its handle is stored on the image (img->up_token, the NVMTL_ASYNC_TEX_UPLOAD machinery): a
    readback, migration, destroy or the next upload of that image finishes it first (nvmtl_vk_image_upload_barrier).
    Completed uploads are reaped at each new one (fence polled, never waited) so the staging memory they hold is bounded:
-   at most NVMTL_SURFIN_N uploads and NVMTL_SURFIN_CAP bytes pending; above that the upload takes the synchronous path.
+   at most NVMTL_UPTAB_N uploads and NVMTL_UPTAB_CAP bytes pending (the table is nvmtl_tex_upload.h's); above that the upload takes the synchronous path.
    replaceRegion's async uploads (NVMTL_ASYNC_TEX_UPLOAD, on by default outside WindowServer) are listed in the same
    table and count against the same bounds. */
 #define NVMTL_SURFIN_SYNC (-2)
-#define NVMTL_SURFIN_N 64
-#define NVMTL_SURFIN_CAP (128ull << 20)
-static struct { nvk_image *img; nvmtl_asyncup *au; size_t bytes; } g_surfin[NVMTL_SURFIN_N];   // under g_asyncup_mutex
-static unsigned g_surfin_n;
-static size_t g_surfin_bytes;
 static uint64_t g_surfin_async, g_surfin_sync, g_surfin_reaped;
 static int nvmtl_async_surface_in(void)
 {
@@ -34,39 +29,30 @@ static int nvmtl_async_surface_in(void)
     }
     return on;
 }
-// Called with g_asyncup_mutex held whenever an image's handle is taken (nvmtl_asyncup_take): the image may be freed next.
-static void nvmtl_surfin_unlist(nvk_image *img)
+static int nvmtl_asyncup_done(uint64_t h, void *ctx)
 {
-    for (unsigned i = 0; i < g_surfin_n; i++)
-        if (g_surfin[i].img == img) { g_surfin_bytes -= g_surfin[i].bytes; g_surfin[i] = g_surfin[--g_surfin_n]; return; }
+    (void)ctx;
+    return pvkWaitForFences(g_dev, 1, &((nvmtl_asyncup *)(uintptr_t)h)->infl.fence, VK_TRUE, 0) == VK_SUCCESS;
 }
 // Moves the handles of completed uploads off their images (under the lock) and finishes them (outside it: their fences
 // have signalled, so the finish does not wait).
 static void nvmtl_surfin_reap(void)
 {
-    nvmtl_asyncup *done[NVMTL_SURFIN_N]; unsigned nd = 0;
+    uint64_t done[NVMTL_UPTAB_N];
     pthread_mutex_lock(&g_asyncup_mutex);
-    for (unsigned i = 0; i < g_surfin_n;) {
-        nvmtl_asyncup *au = g_surfin[i].au;
-        if (pvkWaitForFences(g_dev, 1, &au->infl.fence, VK_TRUE, 0) == VK_SUCCESS) {
-            if (g_surfin[i].img->up_token == (uint64_t)(uintptr_t)au) g_surfin[i].img->up_token = 0;   // not a newer upload's handle
-            done[nd++] = au;
-            g_surfin_bytes -= g_surfin[i].bytes; g_surfin[i] = g_surfin[--g_surfin_n];
-        } else i++;
-    }
+    const unsigned nd = nvmtl_uptab_reap(&g_uptab, nvmtl_asyncup_done, NULL, done);
     pthread_mutex_unlock(&g_asyncup_mutex);
-    for (unsigned i = 0; i < nd; i++) nvmtl_asyncup_finish((uint64_t)(uintptr_t)done[i]);
+    for (unsigned i = 0; i < nd; i++) nvmtl_asyncup_finish(done[i]);
     g_surfin_reaped += nd;
 }
 // The async region uploads of replaceRegion (NVMTL_ASYNC_TEX_UPLOAD, nvmtl_vk_image_write_region_level_layer) share this
-// table, its bounds and its reaping; these count them. nvmtl_surfin_async below keeps its own copy of the two helpers'
-// code: calling them from there changes the compiled code, so that merge is a TODO, not part of a clean-up.
+// table, its bounds and its reaping; these count them.
 static uint64_t g_texup_async, g_texup_sync;
 // Room in the table for one more upload of `bytes` staging bytes?
 static int nvmtl_asyncup_room(size_t bytes)
 {
     pthread_mutex_lock(&g_asyncup_mutex);
-    const int room = g_surfin_n < NVMTL_SURFIN_N && g_surfin_bytes + bytes <= NVMTL_SURFIN_CAP;
+    const int room = nvmtl_uptab_room(&g_uptab, bytes);
     pthread_mutex_unlock(&g_asyncup_mutex);
     return room;
 }
@@ -75,18 +61,10 @@ static int nvmtl_asyncup_room(size_t bytes)
 static int nvmtl_asyncup_list(nvk_image *img, nvmtl_asyncup *au, size_t bytes)
 {
     pthread_mutex_lock(&g_asyncup_mutex);
-    if (g_surfin_n >= NVMTL_SURFIN_N) {
-        pthread_mutex_unlock(&g_asyncup_mutex);
-        nvmtl_asyncup_finish((uint64_t)(uintptr_t)au);
-        return 0;
-    }
-    nvmtl_up_state s = { img->up_token };
-    nvmtl_up_set(&s, (uint64_t)(uintptr_t)au);
-    img->up_token = s.infl;
-    g_surfin[g_surfin_n].img = img; g_surfin[g_surfin_n].au = au; g_surfin[g_surfin_n].bytes = bytes;
-    g_surfin_n++; g_surfin_bytes += bytes;
+    const int listed = nvmtl_uptab_list(&g_uptab, &img->up_token, (uint64_t)(uintptr_t)au, bytes);
     pthread_mutex_unlock(&g_asyncup_mutex);
-    return 1;
+    if (!listed) nvmtl_asyncup_finish((uint64_t)(uintptr_t)au);
+    return listed;
 }
 static int nvmtl_surfin_async(nvk_queue *q, nvk_image *img, const void *src, size_t row_bytes)
 {
@@ -98,10 +76,7 @@ static int nvmtl_surfin_async(nvk_queue *q, nvk_image *img, const void *src, siz
     nvmtl_surfin_reap();
     // the previous upload of this image must land before this one overwrites it (normally long done: no wait)
     nvmtl_asyncup_finish(nvmtl_asyncup_take(img));
-    pthread_mutex_lock(&g_asyncup_mutex);
-    const int room = g_surfin_n < NVMTL_SURFIN_N && g_surfin_bytes + bytes <= NVMTL_SURFIN_CAP;
-    pthread_mutex_unlock(&g_asyncup_mutex);
-    if (!room) { g_surfin_sync++; return NVMTL_SURFIN_SYNC; }
+    if (!nvmtl_asyncup_room(bytes)) { g_surfin_sync++; return NVMTL_SURFIN_SYNC; }
     nvmtl_asyncup *au = (nvmtl_asyncup *)calloc(1, sizeof *au);
     if (!au || nvmtl_vk_buffer_create(bytes, 1, &au->stage)) { free(au); g_surfin_sync++; return NVMTL_SURFIN_SYNC; }
     uint8_t *dst = (uint8_t *)au->stage.map;
@@ -125,22 +100,12 @@ static int nvmtl_surfin_async(nvk_queue *q, nvk_image *img, const void *src, siz
     pvkCmdPipelineBarrier(c->cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &toRead);
     img->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     if (nvmtl_vk_submit_begin_at(c, &au->infl, "surface upload async")) { nvmtl_vk_buffer_destroy(&au->stage); free(au); return -1; }
-    pthread_mutex_lock(&g_asyncup_mutex);
-    if (g_surfin_n >= NVMTL_SURFIN_N) {   // another thread filled the table since the check: this one waits after all
-        pthread_mutex_unlock(&g_asyncup_mutex);
-        nvmtl_asyncup_finish((uint64_t)(uintptr_t)au); g_surfin_sync++;
-        return 0;
-    }
-    nvmtl_up_state s = { img->up_token };
-    nvmtl_up_set(&s, (uint64_t)(uintptr_t)au);
-    img->up_token = s.infl;
-    g_surfin[g_surfin_n].img = img; g_surfin[g_surfin_n].au = au; g_surfin[g_surfin_n].bytes = bytes;
-    g_surfin_n++; g_surfin_bytes += bytes;
-    pthread_mutex_unlock(&g_asyncup_mutex);
+    // another thread filled the table since the check: this one was waited for after all
+    if (!nvmtl_asyncup_list(img, au, bytes)) { g_surfin_sync++; return 0; }
     g_surfin_async++;
     if (g_surfin_async <= 4 || g_surfin_async % 2000 == 0)
         nvlog("async surface-in #%llu: %ux%u submitted without a wait (%u pending, %zu KB; %llu reaped, %llu took the sync path)",
-              (unsigned long long)g_surfin_async, img->w, img->h, g_surfin_n, g_surfin_bytes >> 10,
+              (unsigned long long)g_surfin_async, img->w, img->h, g_uptab.n, g_uptab.bytes >> 10,
               (unsigned long long)g_surfin_reaped, (unsigned long long)g_surfin_sync);
     return 0;
 }

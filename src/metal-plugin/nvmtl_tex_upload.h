@@ -27,6 +27,7 @@
 #ifndef NVMTL_TEX_UPLOAD_H
 #define NVMTL_TEX_UPLOAD_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 // Per-image async-upload bookkeeping. `infl` is an opaque handle to the in-flight submission (the plugin
@@ -59,5 +60,65 @@ static inline uint64_t nvmtl_up_before_consume(const nvmtl_up_state *s)
 // Record the in-flight handle after an async submit; clear it after the upload has been finished (waited).
 static inline void nvmtl_up_set(nvmtl_up_state *s, uint64_t infl) { if (s) s->infl = infl; }
 static inline void nvmtl_up_clear(nvmtl_up_state *s) { if (s) s->infl = 0; }
+
+// The pending-upload table: every async upload left in flight, listed so the staging memory they hold is bounded and
+// completed ones are reaped (fence polled, never waited). The plugin keeps one, under g_asyncup_mutex
+// (nvmtl_async_surfin.c); `tok` points at the image's handle (nvk_image.up_token), `h` is the upload's handle.
+#define NVMTL_UPTAB_N 64
+#define NVMTL_UPTAB_CAP (128ull << 20)
+typedef struct { uint64_t *tok; uint64_t h; size_t bytes; } nvmtl_uptab_entry;
+typedef struct { nvmtl_uptab_entry e[NVMTL_UPTAB_N]; unsigned n; size_t bytes; } nvmtl_uptab;
+
+// Room in the table for one more upload of `bytes` staging bytes?
+static inline int nvmtl_uptab_room(const nvmtl_uptab *t, size_t bytes)
+{
+    return t->n < NVMTL_UPTAB_N && t->bytes + bytes <= NVMTL_UPTAB_CAP;
+}
+
+// Lists upload `h` of `bytes` staging bytes on the image whose handle is *tok. Returns 0 (nothing changed) if the
+// table is full: the caller then finishes `h` itself.
+static inline int nvmtl_uptab_list(nvmtl_uptab *t, uint64_t *tok, uint64_t h, size_t bytes)
+{
+    if (t->n >= NVMTL_UPTAB_N) return 0;
+    nvmtl_up_state s = { *tok };
+    nvmtl_up_set(&s, h);
+    *tok = s.infl;
+    t->e[t->n].tok = tok; t->e[t->n].h = h; t->e[t->n].bytes = bytes;
+    t->n++; t->bytes += bytes;
+    return 1;
+}
+
+// Removes the image's entry from the table.
+static inline void nvmtl_uptab_unlist(nvmtl_uptab *t, const uint64_t *tok)
+{
+    for (unsigned i = 0; i < t->n; i++)
+        if (t->e[i].tok == tok) { t->bytes -= t->e[i].bytes; t->e[i] = t->e[--t->n]; return; }
+}
+
+// Reads and clears the image's handle and removes its entry: the caller finishes the returned handle (0 for none).
+static inline uint64_t nvmtl_uptab_take(nvmtl_uptab *t, uint64_t *tok)
+{
+    nvmtl_up_state s = { *tok };
+    const uint64_t h = nvmtl_up_before_consume(&s);
+    *tok = 0;
+    if (h) nvmtl_uptab_unlist(t, tok);
+    return h;
+}
+
+// Removes the uploads whose fence has signalled (done(h, ctx) != 0) and writes their handles to out[] (room for
+// NVMTL_UPTAB_N); the caller finishes them. An image's handle is cleared only if it is still the reaped upload's.
+static inline unsigned nvmtl_uptab_reap(nvmtl_uptab *t, int (*done)(uint64_t h, void *ctx), void *ctx, uint64_t *out)
+{
+    unsigned nd = 0;
+    for (unsigned i = 0; i < t->n;) {
+        const uint64_t h = t->e[i].h;
+        if (done(h, ctx)) {
+            if (*t->e[i].tok == h) *t->e[i].tok = 0;   // not a newer upload's handle
+            out[nd++] = h;
+            t->bytes -= t->e[i].bytes; t->e[i] = t->e[--t->n];
+        } else i++;
+    }
+    return nd;
+}
 
 #endif

@@ -510,7 +510,7 @@ case "$UPOUT" in *"refused: warm GPU ("*)
   upfail_end; desk_used keep; REC_L=skip; rec_save "warm GPU refused"
   echo "warm GPU: bring-up refused, no Metal this boot ($([ $SQUAT = 1 ] && echo 'a squat boot: no display without the claim, the screen stays dark; ssh and T3 reach the machine' || echo 'firmware display')); power the machine off fully, then boot macOS. Nothing was written to the GPU: not counted as a failed attempt, no reboot"
   # after a restart that followed a failure, the GPU is warm from that boot's own bring-up, not from another system
-  if [ -n "$CARRY" ]; then notice "$RESTARTED Shut down (don't restart), then turn the computer on again to get graphics acceleration back."
+  if [ "$CARRY" = "$RESTARTED" ]; then notice "$RESTARTED Shut down (don't restart), then turn the computer on again to get graphics acceleration back."
   else notice "The graphics card was still running from another operating system. Shut down (don't restart), then turn the computer on again to get graphics acceleration back."; fi
   leave;; esac
 if [ $UPOK = 0 ]; then

@@ -636,3 +636,16 @@ attempt the owner armed once, or left the user without an explanation. A refusal
 after the power-off should get the desktop that was asked for. In Safe Mode nothing in the running boot can give the
 screen back without terminating the squatter, which hot-resets the GPU (hard rule 1).
 **Revisit:** the 60 s threshold if a bring-up on hardware ever takes longer than about 30 s. Safe Mode with plan step 2.
+
+**Known limits, accepted (Megamind 2, 2026-11-25; from the second Fable pass on #26, code reading, unverified):** the
+daemon is replaced by the bring-up in the kernel in phase 3, so these stay as they are unless one shows up on
+hardware:
+- a fallback boot stopped during the bring-up still counts as a clean fallback (`last` is saved before it): the next
+  boot tries the full desktop one boot early;
+- a carried notice is lost when a boot exits through a squat reboot without a sentence, `headless`, a TERM trap or
+  the dark-display restart: the user misses one explanation;
+- a bring-up that takes over 60 s and succeeds, then a shutdown, counts as a hang: one boot falls back;
+- the 60 s test uses the wall clock (`date +%s`): a clock step of over a minute during the bring-up can swap a hang
+  and a shutdown.
+Fixed instead (one line): the warm-refusal notice says "restarted because acceleration failed" only when the carried
+sentence is that one (`[ "$CARRY" = "$RESTARTED" ]`), not for any carried sentence.

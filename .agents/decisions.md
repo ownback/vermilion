@@ -664,3 +664,16 @@ staging memory; the table bounds it. WindowServer stays synchronous until the pa
 because a fault there takes the session down.
 **Revisit:** WindowServer, after a week without texture faults in apps. A second upload to the same image still waits
 for the first (one handle per image); a chain of handles would remove that wait.
+
+## 2026-11-25: The guard fails closed on what it can't parse
+
+**Decision:** `.claude/hooks/guard.py` exempts a mention of a protected path or a machine tool (a read command's
+argument, quoted text, a data heredoc, a commit or PR message) only when its small shell parser proves the whole Bash
+call read-only. Substitutions, variables in redirect targets or write arguments, `cd`, functions, comments, escapes,
+shells, interpreters and `xargs`, unusual redirects and heredocs make a call unprovable, and it gets the old
+whole-text test (a protected path together with a write verb or redirect, or a machine tool, anywhere in the text).
+**Why:** the review of PR #32 showed the first version, which tried to recognise writes, let real machine writes pass
+the lock. A guard that misses a write is worse than one that asks for the lock too often.
+**Revisit:** if the false positives (inline interpreter code naming a protected path, `find <protected> -exec`, a
+heredoc written to a file and then another command) get in the way of daily work; extend the parser, never the
+exemption.

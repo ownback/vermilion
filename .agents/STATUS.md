@@ -182,7 +182,13 @@ mode setting).
   bodies, quoted text, read commands): fixed on `ownback/tooling-guard-efi`. Heredoc bodies fed to data commands and
   quoted text given to read commands (`ls`, `cat`, `diff`, `cmp`, `grep`, `stat`, `echo`, `codesign -d` ...) and to
   `git`/`gh` are ignored; redirects, `tee`, `cp`, `rm`, shell/interpreter heredocs and `sh -c` still need the lock.
-  The rollback folder and `/private/tmp/efi` are now protected paths for writes.
+  The rollback folder and `/private/tmp/efi` are now protected paths for writes. The review of #32 found writes the
+  exemption let through (pipes into `sh`/`xargs`, `cd` then a relative write, variables, comments, process
+  substitution, `>|`, odd heredocs); the exemption now applies only when the guard's parser proves the whole call
+  read-only, and anything else gets the whole-text test (fail closed). It also closed old gaps: `sysctl` writes,
+  `pmset` writes, `nvram -f`, `osascript ... restart`, `efi/build.py install`, `codesign --sign/--force`, `sed` with
+  `-i` anywhere, `"$HOME"/gpu` paths, git/gh writing into protected paths, interpreter heredocs, `/etc`.
+  `tests/hooks/guard_cases.py` holds the 281 adversarial rows; `guard_test` runs them.
 - `efi/build.py build` and `install` now require `--stage` (the old silent default built the wrong EFI); the error
   lists the stages (`ownback/tooling-guard-efi`).
 - The link gate passed a kext that can't load from OpenCore (IOGraphicsFamily is in the System KC) (thread 04).

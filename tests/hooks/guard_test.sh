@@ -151,6 +151,20 @@ git push -f fork ownback/x"
 expect 2 c "push main after a read" "ls && git push fork main"
 expect 2 c "lock chained after a read" "ls; .claude/hooks/machine-lock acquire x"
 expect_write 2 c "$HOME/vermilion-rollback/x"
+# in a protected working directory every relative path is protected
+expect_in() { # expect_in <code> <cwd> <description> <command>
+  run c Bash "$(bash_cmd "$4")" "$2"; got=$?
+  if [ "$got" = "$1" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL ($got, wanted $1): $3 in $2: $4"; fi
+}
+expect_in 2 "$HOME/gpu" "relative redirect" "echo x > f"
+expect_in 2 /Volumes/EFI/EFI/OC "relative cp" "cp ../x.plist config.plist"
+expect_in 0 "$HOME/gpu" "read" "ls -la && cat phxboot-navi31.sh | head -3"
+
+# the adversarial table from the PR #32 review, and the fail-closed rows (one row per command string)
+python3 -I "$HERE/guard_cases.py" "$G" > "$T/cases.out"
+cat "$T/cases.out" | grep '^FAIL' || true
+set -- $(sed -n 's/^guard_cases: \([0-9]*\) passed, \([0-9]*\) failed.*/\1 \2/p' "$T/cases.out")
+if [ $# = 2 ]; then pass=$((pass + $1)); fail=$((fail + $2)); else fail=$((fail + 1)); echo "FAIL: guard_cases.py"; fi
 
 # personal data
 printf '%s\n' '# test' 'C02ZZ1234567' 'aa:bb:cc:dd:ee:ff' > "$VERMILION_PRIVATE_PATTERNS"

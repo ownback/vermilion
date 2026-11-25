@@ -21,10 +21,10 @@ Dependencies may sit in `deps/`, which git ignores: `deps/MacKernelSDK` (pass it
 | `audio.sh` | `VermilionAudio.kext` (a Lilu plugin: DP audio through Apple's AppleGFXHDA) | `MKSDK`; the Lilu SDK from Lilu's DEBUG release (fetched and checked by sha256, or `LILU_SDK`); the same optional link gate as `accel.sh` |
 | `tools.sh` | `phxctl`, `mesboot`, `vcn_write_test`, `submit_test`, `phxaudio` | - |
 | `spirv-val.sh` | `spirv-val` (static, x86_64, ad-hoc signed) and `spirv-val.LICENSE`, from SPIRV-Tools v2025.5 at a pinned commit (the translator runs it; the release package installs it) | `git`, `cmake`, `ninja`, the Command Line Tools; a few minutes, network for the two checkouts |
+| `metaltest.sh` | `metaltest` (the boot daemon's Metal-device probe, `tools/metaltest/metaltest.m`) | - |
 
 The release files (OpenCore zip, package, `SHA256SUMS`) are made from these outputs by `scripts/release/`
 ([RELEASE.md](RELEASE.md), "Building a release"); their tests are `bash tests/release/run.sh`.
-| `metaltest.sh` | `metaltest` (the boot daemon's Metal-device probe, `tools/metaltest/metaltest.m`) | - |
 
 Plugins, dylibs and kexts must be ad-hoc signed (`codesign -fs -`): WindowServer falls back to the firmware
 framebuffer with an unsigned plugin. The scripts do it.

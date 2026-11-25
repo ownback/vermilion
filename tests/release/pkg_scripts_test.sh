@@ -84,8 +84,8 @@ payload() {
   cp "$R/tools/phxctl/local.phxboot.plist.in" "$LX/"; cp "$SR/pkg/lib.sh" "$LX/lib.sh"; echo "0.1.0-$tag" >"$LX/VERSION"
   cp "$R/tools/phxctl/air_runtime_install.sh" "$LX/tools/"; echo "fetch" >"$LX/firmware/fetch_firmware.sh"
   echo "llvm $tag" >"$LX/air-runtime-src/libLLVM.dylib"; echo "zstd $tag" >"$LX/air-runtime-src/libzstd.1.dylib"
-  { cd "$P" && find Library/GPUBundles Library/Extensions usr | sort | while read -r p; do [ -d "$p" ] && echo "$p/" || echo "$p"; done; } >"$SIM_RECEIPT"
   # the receipt of a real package lists files the payload held; the AIR reader's source folder is in it too
+  { cd "$P" && find Library/GPUBundles Library/Extensions usr | sort | while read -r p; do [ -d "$p" ] && echo "$p/" || echo "$p"; done; } >"$SIM_RECEIPT"
 }
 pre() { sh "$T/scripts/preinstall" /x/p.pkg / / / >"$T/pre.out" 2>&1; echo $? >"$T/pre.rc"; }
 post() { VERMILION_FETCH="${FETCH:-$T/fetch-ok}" sh "$T/scripts/postinstall" /x/p.pkg / / / >"$T/post.out" 2>&1; echo $? >"$T/post.rc"; }

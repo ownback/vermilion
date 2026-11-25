@@ -1,14 +1,15 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 # make-oc-zip.sh --version <ver> --kexts <dir> --out <dir> [--snippet <plist>]
-# Build Vermilion-<ver>-OpenCore.zip (docs/RELEASE.md, "Artefacts of a release"): VermilionBoot.kext, VermilionTrust.kext
-# and VermilionAudio.kext from <dir> (a scripts/build output folder), config-snippet.plist, README.txt, LICENSES/ and
-# NOTICE. It builds nothing. Refuses when a kext is missing, when a kext's CFBundleShortVersionString is not <ver>
-# (docs/RELEASE.md checklist), or when config-snippet.plist holds an SMBIOS key (tests/release/oc_zip_test.sh checks
-# the same).
+# Build Vermilion-<ver>-OpenCore.zip (docs/RELEASE.md, "Artefacts of a release"): VermilionBoot.kext,
+# VermilionTrust.kext and VermilionAudio.kext from <dir> (a scripts/build output folder), config-snippet.plist,
+# README.txt (OpenCore-README.txt with the version filled in), LICENSES/ and NOTICE. It builds nothing. Refuses when a
+# kext is missing, when a kext's CFBundleShortVersionString is not <ver> (docs/RELEASE.md checklist), or when
+# config-snippet.plist holds an SMBIOS key (tests/release/oc_zip_test.sh checks the same).
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
+. "$HERE/common.sh"
 VERSION="" KEXTS="" OUT="" SNIPPET=$HERE/config-snippet.plist
 while [ $# -gt 0 ]; do
   case $1 in
@@ -20,8 +21,8 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$VERSION" ] && [ -n "$KEXTS" ] && [ -n "$OUT" ] || { sed -n '3,/^set -eu/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'; exit 2; }
-echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$' || { echo "make-oc-zip: version '$VERSION' is not <major>.<minor>.<patch>[-suffix]" >&2; exit 2; }
+[ -n "$VERSION" ] && [ -n "$KEXTS" ] && [ -n "$OUT" ] || usage
+check_version make-oc-zip "$VERSION"
 command -v zip >/dev/null || { echo "make-oc-zip: zip not found" >&2; exit 1; }
 
 for k in VermilionBoot VermilionTrust VermilionAudio; do

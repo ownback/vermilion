@@ -203,7 +203,8 @@ plugin host tests (only `gpu_id_test.cpp` runs); the Xcode 26 SDK on the runner 
 Before the tag:
 
 - [ ] `main` is green: `bash tests/mock/run.sh`, `bash tests/mock/b15test.sh`, `sh tests/hooks/guard_test.sh`,
-      `bash tests/release/run.sh` (release scan, zip and snippet, package scripts, package build), the kext and plugin tests.
+      `bash tests/release/run.sh` (release scan, zip and snippet, package scripts, package build), the kext and
+      plugin tests.
 - [ ] The Fable clean-up pass ran on every merged PR since the last release.
 - [ ] `CHANGELOG.md`: the `Unreleased` section becomes the version's, with the date.
 - [ ] `VERSION` and every kext's `CFBundleShortVersionString` match the tag.

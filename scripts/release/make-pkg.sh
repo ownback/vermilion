@@ -13,6 +13,7 @@
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
+. "$HERE/common.sh"
 VERSION="" BUILD="" AIR="" OUT="" ID=org.vermilion.pkg
 while [ $# -gt 0 ]; do
   case $1 in
@@ -25,8 +26,8 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$VERSION" ] && [ -n "$BUILD" ] && [ -n "$AIR" ] && [ -n "$OUT" ] || { sed -n '3,/^set -eu/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'; exit 2; }
-echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$' || { echo "make-pkg: version '$VERSION' is not <major>.<minor>.<patch>[-suffix]" >&2; exit 2; }
+[ -n "$VERSION" ] && [ -n "$BUILD" ] && [ -n "$AIR" ] && [ -n "$OUT" ] || usage
+check_version make-pkg "$VERSION"
 for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib VermilionAccel.kext phxctl mesboot metaltest spirv-val; do
   [ -e "$BUILD/$f" ] || { echo "make-pkg: $BUILD/$f missing (docs/BUILD.md)" >&2; exit 1; }
 done
@@ -49,7 +50,8 @@ cp "$HERE/pkg/NVMTLDriver.Info.plist" "$B/Info.plist"
 cp "$BUILD/NVMTLDriver" "$BUILD/libnvmtl_translate.dylib" "$B/MacOS/"
 for f in LICENSE NOTICE THIRD_PARTY_NOTICES.md CREDITS.md; do cp "$ROOT/$f" "$B/Resources/"; done
 cp -R "$ROOT/LICENSES" "$B/Resources/LICENSES"
-[ ! -f "$BUILD/spirv-val.LICENSE" ] || cp "$BUILD/spirv-val.LICENSE" "$B/Resources/spirv-val.LICENSE"   # scripts/build/spirv-val.sh
+# spirv-val's licence, when scripts/build/spirv-val.sh left it next to the binary
+[ ! -f "$BUILD/spirv-val.LICENSE" ] || cp "$BUILD/spirv-val.LICENSE" "$B/Resources/spirv-val.LICENSE"
 
 cp "$BUILD/libvulkan_radeon.dylib" "$GB/nvmtl/"
 printf '*\n' >"$GB/nvmtl-allow.txt"
@@ -72,8 +74,8 @@ cp "$HERE/pkg/lib.sh" "$LX/lib.sh"
 printf '%s\n' "$VERSION" >"$LX/VERSION"
 mkdir -p "$LX/air-runtime-src"; cp -R "$AIR"/. "$LX/air-runtime-src/"
 chmod -R go-w,a+rX "$P"
-chmod 755 "$P/usr/local/sbin/"* "$P/usr/local/bin/"* "$LX/gpu/"*.sh "$LX/gpu/phxctl/"*.sh "$LX/gpu/phxctl.bin" "$LX/gpu/metaltest" \
-          "$LX/firmware/fetch_firmware.sh" "$LX/tools/air_runtime_install.sh"
+chmod 755 "$P/usr/local/sbin/"* "$P/usr/local/bin/"* "$LX/gpu/"*.sh "$LX/gpu/phxctl/"*.sh "$LX/gpu/phxctl.bin" \
+          "$LX/gpu/metaltest" "$LX/firmware/fetch_firmware.sh" "$LX/tools/air_runtime_install.sh"
 
 # The scripts, and the list of paths the payload replaces (the preinstall script copies each away first)
 S=$W/scripts; mkdir -p "$S"
@@ -110,5 +112,6 @@ pkgbuild --root "$P" --component-plist "$W/component.plist" --identifier "$ID" -
 
 # The product archive: title, welcome and conclusion pages, x86_64 only, installs on the system volume only
 sed -e "s|@VERSION@|$VERSION|g" -e "s|@IDENTIFIER@|$ID|g" "$HERE/pkg/distribution.xml.in" >"$W/distribution.xml"
-productbuild --distribution "$W/distribution.xml" --resources "$HERE/pkg/resources" --package-path "$W" "$OUT/Vermilion-$VERSION.pkg" >/dev/null
+productbuild --distribution "$W/distribution.xml" --resources "$HERE/pkg/resources" --package-path "$W" \
+             "$OUT/Vermilion-$VERSION.pkg" >/dev/null
 echo "built $OUT/Vermilion-$VERSION.pkg"

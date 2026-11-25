@@ -421,7 +421,7 @@ static int nvmtl_skip_empty_on(void) {
     }
 }
 - (void)nvmtlRecordWait:(id)event value:(uint64_t)value {
-    if (!event || _committed) return;
+    if (!event || _committed || _dead) return;
     if (nvmtl_g79_on(NVMTL_G79_EV)) {
         BOOL self_ = NO;
         for (NSArray *p in _g79Promised) if (p[0] == event && [p[1] unsignedLongLongValue] >= value) { self_ = YES; break; }
@@ -440,7 +440,7 @@ static int nvmtl_skip_empty_on(void) {
     part->waitEvent = event; part->value = value; [_parts addObject:part];
 }
 - (void)nvmtlRecordSignal:(id)event value:(uint64_t)value {
-    if (!event || _committed) return;
+    if (!event || _committed || _dead) return;
     if (nvmtl_g79_on(NVMTL_G79_EV)) {
         if (!_g79Sig) _g79Sig = [NSMutableArray new];
         if (!_g79Promised) _g79Promised = [NSMutableArray new];
@@ -755,7 +755,10 @@ static void nvmtl_gsub_ahead_pass1(void) {
 #include "NVMTLE0Timeline.m"
 - (BOOL)nvmtlAdvancePart {
     if (_executionDone) return NO;
-    if (_cbError) { [self nvmtlFinishExecution:_cbError]; return YES; }
+    if (_cbError) {
+        if (_dead) [self nvmtlMarkScheduled];   // a dead command buffer is scheduled and completed at once: both handler kinds run
+        [self nvmtlFinishExecution:_cbError]; return YES;
+    }
     if (_nextPart >= _parts.count) { [self nvmtlFinishExecution:nil]; return YES; }
     NVMTLSubmissionPart *part = _parts[_nextPart];
     const uint64_t pickNs = nvmtl_e0_on() ? clock_gettime_nsec_np(CLOCK_UPTIME_RAW) : 0;   // E0 timeline only

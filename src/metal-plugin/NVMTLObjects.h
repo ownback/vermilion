@@ -272,6 +272,10 @@ void nvmtl_texture_desc_swizzle(NVMTLTexture *t, MTLTextureDescriptor *d);
 @interface NVMTLCommandQueue () { @public NSString *_label; } @end
 @interface NVMTLCommandBuffer () { @public NSString *_label; uint64_t _rep; } @end
 @interface NVMTLCommandBuffer () { @public NSMutableSet *_stTwins; } @end
+// _dead: a command buffer with no GPU recording (NVMTLDeadEncoder.m). Its encoders record nothing, and its commit
+// completes it at once with the error it was made with. _dead on a queue: no Vulkan queue; every command buffer is dead.
+@interface NVMTLCommandBuffer () { @public BOOL _dead; } @end
+@interface NVMTLCommandQueue () { @public BOOL _dead; } @end
 @interface NVMTLTexture () { @public nvk_image _stTwin; BOOL _stTwinTried; BOOL _mipsWritten; } @end
 @interface NVMTLDepthStencilState () { @public NSString *_label; } @end
 @interface NVMTLSamplerState () { @public NSString *_label; } - (const nvk_sampler *)nvmtlClampedLo:(float)lo hi:(float)hi; @end

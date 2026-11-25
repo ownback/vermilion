@@ -66,6 +66,11 @@ because this checkout had no `phxtrust_list.inc` to keep); `diff -rq` showed onl
 2026-11-25 17:04: `mode=enforce list=15 denied_unlisted=0`, NVMTLDriver `15204728` listed with overrides (first
 WindowServer), `SUCCESS at 17:06:44`, 240 Hz; #26's record unchanged (`fails=0 ... last=full`). Next: the owner
 tests Music and Maps, then `log show --predicate 'subsystem == "org.vermilion.nvmtl"'` and the readback cost.
+Music after #25: no crash, but a slow first launch (`MusicUI bootstrap took: 32.37 seconds`). The cause isn't in the
+plugin: Music's main thread waits 30.36 s on accountsd, which waits on a freshly started passd. passd retries the
+missing AppleSSE service (no T2 / Secure Enclave) 60 times, every 0.5 s. It happens once per boot, and it was there
+before #25 too: 32.32 s on 11-24 18:35, 1.32 s with passd warm at 19:28. The plugin's share is 0.36 s, off the main
+thread; the readbacks cost under 1 ms each. Finding `2026-11-25-music-slow-load.md`. Fix: platform side (TODO).
 
 Item 3: design on #24 (finding `2026-11-25-recovery-trap-design.md`). Step 1 (daemon and `navi31_up.sh` only, no
 EFI change, #26) installed 2026-11-25 under the lock, rollback in `~/vermilion-rollback/recovery-daemon-1`. **Live and passed**

@@ -59,8 +59,13 @@ cpums() { ps -o time= -p "$1" 2>/dev/null | awk -F'[-:]' '{ t = 0; for (i = 1; i
 start=$(date '+%F %T')
 snap before
 gt=0
+# GPU timing goes back off however the capture ends (Ctrl-C included), not only at the normal end below
+gputime_off() { [ $gt = 1 ] && $SYSCTL -w debug.phxgpu_time_on=0 >/dev/null; gt=0; }
+trap gputime_off EXIT
+trap 'gputime_off; exit 130' INT
+trap 'gputime_off; exit 143' TERM
 if [ "$GPUTIME" = 1 ] && [ "$(get debug.phxgpu_time_on)" = 0 ]; then
-  $SYSCTL -w debug.phxgpu_time_on=1 >/dev/null && $SYSCTL -w debug.phxgpu_time_reset=1 >/dev/null && gt=1
+  $SYSCTL -w debug.phxgpu_time_on=1 >/dev/null && gt=1 && $SYSCTL -w debug.phxgpu_time_reset=1 >/dev/null
 fi
 
 # the samples cover the middle of the window: start 2 s in, end 2 s before the end
@@ -94,7 +99,7 @@ wait $s1 $s2 2>/dev/null
 snap after
 if [ $gt = 1 ]; then
   get debug.phxgpu_time > "$OUT/gputime.txt"
-  $SYSCTL -w debug.phxgpu_time_on=0 >/dev/null
+  gputime_off
 fi
 end=$(date '+%F %T')
 $LOG show --style compact --start "$start" --end "$end" \

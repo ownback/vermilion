@@ -49,7 +49,10 @@ still claims the GPU (part of item 3). Seen by the Fable pass on #22 (`8a663b0`)
 Item 2: root causes in #23 (Music: surface freed during the GPU wait after the guard; A6: nil command buffer after a
 GPU loss, WindowServer recurses; Maps: no plugin log reaches the sandbox, unsolved). Fix branch
 `ownback/plugin-crash-fixes` in progress (fault-safe readback, dead command buffer, os_log); the Maps reproduction
-runs after its deploy. Item 3: design in #24 (`AAPL,iokit-ignore-ndrv` instead of the squatter, released in the same
+runs after its deploy. Fix PR #25 (Fable pass `b72a0dc`). Open from the pass: the fault-safe copy is ~4.5x slower
+than memcpy on host memory (251 vs 56 µs per 1.44 MB plane): measure on the real readback after deploy; #23 proposes an
+unlimited retry, #25 gives a dead buffer (OutOfMemory) after ~0.8 s, the code's choice stands; `resourceStateCommandEncoder`
+returns nil on every command buffer (older). Item 3: design in #24 (`AAPL,iokit-ignore-ndrv` instead of the squatter, released in the same
 boot); step 1 (daemon only) in progress on `ownback/recovery-daemon`.
 Step (a)'s cold-boot check passed 2026-11-25 11:40 (power-off, `sOS check: C2PMSG_81=0x00000000 (cold)`, `SUCCESS at
 11:42:43`).

@@ -298,9 +298,25 @@ static void nvmtl_spvcache_trim_async(NSString *dir) {
 // A cache hit moves the entry's times so the trimmer keeps its age order. A sandbox that may write the cache but not
 // file times (iconservicesagent: deny file-write-times) refused every one of them, and each refusal is a sandbox
 // violation report the kernel files: hundreds a minute. After the first refusal this process stops touching.
+// A path is touched at most once a minute per process: the trimmer runs once per process and orders by the minute
+// at best, and an in-memory hit touched its file every time. VideoToolbox's transfers in Maps made that ~90 utimes
+// calls a second (each a metadata write), 1.5-2.5 % of Maps' CPU (finding 2026-11-25-maps-fullscreen-perf.md).
 static _Atomic int nvmtl_touch_refused;
+#define NVMTL_TOUCH_SLOTS 1024
+#define NVMTL_TOUCH_EVERY_S 60
+static struct { uint64_t h; time_t t; } nvmtl_touched[NVMTL_TOUCH_SLOTS];   // under nvmtl_touch_lock
+static os_unfair_lock nvmtl_touch_lock = OS_UNFAIR_LOCK_INIT;
 static void nvmtl_cache_touch(const char *path) {
     if (atomic_load_explicit(&nvmtl_touch_refused, memory_order_relaxed)) return;
+    uint64_t h = 1469598103934665603ull;   // FNV-1a; a collision only skips or repeats one touch
+    for (const unsigned char *p = (const unsigned char *)path; *p; p++) h = (h ^ *p) * 1099511628211ull;
+    const time_t now = time(NULL);
+    os_unfair_lock_lock(&nvmtl_touch_lock);
+    const unsigned slot = (unsigned)(h % NVMTL_TOUCH_SLOTS);
+    const int recent = nvmtl_touched[slot].h == h && now - nvmtl_touched[slot].t < NVMTL_TOUCH_EVERY_S;
+    if (!recent) { nvmtl_touched[slot].h = h; nvmtl_touched[slot].t = now; }
+    os_unfair_lock_unlock(&nvmtl_touch_lock);
+    if (recent) return;
     if (utimes(path, NULL) != 0 && (errno == EPERM || errno == EACCES)) atomic_store(&nvmtl_touch_refused, 1);
 }
 static BOOL nvmtl_dir_writable(NSString *d) {

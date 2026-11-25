@@ -76,8 +76,10 @@ have built it ([`ROADMAP.md`](ROADMAP.md), "The standard"). It's a fork of
 2. **One machine owner.** Changes to the EFI partition, the system volume, `~/gpu`, kexts and restarts need the
    machine lock (`.claude/hooks/machine-lock acquire "<reason>"`). Ask the owner before any change to the system
    volume.
-3. **Detect, don't overwrite.** Board-specific values (monitor timings, VRAM size, XT vs XTX) come from what the
-   hardware reports: PCI revision, registers, VBIOS tables, EDID.
+3. **Detect, don't overwrite.** Board-specific values (monitor timings, VRAM size) come from what the hardware
+   reports: PCI revision, registers, VBIOS tables, EDID. Vermilion starts only on an RX 7900 XTX (`1002:744c`, PCI
+   revision `0xC8`, `src/vermilion-boot/PhxGpuId.h`); the XT and every other board are refused before any register
+   access. A new kext that matches `0x744c` uses that header.
 4. **No AMD firmware, VBIOS dumps, register captures with serials, EDIDs with serials, or `config.plist` with SMBIOS
    data in git.** A built EFI (`build/efi/`) contains the machine's serials: never commit or publish it.
 5. **No personal data in commits, docs or logs:** serials, MLB, ROM, UUIDs, MAC addresses, e-mail, disk or partition

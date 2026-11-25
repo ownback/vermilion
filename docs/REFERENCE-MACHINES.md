@@ -4,7 +4,9 @@ Vermilion is tuned to real machines: register plans, watermarks and display timi
 the code is only known to be right for the machine it was measured on. When you report a result, say which machine it
 was on.
 
-## Upstream reference (leolivm)
+## Upstream reference (leolivm), not supported here
+
+The RX 7900 XT is not supported by this fork (owner decision 2026-11-25): the kexts refuse it ([XTX.md](XTX.md), "Supported board"). The table is kept because values in the code were measured on it.
 
 From upstream's [README](../README.md) and [INSTALL.md](INSTALL.md):
 

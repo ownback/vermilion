@@ -1,6 +1,6 @@
 # Vermilion documentation
 
-Vermilion is a macOS Tahoe driver for AMD Navi 31 GPUs (RX 7900 XT, and in this fork the RX 7900 XTX). These pages
+Vermilion is a macOS Tahoe driver for the AMD RX 7900 XTX (Navi 31). Upstream also drove the RX 7900 XT; this fork refuses it. These pages
 are written for two audiences at once: **people** installing or hacking on it, and **language models** that need
 context before they change code. Coding agents also have [`../CLAUDE.md`](../CLAUDE.md) and the working notes in
 [`../.agents/`](../.agents/).
@@ -13,7 +13,7 @@ context before they change code. Coding agents also have [`../CLAUDE.md`](../CLA
 | understand how it works | [ARCHITECTURE.md](ARCHITECTURE.md), with [GLOSSARY.md](GLOSSARY.md) open |
 | run it on an RX 7900 XTX | [XTX.md](XTX.md) |
 | build it | [BUILD.md](BUILD.md) |
-| install it | [INSTALL.md](INSTALL.md) (upstream's guide, written for the XT reference machine) |
+| install it | [INSTALL.md](INSTALL.md) (upstream's guide, written for the XT reference machine this fork no longer supports) |
 | get the AMD firmware it loads | [FIRMWARE.md](FIRMWARE.md) |
 | know why names start with `phx` / `nv` / `nmx` | [NAMING.md](NAMING.md) |
 | know where the fallback EDIDs come from | [EDID.md](EDID.md) |

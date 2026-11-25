@@ -7,25 +7,26 @@
 
 # Vermilion
 
-**A GPU-accelerated macOS desktop on the AMD Radeon RX 7900 XT (Navi 31, RDNA 3).**
+**A GPU-accelerated macOS desktop on the AMD Radeon RX 7900 XTX (Navi 31, RDNA 3).**
 Vermilion is a display and acceleration driver for macOS Tahoe 26.7.1: two kernel extensions (this fork adds a third,
 VermilionTrust), a Metal driver plugin running on Mesa RADV, and the boot-time bring-up that powers the GPU up before
 WindowServer opens the displays.
 
 > [!NOTE]
-> **This fork ([ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx)) adds RX 7900 XTX support** (revision `0xC8`,
-> one 2560x1440 DisplayPort monitor). **The RX 7900 XT keeps working:** XTX values are added next to the XT's and
-> chosen by what the hardware reports, never in place of them. On the XTX machine
+> **This fork ([ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx)) supports the RX 7900 XTX only** (PCI revision
+> `0xC8`, one 2560x1440 DisplayPort monitor). Upstream's RX 7900 XT is no longer supported: the kexts check the PCI
+> revision and refuse every other board ([docs/XTX.md](docs/XTX.md), "Supported board"). On the XTX machine
 > ([REFERENCE-MACHINES.md](docs/REFERENCE-MACHINES.md)): an accelerated desktop at 2560x1440 up to 240 Hz, Variable
 > refresh and HDR ([docs/XTX.md](docs/XTX.md)); its full state, verified item by item, is in
 > [docs/PROJECT_KNOWLEDGE.md](docs/PROJECT_KNOWLEDGE.md). Plan: [ROADMAP.md](ROADMAP.md). How the stack works:
 > [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Upstream is [leolivm/vermilion](https://github.com/leolivm/vermilion).
 
 > [!IMPORTANT]
-> Vermilion is specific to **one board**: an RX 7900 XT (PCI `1002:744c`, revision `0xcc`) on the reference machine,
+> Vermilion is specific to **one board**: an RX 7900 XTX (PCI `1002:744c`, revision `0xC8`) on the reference machine,
 > with the firmware revisions listed in `tools/firmware/fw.lock`. Register plans, watermarks and display timings were measured
-> on that card and its two monitors. Other Navi 31 cards, other RDNA 3 GPUs and other macOS versions are untested and
-> will most likely not work as is.
+> on that card and its monitor. **On any other board the kexts do not start:** the RX 7900 XT (`0xCC`), GRE (`0xCE`),
+> 7900M (`0xCF`), every other `0x744c` revision and every other GPU keep the firmware's display and are left untouched
+> (one log line). Other macOS versions are untested and will most likely not work as is.
 
 > [!WARNING]
 > Vermilion is independent and unofficial. It is **not affiliated with, reviewed, endorsed or supported by** NullMoth

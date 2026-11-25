@@ -290,6 +290,15 @@ PROJECT_KNOWLEDGE.
   listed again; the match key is only on the attached controller; a second `on` says "already attached", `off` exits 2,
   `sysctl -w debug.phxaudio_match=0` gives "Resource busy".
 
+## Direct scan-out (#40) follow-ups (2026-11-26)
+
+- [ ] Switching `ws-direct` on while GPU present runs does nothing until GPU present starts again (a restart, a plane
+      loss): `nvmtl_scan_direct_choose_locked` runs only from `nvmtl_scan_start_locked`. Switch-off works live. Make
+      the copy path notice the switch and restart GPU present into direct (or document "restart after creating it")
+- [ ] About 16 % of display writes wait for a flip (1.7 ms average) at the desktop: measure in Maps fullscreen; the
+      bounce slot or triple buffering if it costs frames
+- [ ] Screenshots while bound may show a stale frame (the IOSurface pages are not updated): check Screenshot.app
+
 ## 01 GPU stability
 
 - [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every

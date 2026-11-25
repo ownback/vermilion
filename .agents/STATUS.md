@@ -9,14 +9,15 @@ The evidence for every row is in the audit findings, by row number:
 [last threads' state](findings/2026-11-24-audit-thread-handover.md). States: **works**, **broken**, **missing**,
 **not standard** (works, but not as Apple would ship it). Size: S about a day, M days, L weeks.
 
-## Boot in progress (2026-11-26, boot B): EFI change 39
+## Boot B (2026-11-26 00:42, XTX machine): EFI change 39 passed; direct scan-out on
 
-NVMTLDriver 1c15df79 (#40 scan-out half, #34 passtime; old 62f86c5d in
-`~/vermilion-rollback/NVMTLDriver.pre-scanout-20261126`) and VermilionTrust with 18 cdhashes (17 kept + the new
-plugin); VermilionBoot b162 and Audio 1.7.3 unchanged. Must show: `debug.phxtrust_stat` `denied_unlisted=0` and the
-new NVMTLDriver listed with `first=WindowServer`, daemon `SUCCESS`, 240 Hz; direct scan-out stays off until
-`/Library/GPUBundles/nvmtl/ws-direct` exists. If Metal or the desktop fails: put the old plugin back (still trusted)
-or swap `EFI/OC` and `EFI/OC.prev` (change 38; copy in `~/vermilion-rollback/EFI-OC.change38-20261126`).
+NVMTLDriver 1c15df79 (#40 scan-out half, #34 passtime) and VermilionTrust with 18 cdhashes: `denied_unlisted=0`, the
+new plugin listed with `first=WindowServer`, daemon `SUCCESS` at 00:44:44, 240 Hz. `ws-direct` created live did
+nothing: the plugin chooses direct scan-out only when GPU present starts (TODO). After a plain restart with the file
+present (00:51): both CoreDisplay surfaces drawn in VRAM slots 0 and 1 and "scanned out with no copy", 6000 presents
+in the first 90 s, flip 8 us average, 28 bounces, about 16 % of display writes waited for a flip (1.7 ms average),
+refused 0, daemon `SUCCESS` at 00:53:25. Owner's Maps test: pending. Old plugin in
+`~/vermilion-rollback/NVMTLDriver.pre-scanout-20261126`; `EFI/OC.prev` is change 38.
 
 ## Last boot (2026-11-25 23:35, XTX machine): EFI change 38 passed
 

@@ -15,7 +15,7 @@ Ranked by what a Mac user notices, safety first. Each item is a branch and a PR.
 
 | # | Item | Why now | Size | Refs |
 |---|---|---|---|---|
-| 1 | **Safety fixes. Done 2026-11-25** (#22, deploy steps a-c live and passed; open: the owner's picker check). Remove `debug.phxfb_kill_iondrv` (terminates a driver on the GPU's PCI function); `bringup_navi31.sh` refuses a warm GPU (PSP sOS alive) instead of loading SMU firmware; no "Reset NVRAM" advice in the daemon log and `docs/XTX.md`, the picker entry hidden; OWNER-TESTS 04 sleep test marked blocked; read the 00:05 replug logs for an ab30 detach before any replug test | Hard rule 1 | S | D risks 1-4, M risks |
+| 1 | **Safety fixes. Done 2026-11-25** (#22, deploy steps a-c live and passed; the owner saw no Reset NVRAM entry in the picker). Remove `debug.phxfb_kill_iondrv` (terminates a driver on the GPU's PCI function); `bringup_navi31.sh` refuses a warm GPU (PSP sOS alive) instead of loading SMU firmware; no "Reset NVRAM" advice in the daemon log and `docs/XTX.md`, the picker entry hidden; OWNER-TESTS 04 sleep test marked blocked; read the 00:05 replug logs for an ab30 detach before any replug test | Hard rule 1 | S | D risks 1-4, M risks |
 | 2 | **App crashes in the plugin.** Music's readback (`nvmtl_vk_image_read`, twice today with the guard in place); Maps' null texture; never hand WindowServer a nil command buffer | Apps crash daily | S-M | A7, A8, A6 |
 | 3 | **The recovery trap and the GOP fallback.** After a freeze every boot is a safe desktop until an `rm`; the GOP revert can't run because `phxfb-squat` can't be cleared (`DisableVariableWrite`). The kext decides the squat itself; the daemon returns to the full desktop after clean boots and tells the user | One freeze costs a degraded machine; hard rule 1 (keep the fallbacks) | M | D7, D30, D risk 3 |
 | 4 | **HDR back on.** The plugin's widen path shows stale frames when WindowServer composites BGRA | HDR is off on an HDR OLED | M | D16, M |
@@ -36,7 +36,7 @@ power-on. Step (b), EFI change 34 (stage `vermilion-trust-bar1g-audio` without `
 kexts reused, `config.plist` differs only by that driver entry), live since 2026-11-25 06:56; `EFI/OC.prev` = change 33,
 copies of 33 and 32 in `~/vermilion-rollback/EFI-OC.change3{3,2}-20261125`. Passed: `squat boot ...: 1`,
 `SUCCESS at 06:58:58`, `debug.phxtrust_stat` `mode=enforce` `denied_unlisted=0`, `debug.phxaudio_stat` patched and
-matched. Open: the owner confirms by eye that the picker has no Reset NVRAM entry. Rollback: swap `EFI/OC` and
+matched. The owner confirmed the picker has no Reset NVRAM entry (2026-11-25). Rollback: swap `EFI/OC` and
 `EFI/OC.prev`. Step (c): VermilionAccel from main (`03c1e47d`, UUID `6FDD9916`) live since 2026-11-25 07:01 and passed:
 `debug.phxfb_kill_iondrv` unknown oid, `debug.phxgl` answers, the loaded UUID matches, `NMXAccel up`, `PhxAMDFB on panel`,
 `SUCCESS at 07:03:57`. Rollback copy (`2578b185`) in `~/vermilion-rollback/VermilionAccel.kext.pre-killiondrv`. Seen by the item 1 agent, not fixed: after a bring-up failure that isn't the warm refusal, the daemon

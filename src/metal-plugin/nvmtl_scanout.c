@@ -268,7 +268,9 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
       if (pvkAllocateCommandBuffers(g_dev, &cbai, &g_scan.cb) != VK_SUCCESS) { g_scan.cb = VK_NULL_HANDLE; nvmtl_scan_off_locked("command buffer failed"); goto out; } }
     pvkBeginCommandBuffer(g_scan.cb, &bi);
     /* While passtime is armed in this process, the copy (with its barriers) is timed on the GPU and logged next to the
-       passes: copy+wait (the CPU's view) minus this is the time the copy queued behind other work */
+       passes. copy_wait (the CPU's view, t0 to t1) minus this is the recording, the submit, the time the copy queued
+       behind other work and the fence wake-up; for widen-cpu also the CPU widening. A present doesn't count against
+       the armed passes: every present is logged until this process has drawn its NVMTL_PT_PASSES render passes. */
     int timed = 0;
     if (g_pt_left > 0 && g_timestamp_bits) {
         if (!g_scan.tq) { VkQueryPoolCreateInfo qi = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, NULL, 0, VK_QUERY_TYPE_TIMESTAMP, 2, 0 };
@@ -315,7 +317,7 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
     if (sr != VK_SUCCESS || pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, 1000000000ull) != VK_SUCCESS) { nvmtl_scan_off_locked("the copy did not complete"); goto out; }
     uint64_t o[3];
     const uint64_t t1 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
-    if (timed) {
+    if (timed) {   /* after t1: reading the queries and writing the line count as flicker-probe time (probeUs) */
         uint64_t r[2] = {0}; FILE *pf = nvmtl_pt_file();
         if (pf && pvkGetQueryPoolResults(g_dev, g_scan.tq, 0, 2, sizeof r, r, 8, VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
             const uint64_t mask = g_timestamp_bits >= 64 ? ~0ull : ((1ull << g_timestamp_bits) - 1);

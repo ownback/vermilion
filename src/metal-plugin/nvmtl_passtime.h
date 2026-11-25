@@ -2,7 +2,7 @@
 /* nvmtl_passtime.h: when a process arms the per-pass GPU timer (nvmtl_pt_armed in nvmtl_vk.c).
    Kernel- and Vulkan-free: tests/plugin/test_passtime.c runs it on a host.
 
-   A touch of /tmp/nvmtl-passtime-request arms every rendering process ONCE. Before 2026-11-25, the first process to see
+   A touch of NVMTL_PT_REQUEST_PATH arms every rendering process ONCE. Before 2026-11-25, the first process to see
    the file unlinked it. WindowServer runs as _windowserver and cannot unlink the owner's file in the sticky /tmp, so it
    armed again every 250 ms for as long as the file existed. In the Maps capture of 2026-11-25 that was ~2 minutes and
    496 windows of 400 passes, and the other processes (Maps, the Dock) raced it for the file. Now nobody unlinks it. A
@@ -11,7 +11,12 @@
 #pragma once
 #include <stdint.h>
 
-#define NVMTL_PT_MAX_AGE_NS (15ull * 1000000000ull)
+#define NVMTL_PT_REQUEST_PATH "/tmp/nvmtl-passtime-request"
+#define NVMTL_PT_PASSES       400                      /* render passes timed per arm (one window) */
+#define NVMTL_PT_POLL_NS      250000000ull             /* a disarmed process stats the request at most this often */
+#define NVMTL_PT_MAX_AGE_NS   (15ull * 1000000000ull)
+#define NVMTL_PT_STR_(x) #x
+#define NVMTL_PT_STR(x)  NVMTL_PT_STR_(x)
 
 typedef struct { uint64_t ino, mtime_ns; } nvmtl_pt_req;
 

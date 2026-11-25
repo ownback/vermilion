@@ -184,6 +184,18 @@ PROJECT_KNOWLEDGE.
   plugin (trust + EFI, one boot), then phase B fullscreen with `GPUTIME=1` and one touch of the request file at 10 s
   and 20 s; copy WindowServer's passtime log at once (its TMPDIR is cleared at boot). Reads the present copy's GPU
   time, Maps' real frame rate and WindowServer's composites per Maps frame (fs3d: ~35 vs 119/s, ~3.1 ms each).
+- [ ] **Passtime: review notes from the clean-up of #34** (plugin, measurement only; each is a behaviour change, none
+  touches the path while the timer is off). (1) `nvmtl_pt_armed` runs on every encoding thread with no lock: two
+  threads in one 250 ms poll can both arm for one touch (two ARMED lines, `arm` skips a number, lines of one window
+  carry two numbers), and `g_pt_left--` can lose a count. A lock or a compare-and-swap around the poll fixes it.
+  (2) `arm <n>` is read when the line is written, not when the pass was recorded, and counts per process: a process
+  that drew nothing within 15 s of a touch is one behind the others. Match windows across processes by `t`, or log
+  the request's mtime instead. (3) A touch that arrives while a process is still armed is taken only when its 400
+  passes are done, and lost if that is more than 15 s later. (4) Presents are timed while `g_pt_left > 0` and never
+  count it down: a process that presents but stops drawing passes logs (fprintf + fflush under the scan-out lock)
+  on every present with no end. (5) The present line is written between `t1` and `t2`, so it counts as
+  flicker-probe time in the `ws gpu present split` averages. (6) `gpu_us` of a `widen-cpu` present is the barriers
+  only.
 - [ ] **Phase 2 item 2: deploy the Maps CPU fixes** (branch `ownback/maps-gpu-saturation`; finding section 4): async
   `replaceRegion:` uploads, bounded, on by default outside WindowServer; cache-hit touches once a minute. A plugin
   install = trust + EFI change, one boot. Check: Maps' log has `vk: async texture upload ON` and `async texture upload

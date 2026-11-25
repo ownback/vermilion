@@ -5873,6 +5873,7 @@ int nvmtl_vk_fill_buffer(nvk_queue *q, nvk_buffer *b, size_t offset, size_t size
 static int nvmtl_counter_flush(nvk_cmdbuf *c);
 static void nvmtl_counter_retire(nvk_cmdbuf *c);
 static int nvmtl_counter_reset_finish(nvk_cmdbuf *c, VkCommandBuffer *reset);
+/* Per-pass GPU timer: passes left in this window, command buffers logged, windows armed (the `arm <n>` on log lines) */
 static int g_pt_left; static uint64_t g_pt_seq, g_pt_arms;
 void nvmtl_vk_pt_note(nvk_cmdbuf *c, uint32_t fs)
 {
@@ -5889,15 +5890,18 @@ static void nvmtl_pt_open(void)
     if (!g_pt_fp) nvlog("passtime: cannot open %s", fp);
 }
 static FILE *nvmtl_pt_file(void) { static pthread_once_t once = PTHREAD_ONCE_INIT; pthread_once(&once, nvmtl_pt_open); return g_pt_fp; }
-/* Arms once per touch of the request file in every process that renders (nvmtl_passtime.h); the file is never unlinked */
+/* Arms once per touch of the request file in every process that renders (nvmtl_passtime.h); the file is never unlinked.
+   Called at every render pass begin, from any encoding thread, with no lock: next, last, g_pt_left and g_pt_arms are
+   plain statics. Two threads in the same poll can both arm for one touch (two ARMED lines, the arm number skips one). */
 int nvmtl_pt_armed(void)
 {
     static uint64_t next; static nvmtl_pt_req last; uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
-    if (g_pt_left <= 0 && now >= next) { next = now + 250000000ull;
-        struct stat st; const int ex = stat("/tmp/nvmtl-passtime-request", &st) == 0;
+    if (g_pt_left <= 0 && now >= next) { next = now + NVMTL_PT_POLL_NS;
+        struct stat st; const int ex = stat(NVMTL_PT_REQUEST_PATH, &st) == 0;
         const uint64_t mt = ex ? (uint64_t)st.st_mtimespec.tv_sec * 1000000000ull + (uint64_t)st.st_mtimespec.tv_nsec : 0;
         if (nvmtl_pt_should_arm(ex, ex ? (uint64_t)st.st_ino : 0, mt, clock_gettime_nsec_np(CLOCK_REALTIME), &last)) {
-            g_pt_left = 400; g_pt_arms++; nvlog("passtime: ARMED for 400 passes (arm %llu)", (unsigned long long)g_pt_arms); } }
+            g_pt_left = NVMTL_PT_PASSES; g_pt_arms++;
+            nvlog("passtime: ARMED for " NVMTL_PT_STR(NVMTL_PT_PASSES) " passes (arm %llu)", (unsigned long long)g_pt_arms); } }
     return g_pt_left > 0;
 }
 void nvmtl_vk_cmd_end_render(nvk_cmdbuf *c) {

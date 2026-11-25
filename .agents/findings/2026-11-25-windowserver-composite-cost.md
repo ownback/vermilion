@@ -197,9 +197,14 @@ Fixes, by gain for Maps (none fits in the plugin alone; design only):
   passes map to the capture's seconds and Maps' frame rate can be counted. The fields before them are unchanged.
 - **The GPU present copy is timed on the GPU while the timer is armed**: a line `present sid <id> slot <k> copy|narrow|
   widen-cpu gpu_us <x> copy_wait_us <y> bytes <n> t <ms> arm <n>` in WindowServer's passtime log. `gpu_us` covers the
-  barrier and the copy. `copy_wait_us - gpu_us` is the time it queued behind other work. Two timestamps in the present
-  command buffer, nothing else in that path changes, and nothing happens while the timer is off.
+  barrier and the copy. `copy_wait_us - gpu_us` is the recording, the submit, the time it queued behind other work and
+  the fence wake-up (for `widen-cpu` also the CPU widening). Two timestamps in the present command buffer, nothing
+  else in that path changes, and while the timer is off the present path only tests one counter. Presents don't
+  count against the 400 passes: every present is logged until the process has drawn its 400 render passes.
 - The log file is opened once per process (`pthread_once`). A failed open is logged once.
+- Limits found in the review (TODO, "Passtime: review notes"): the arm counter and the poll state have no lock, so
+  two threads can arm twice for one touch; `arm <n>` counts per process, so a process that was idle for a touch is
+  one behind; while armed, the line is written inside the present's flicker-probe time (`probeUs`).
 
 Build: `sh scripts/build/plugin.sh` (with `VULKAN_HEADERS`), no new warnings against `fork/main`. Host tests:
 `test_passtime` (new), `test_tex_upload`, `test_copy_compat`, `test_pool_range`, `test_safe_copy` pass.

@@ -3,8 +3,9 @@
 > **Users start at [`../INSTALL.md`](../INSTALL.md)**: requirements, install, update, uninstall and recovery. This
 > page is the expert reference for each piece.
 
-> **Expert, manual.** This is upstream's hand install for the RX 7900 XT reference machine, kept as the detailed
-> reference for each piece. On the XTX machine the same pieces run with a few differences: the
+> **Expert, manual.** This is upstream's hand install for the RX 7900 XT reference machine (which this fork no
+> longer supports), kept as the detailed reference for each piece. On the XTX machine the same pieces run with a few
+> differences: the
 > [`vermilion-trust`](../efi/README.md#stages) EFI stage instead of `amfi=0x80`, the XTX notes in [XTX.md](XTX.md), and
 > its live state in [PROJECT_KNOWLEDGE.md](PROJECT_KNOWLEDGE.md). A release you install by
 > dropping one kext into `EFI/OC/Kexts` is the goal of the [ROADMAP](../ROADMAP.md); until then, follow this guide only
@@ -31,10 +32,11 @@ a USB installer.
 
 - **macOS Tahoe 26.7.1**, installed and booting with OpenCore. Other builds are untested: the plugin uses private
   Metal interfaces of this build, and a macOS update can break it (see [Known limits](#10-known-limits)).
-- **An AMD Radeon RX 7900 XT, PCI `1002:744c`, revision `0xcc`.** `VermilionBoot.kext` matches `0x744c1002` only. Register
-  plans, display timings and watermarks were measured on one reference card and its two monitors (a DisplayPort AOC
-  24G2W1G4 and an HDMI Acer KG241Q S). Other boards, other Navi 31 revisions, the RX 7900 XTX and other RDNA 3 GPUs are
-  untested and will most likely not work as is.
+- **An AMD Radeon RX 7900 XTX, PCI `1002:744c`, revision `0xC8`.** `VermilionBoot.kext` matches `0x744c1002` and then
+  starts only on revision `0xC8`; on any other revision or device it logs one line and leaves the GPU alone
+  ([XTX.md](XTX.md), "Supported board"). Register plans, display timings and watermarks were measured on one XTX and
+  its monitor ([REFERENCE-MACHINES.md](REFERENCE-MACHINES.md)). The RX 7900 XT that upstream's steps below were written
+  on, other Navi 31 boards and other RDNA 3 GPUs are refused.
 - BIOS: Above 4G decoding and Resizable BAR on, CSM off, plus the usual OpenCore settings for your board
   (unverified: whether the kexts need the full BAR has not been tested).
 - No other driver may bind the GPU: leave WhateverGreen out or disabled (it is disabled on the reference machine).
@@ -90,7 +92,7 @@ not only for WindowServer. Side effects:
 injected after Lilu) keeps AMFI on and lets only the cdhashes of the installed Vermilion code through library
 validation. On the XTX machine (2026-11-22) the accelerated desktop works with it and without `amfi=0x80`, and
 third-party apps are no longer treated as platform binaries. The list is compiled into the kext, so every new
-plugin, translator or RADV build needs `scripts/build/trust.sh` and a new EFI. Not tested on the XT *(unverified)*.
+plugin, translator or RADV build needs `scripts/build/trust.sh` and a new EFI. Not tested on an XT, which this fork no longer supports.
 
 ### Kexts that make AMFI relaxation work
 

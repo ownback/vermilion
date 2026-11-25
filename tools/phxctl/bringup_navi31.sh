@@ -8,7 +8,7 @@
 # driver; CP firmware is RS64 + per-pipe stacks; RLC_V is loaded; no EnableGfxImu SMU message (APU-only — on a dGPU
 # AUTOLOAD_RLC starts IMU/RLC); the bootload status register is 0xee82 (0xee7e is the GC 11.0.1 variant).
 # Offsets/sizes inside each firmware file follow Linux 6.8's ucode headers and match what Linux loaded, ucode by ucode.
-# Firmware: linux-firmware amdgpu/ files (non-kicker: this card is 0x744c rev 0xcc) in $FW. Run as root or with sudo.
+# Firmware: linux-firmware amdgpu/ files (non-kicker: the RX 7900 XTX is 0x744c rev 0xc8; the kext refuses other boards) in $FW. Run as root or with sudo.
 # A reboot is armed for 3 minutes in case the PSP hangs and cancelled at the end.
 set -u
 SUDO=""; [ "$(id -u)" = 0 ] || SUDO=sudo

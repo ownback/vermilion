@@ -13,7 +13,9 @@ card: the driver Apple would have written, installed the way Apple would have do
 
 This is [ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx), a fork of
 [leolivm/vermilion](https://github.com/leolivm/vermilion) (which targets the RX 7900 XT). This fork supports the
-RX 7900 XTX only. Its first release will be `0.1.0-preview`, for the reference machine; no release has been made yet.
+RX 7900 XTX only (PCI `1002:744c`, revision `0xC8`): on any other board, the XT included, the kexts log one line and
+do not start ([docs/XTX.md](docs/XTX.md), "Supported board"). Its first release will be `0.1.0-preview`, for the
+reference machine; no release has been made yet.
 
 > [!CAUTION]
 > **Experimental. Not ready for everyday use, and not yet installable without expert work.**

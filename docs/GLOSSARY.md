@@ -6,7 +6,7 @@ The terms used across the code, the docs and the changelog. AMD block names foll
 
 | Term | Meaning |
 |---|---|
-| **Navi 31** | The RDNA 3 GPU die in the RX 7900 XTX, XT and GRE (PCI device `0x744c`). The PCI revision tells the boards apart: `0xC8` XTX, `0xCC` XT, `0xCE` GRE, `0xCF` 7900M |
+| **Navi 31** | The RDNA 3 GPU die in the RX 7900 XTX, XT and GRE (PCI device `0x744c`). The PCI revision tells the boards apart: `0xC8` XTX, `0xCC` XT, `0xCE` GRE, `0xCF` 7900M. Vermilion starts only on `0xC8` |
 | **GC 11.0.0** | Graphics core IP version of Navi 31. The firmware files are named after it (`gc_11_0_0_*.bin`) |
 | **SE / SA / WGP / CU** | Shader engine, shader array, workgroup processor, compute unit. Navi 31 has 6 SE x 2 SA. The XTX has all 96 CUs enabled; the XT has 84 (one WGP disabled per SE) |
 | **Harvest** | Units fused off at the factory (the XT's missing WGPs and cache channels) |
@@ -73,7 +73,7 @@ The terms used across the code, the docs and the changelog. AMD block names foll
 
 | Term | Meaning |
 |---|---|
-| **Reference machine** | The box a value was measured on. Upstream: leolivm's RX 7900 XT. This fork: the XTX machine in [REFERENCE-MACHINES.md](REFERENCE-MACHINES.md) |
+| **Reference machine** | The box a value was measured on. Upstream: leolivm's RX 7900 XT (not supported here). This fork: the XTX machine in [REFERENCE-MACHINES.md](REFERENCE-MACHINES.md) |
 | **Canned profile** | RADV's hardcoded device description (`patches/mesa/0016`) used instead of Linux's hardware queries |
 | **Flag file** | A file in `~/gpu` that switches a daemon step on ([INSTALL.md](INSTALL.md) section 7.3) |
 | **`b15`, `m7`, `wm144`, `c3`...** | Internal work-package names from upstream's history; the changelog and the scripts' headers explain each |

@@ -1,12 +1,39 @@
 # RX 7900 XTX support
 
-Status of running Vermilion on an RX 7900 XTX (Navi 31, PCI `1002:744c`, revision `0xC8`). Upstream was built and
-tested only on an RX 7900 XT (revision `0xCC`). This page lists what is the same, what differs and what needs
-doing. The audit behind it: [`.agents/findings/2026-11-18-xtx-port-audit.md`](../.agents/findings/2026-11-18-xtx-port-audit.md).
+Status of running Vermilion on an RX 7900 XTX (Navi 31, PCI `1002:744c`, revision `0xC8`), the only board this fork
+supports. Upstream was built and tested only on an RX 7900 XT (revision `0xCC`); the XT was dropped on 2026-11-25
+(owner decision, [decisions.md](../.agents/decisions.md)). This page lists what is the same as upstream's XT, what
+differs and what needs doing, after the section that says which boards start. The audit behind it: [`.agents/findings/2026-11-18-xtx-port-audit.md`](../.agents/findings/2026-11-18-xtx-port-audit.md).
 
 **Status (2026-11-22):** macOS runs accelerated on the XTX machine ([REFERENCE-MACHINES.md](REFERENCE-MACHINES.md)); its
 2560x1440 monitor works fully (every rate to 240 Hz, Adaptive Sync, HDR; section "A 1440p monitor"). The table of
 differences below is from the source audit of 2026-11-18 and was not re-checked when this status was written.
+
+## Supported board
+
+`1002:744c` is one device ID for four boards (libdrm `amdgpu.ids`): the PCI revision says which.
+
+| Revision | Board | Vermilion |
+|---|---|---|
+| `0xC8` | RX 7900 XTX | **starts.** Read on the XTX machine (XFX Speedster MERC 310, [REFERENCE-MACHINES.md](REFERENCE-MACHINES.md)) |
+| `0xCC` | RX 7900 XT | refused. Upstream's board; this fork has never run on one |
+| `0xCE` | RX 7900 GRE | refused (untested) |
+| `0xCF` | RX 7900M | refused (untested) |
+| any other revision, any other device | | refused |
+
+How it is enforced (VermilionBoot b161, VermilionAccel 0.1.1, VermilionAudio 1.7.3; one header,
+`src/vermilion-boot/PhxGpuId.h`, host test `tests/kext/gpu_id_test.cpp`):
+
+- `PhxBringup::probe`/`start` and `PhxFBSquatter::probe`/`start` read the PCI vendor, device and revision, and start
+  only on `1002:744c` rev `0xC8`. Otherwise they log one line (`Vermilion: 1002:744c rev cc is RX 7900 XT, not an RX
+  7900 XTX ...`) and return nil / false. Before that point no BAR is mapped, the bus-master and memory-enable bits are
+  untouched and `phxfb-squat` stays in NVRAM, so the card keeps the firmware's display and macOS's own driver.
+- `NMXAccel::probe`/`start` repeat the check (the second gate). VermilionAudio patches AppleGFXHDA only when the GPU's
+  registry `revision-id` is `0xC8`. VermilionTrust never looks at the GPU.
+- On a refused board the boot daemon finds no `phx-build` property and takes its existing fallback after its wait
+  (it never writes a register without the kext).
+- Not verified: every refusal path except the XTX's start. There is no other card on the XTX machine; the match
+  decision is covered by the host test (every revision byte, other devices and vendors, a dead function).
 
 ## Same as the XT (no change needed)
 
@@ -19,18 +46,19 @@ The XTX is the same die with nothing disabled. These were checked against the XT
 - VRAM size: the kext reads it from the memory controller, so 24560 MiB is picked up automatically.
 - Connector table: the XTX VBIOS has the same four paths as the hardcoded table in `PhxDdc.h`.
 - Power limits and fan curves come from the card's own firmware. Vermilion sends no power-limit or fan messages.
-- The kext matches `0x744c1002` with no revision check. Since build 125 it names a `0xC8` card "Radeon RX 7900 XTX".
+- The kext matches `0x744c1002` and (since build 161) starts only on revision `0xC8`; it names the card "AMD Radeon RX
+  7900 XTX" (see "Supported board").
 
 ## Differences that need code changes
 
 | # | What | Where | Fix | Impact if left |
 |---|---|---|---|---|
-| 1 | RADV canned profile is the XT's: 84 CU, 320-bit, 4 of 24 cache channels off | `patches/mesa/0016` | **Done in `0018` (thread 02):** revision `0xC8` takes Mesa's own `navi31` entry (an XTX; it differs from `navi31_xt` only in the harvest: 96 CU, 384-bit, no GL2 channel off), anything else keeps `navi31_xt`. Side-loaded on the XTX machine 2026-11-23: `metalbench render 2000` 4.86 -> 3.93 ms per frame, the rest unchanged | Works, but extra cache flushes (`tcc_rb_non_coherent`), the GPU reports 84 cores |
+| 1 | RADV canned profile is the XT's: 84 CU, 320-bit, 4 of 24 cache channels off | `patches/mesa/0016` | **Done in `0018` (thread 02):** revision `0xC8` takes Mesa's own `navi31` entry (an XTX; it differs from `navi31_xt` only in the harvest: 96 CU, 384-bit, no GL2 channel off), anything else keeps `navi31_xt` (left over: no board that reaches RADV can read another revision now that the kexts refuse them; remove `navi31_xt` and the fallback with the next RADV rebuild, which is its own VermilionTrust + EFI boot). Side-loaded on the XTX machine 2026-11-23: `metalbench render 2000` 4.86 -> 3.93 ms per frame, the rest unchanged | Works, but extra cache flushes (`tcc_rb_non_coherent`), the GPU reports 84 cores |
 | 2 | Two shims compare the profile name to `"navi31_xt"` exactly | `patches/mesa/0017` (`acd_vcn`), `0016` (marketing name) | **Done in `0018`:** the VCN shim matches every `navi31*` profile; `navi31` is named "AMD Radeon RX 7900 XTX" | With another profile: no video decode, wrong name ("RX 9070 XT") |
 | 3 | GFXHUB `SYSTEM_APERTURE_HIGH` hardcoded for 20 GiB (`0x00213fbf`) | `tools/phxctl/mesboot.c:131` | `0x00217fbf` for 24 GiB, better: derive from `FB_LOCATION_TOP` | Latent: nothing uses VRAM above 20 GiB today |
 | 4 | HUBP1 aperture in pipe-1 plans (`0x00213fff`) | `phx_s2_plan_*.inc` | `0x00217fff`, or derive | Latent; pipe 1 is the second-monitor path |
 | 5 | Metal core count 84 | `src/metal-plugin/nvmtl_corecount.c` | follow the profile | Cosmetic |
-| 6 | Docs say revision `0xCC` only | `README.md`, `docs/INSTALL.md`, `bringup_navi31.sh` | Name both | Cosmetic |
+| 6 | Docs said revision `0xCC` only | `README.md`, `docs/INSTALL.md`, `bringup_navi31.sh` | **Done (2026-11-25):** the docs name the XTX only; the XT is refused | Cosmetic |
 
 ## A 1440p monitor (LG ULTRAGEAR+, 2560x1440 at up to 240 Hz)
 

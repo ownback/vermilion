@@ -1,95 +1,78 @@
-# Handoff
+<!-- SPDX-License-Identifier: MIT -->
 
-What the megamind needs in its first five minutes. Each megamind replaces this file when it hands over
-(`.claude/skills/megamind-clone`).
+# Handoff: Megamind 2 to Megamind 3 (2026-11-25, ~21:00)
 
-## 2026-11-24: Megamind 1 to Megamind 2
+**Why:** Megamind 2's context is exhausted. Many delegates are running. They were started from Megamind 2's thread,
+so their completion notices land there, not with you. Check their PRs by branch: `gh pr list --repo
+ownback/vermilion-xtx --state all`, or `git ls-remote fork 'refs/heads/ownback/*'`.
 
-Why: phase 1 (audit) is done. #19 (the audit, STATUS, the machine-lock and guard fixes) and #20 (DP audio) are
-merged, so main matches the machine. Phase 2 starts now.
+**Owner's goal** (/goal, 2026-11-25): the repo publishable for real users by about 2026-11-29. That means a clean
+install, 1:1 parity with a real Mac, and no workarounds. See memory `release-week-goal`. How to work with the owner:
+- start any message that needs them with **PING!**;
+- answer a yes/no question with yes or no;
+- keep replies short;
+- size each subagent's model to its task: Haiku for small work, Sonnet for medium, Opus for hard or GPU-safety work,
+  Fable for the clean-up pass.
 
-### Your job
+The plan is [PLAN-parity-week.md](PLAN-parity-week.md).
 
-You own the plan, `.agents/STATUS.md`, the machine and the merges for `ownback/vermilion-xtx`. You send agents to
-research, find root causes and write fixes. You don't write large fixes yourself. The standard, phases and rules are
-in [`ROADMAP.md`](../ROADMAP.md); read it and [`CLAUDE.md`](../CLAUDE.md) first. Keep STATUS and this file current
-on `ownback/megamind` (from `fork/main`) and send them as PRs.
+## Next three steps
+1. Collect the delegates' PRs as they land. Each gets the `fable-cleanup` pass (Fable model), then a merge.
+   Small review findings you fix yourself. Larger ones go back to a new delegate.
+2. Install plugin and kext results one EFI change per boot, the same way as #25, #29 and #31:
+   - a rollback copy of the live NVMTLDriver;
+   - install as `.new` + `mv` into `/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/PhxGPU/NVMTLDriver.bundle/Contents/MacOS/`
+     (a firmlink into the Data volume, not the sealed snapshot);
+   - `PHXTRUST_KEEP=1 sh scripts/build/trust.sh`;
+   - build the EFI with `VERMILION_KEXT_DIR` set to a folder holding copies of the live VermilionBoot and
+     VermilionAudio plus the new VermilionTrust, and `--stage vermilion-trust-bar1g-audio`;
+   - `diff -rq` must show only VermilionTrust; then `install`;
+   - follow the boot-cycle skill.
 
-**Your agents:**
-- **Root causes, fixes and research:** Opus 5.5 (`Agent` tool, or T3 `delegate_task` with `isolation: "worktree"`).
-  Several may run in parallel, as long as each one only reads the machine or works in its own worktree.
-- **Machine changes:** only you make them, one at a time, under the machine lock.
-- **Clean-up:** the `fable-cleanup` agent on every branch before you ask the owner to merge.
-- **GPU programming changes:** the `hw-safety-reviewer` agent.
+   #34 (passtime measurement) is merged but not installed: put it in the next plugin install. First candidate is
+   `ownback/ws-vram-scanout` (composite fix 1). It needs its hw-safety verdict, then the owner's Maps test.
+3. PR #32 (guard) must not merge until the fail-closed fix is in: delegate on branch `ownback/tooling-guard-efi`,
+   which must block every bypass string from its review.
 
-**The owner wants:** short replies with numbered actions for them, details in files; routine reversible calls made
-by you and reported after; questions only for hard-rule items, system-volume changes, GPU load, merges, and restarts
-while they may be at the PC.
+## Machine state
+- **EFI change 37** is live: VermilionTrust 1.0.4 with 17 cdhashes. `EFI/OC.prev` is change 36.
+- **EFI rollback copies:** `~/vermilion-rollback/EFI-OC.change34-20261125`, `EFI-OC.change35-20261125` and
+  `EFI-OC.change36-20261125`.
+- **NVMTLDriver** `62f86c5d` (#31) is live. Older builds are kept in `~/vermilion-rollback/NVMTLDriver.pre-crashfix-*`,
+  `pre-allocfix-*` and `pre-asyncup-20261125`; all are still in the trust list as `-previous`.
+- **Daemon:** #26 is live (record file `/var/db/phxboot.fails`; rollback in `~/vermilion-rollback/recovery-daemon-1`).
+- **passd:** the `~/Library/LaunchAgents/local.phxpassd.plist` login agent starts passd at login. Remove it once the
+  ryzentosh-sse kext lands.
+- **The trust list** (`src/vermilion-trust/phxtrust_list.inc`, gitignored) exists in Megamind 2's worktree only. In a
+  new checkout, seed it from the live `sysctl -n debug.phxtrust_files` before using `PHXTRUST_KEEP=1`; otherwise
+  older entries are lost.
+- **Lock and auto-login:** the machine lock is free, and auto-login is on.
+- **Shell:** in zsh, `log` is a builtin; use `/usr/bin/log`.
+- **sudo:** see memory `sudo-access`.
 
-### Phase 2: the next three steps
+## Running delegates (branch: scope)
+| Branch | Scope |
+|---|---|
+| `plugin-release-parity` | A2 + A3: release build, NVIDIA removal, Metal feature answers |
+| `device-info-parity` | A4: device info, VRAM size, GPU name, Activity Monitor |
+| `webgl-cache-gva` | A5 + A6: WebGL cache, decoder via AppleGVA |
+| `kernel-bringup-design` | B1 |
+| `own-modeset-design` | B2 |
+| `accel-trust-parity` | B3 + B4 |
+| `release-readiness` | C1 |
+| `display-parity` | C2 |
+| `hang-video-parity` | C3 |
+| `gpu-stats-parity` | C5 |
+| `sysinfo-identity` | C6 |
+| `video-encode-parity` | C7 |
+| `ws-vram-scanout` | composite fix 1 |
+| `tooling-guard-efi` | #32 fix |
 
-The order is in [`STATUS.md`](STATUS.md), "Phase 2 order".
-1. **Item 1, the safety fixes,** one branch (`ownback/safety-fixes`), via an agent in a worktree:
-   - remove `debug.phxfb_kill_iondrv` (VermilionAccel, `nvrm-accel.cpp:1612-1635`, `:1904`): an AuxKC change, so the
-     owner's Allow click;
-   - `bringup_navi31.sh:65-79` refuses a warm GPU (PSP sOS alive) instead of loading the SMU firmware (hw-safety);
-   - the daemon's "Reset NVRAM" lines (`phxboot-navi31.sh` ~276/282/287) and `docs/XTX.md`; hide `ResetNvramEntry.efi`
-     in the profile (an EFI change, its own boot);
-   - OWNER-TESTS 04's sleep test marked blocked;
-   - read the 2026-11-24 00:05 replug logs for an ab30 detach (`detachFromChild`, "needing hardware reset") before
-     any replug test.
-   Deploy the daemon part first (no EFI change), then the EFI part, then the AuxKC part, each with its check and
-   rollback in TODO.
-2. **Item 2, the plugin crashes:** Music's `nvmtl_vk_image_read` fault (two reports on 2026-11-24, 18:47 and 19:32,
-   in `~/Library/Logs/DiagnosticReports`), Maps' null texture, no nil command buffer to WindowServer. Root cause first
-   (agent, read-only), then a fix branch. A plugin install is a VermilionTrust + EFI change.
-3. **Item 3, the recovery trap and the GOP fallback** (STATUS, D7 / D30): research the squat decision in the kext.
+Every branch above has the `ownback/` prefix. Separate thread: `ryzentosh-sse`, a private repo, building the honest
+"no SSE" kext; it hands the kext to the megamind for an EFI change.
 
-Settle on the way: the WebGPU numbers (20 vs 21 of 43 failing samples, 4 vs 6 GPU-process crash reports) differ
-between the findings; re-count from the crash reports when item 10 starts.
-
-### Machine state (the XTX machine, 2026-11-24)
-
-- **EFI:**
-  - change 33 is live: stage `vermilion-trust-bar1g-audio`, VermilionAudio 1.7.2; HDR off by `~/gpu/phxboot-nohdr`,
-    DP audio by `~/gpu/phxboot-audio`;
-  - `EFI/OC.prev` is change 32;
-  - a change-30 copy is in `~/vermilion-rollback/`;
-  - the ESP mounts as `/Volumes/NO NAME`.
-- **Installed daemon** = main's `tools/phxctl/phxboot-navi31.sh` (with the `LWRAN` auto-login lines and `audio_boot`).
-- **The system volume is unsealed** (the decoder bundle). Every change to it needs the owner's OK.
-- **Disk:** about 33 GB free in the APFS container. The owner declined resizing the partitions.
-- **Tools:** [`docs/AGENT-TOOLING.md`](../docs/AGENT-TOOLING.md). The machine lock is free. The debug LaunchAgent
-  `local.t04watch` is removed (plist in `~/vermilion-rollback/`).
-- **macOS 26.7.1 (25G241):** never update it.
-
-### Branches, PRs, threads
-
-- PR #21 (this handoff) is open; it merges with Megamind 2's first PR. `fork` has `main` and `ownback/megamind`.
-  Local: `ownback/megamind` and the old `worktree-agent-a264…` / `worktree-agent-a98b…` branches (not in main;
-  delete with the owner's OK).
-- The old series threads are all archived. No agents running.
-- `~/Projects/vermilion` is the main checkout that holds `.git` for every worktree (stale main at 7b30f2b): never
-  install from it, don't remove it.
-
-### Waiting on the owner
-
-- Night Shift: does the LG's picture tint (STATUS, head-0 gamma)?
-- What is missing for monitor volume control (DDC/CI, phase 2 item 9)?
-- The XT question (keep the detection code, drop it, rename). Don't work on the XT.
-- HDMI output: after phase 2, before ryzentosh (owner, 2026-11-24).
-
-### Owner decisions since the restructure
-
-All in ROADMAP and the memory notes: agents restart the machine themselves (`boot-cycle`); parallel agents allowed,
-machine changes through the megamind; a post-installer later; SMBIOS git-ignored, no private repo; branches deleted
-on merge; reverse engineering copies the result, never the code. 2026-11-24: DP audio merged with its sequencing
-differences as follow-ups (decisions.md).
-
-### Don't, yet
-
-- Don't detach or unload any driver on the GPU's PCI functions in a running boot (hard rule; finding
-  `2026-11-24-gfxhda-detach-gpu-hot-reset.md`).
-- Don't ask the owner for a sleep or replug test before the item 1 checks.
-- Don't start benchmarks or stress runs without asking the owner (`vkbench` with no arguments runs for 20 s).
-- Don't start performance work before phase 4.
+## Don't yet
+- Merge #32 before its fail-closed fix.
+- Install two plugin builds in one boot without combining them into one build.
+- Change the system volume (the decoder's AppleGVA move) without the owner's OK.
+- Run GPU load without the owner's OK.

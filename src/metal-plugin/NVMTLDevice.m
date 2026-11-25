@@ -663,11 +663,13 @@ static void nvmtl_install_hw_resource_pools(id dev)
 }
 - (id<MTLCommandQueue>)newCommandQueue { return [self newCommandQueueWithMaxCommandBufferCount:64]; }
 - (id<MTLCommandQueue>)newCommandQueueWithMaxCommandBufferCount:(NSUInteger)n {
-    if (nvmtl_vk_init()) { nvlog("newCommandQueue: Vulkan/NVK is down — no queue"); return nil; }
     NVMTLCommandQueue *q = [NVMTLCommandQueue new];
     q->_capacityCount = n ? n : 64;
     q->_dev = self;
-    if (nvmtl_vk_queue_create(&q->_q)) { nvlog("newCommandQueue: command pool FAILED"); return nil; }
+    // Never nil, like -commandBuffer: with the backend down, or no command pool, the queue hands out dead command
+    // buffers (complete at once with MTLCommandBufferErrorDeviceRemoved) instead of leaving every later one nil.
+    if (nvmtl_vk_init()) { nvlog("newCommandQueue: Vulkan/NVK is down - a dead queue (its command buffers fail)"); q->_dead = YES; return q; }
+    if (nvmtl_vk_queue_create(&q->_q)) { nvlog("newCommandQueue: command pool FAILED - a dead queue (its command buffers fail)"); memset(&q->_q, 0, sizeof q->_q); q->_dead = YES; return q; }
     nvlog("newCommandQueue -> %p (NVK command pool)", (__bridge void *)q); return q; }
 
 static void nvmtl_zero_new_buffer(NVMTLBuffer *b, NSUInteger len);
@@ -2470,6 +2472,7 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
 #import "NVMTLTessDump.m"
 #import "NVMTLObjects.m"
 #import "NVMTLForward.m"
+#import "NVMTLDeadEncoder.m"
 #import "NVMTLLibraryLoad.m"
 #import "NVMTLGL.m"
 #import "NVMTLGLVBlank.m"

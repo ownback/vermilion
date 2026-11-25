@@ -735,6 +735,9 @@ static int nvmtl_vk_initialize(void)
 {
     if (g_state) return g_state == 1 ? 0 : -1;
     g_state = -1;
+    // NVMTL_TEST_BACKEND_DOWN=1 (test only): the backend does not start, as in a process whose GPU is gone, before
+    // anything opens a GPU or loads RADV. tests/plugin/test_dead_cmdbuf.m runs the dead command buffer path with it.
+    if (getenv("NVMTL_TEST_BACKEND_DOWN")) { nvlog("vk: NVMTL_TEST_BACKEND_DOWN set - the backend stays down in %s", getprogname()); return -1; }
     // Vermilion (thread 02): the two variables set here are for this process only. loginwindow runs as root with
     // this plugin, and the apps it reopens at login inherited both (with root's cache folder: no Mesa disk cache for
     // them, "Permission denied" on stderr, 2026-11-23). They are taken out again once RADV is up (g_state = 1).

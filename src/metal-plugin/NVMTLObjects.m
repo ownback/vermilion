@@ -5334,6 +5334,8 @@ destinationBytesPerImage:(NSUInteger)img options:(MTLBlitOption)opt {
 
 #pragma mark - command buffer / queue
 #import "NVMTLEventSync.m"
+static id nvmtl_dead_encoder(Class real, NVMTLCommandBuffer *cb);   // NVMTLDeadEncoder.m
+static void nvmtl_cb_make_dead(NVMTLCommandBuffer *cb, NSInteger code, const char *why);
 @implementation NVMTLCommandBuffer
 // Never a lock on the command buffer itself: apps may hold @synchronized(commandBuffer) around -waitUntilCompleted
 // (Unity 6 does), and this runs on the execution queue that completes it. Vampire Survivors hung on its first frame
@@ -5365,6 +5367,7 @@ destinationBytesPerImage:(NSUInteger)img options:(MTLBlitOption)opt {
     @synchronized ([NVMTLCommandBuffer class]) { if (!_userDictionary) _userDictionary = [NSMutableDictionary new]; return _userDictionary; }
 }
 - (id<MTLParallelRenderCommandEncoder>)parallelRenderCommandEncoderWithDescriptor:(MTLRenderPassDescriptor *)d {
+    if (_dead) return nvmtl_dead_encoder([NVMTLParallelRenderCommandEncoder class], self);
     nvmtl_g79_flush(self);
     NVMTLParallelRenderCommandEncoder *p = [NVMTLParallelRenderCommandEncoder new];
     _nEnc++;
@@ -5377,6 +5380,7 @@ destinationBytesPerImage:(NSUInteger)img options:(MTLBlitOption)opt {
     return p;
 }
 - (id<MTLRenderCommandEncoder>)renderCommandEncoderWithDescriptor:(MTLRenderPassDescriptor *)d {
+    if (_dead) return nvmtl_dead_encoder([NVMTLRenderCommandEncoder class], self);
     nvmtl_g79_flush(self);
     NVMTLRenderCommandEncoder *e = [NVMTLRenderCommandEncoder new];
     _nEnc++;
@@ -5523,9 +5527,11 @@ destinationBytesPerImage:(NSUInteger)img options:(MTLBlitOption)opt {
         [self waitUntilCompleted]; nvtrace("CB done #%lu status %ld", k, (long)self.status); }
 }
 - (id<MTLComputeCommandEncoder>)computeCommandEncoder {
+    if (_dead) return nvmtl_dead_encoder([NVMTLComputeCommandEncoder class], self);
     NVMTLComputeCommandEncoder *e = [NVMTLComputeCommandEncoder new]; e->_cb = self; _nEnc++; return e;
 }
 - (id<MTLComputeCommandEncoder>)computeCommandEncoderWithDispatchType:(MTLDispatchType)t {
+    if (_dead) return [self computeCommandEncoder];
     NVMTLComputeCommandEncoder *e = (NVMTLComputeCommandEncoder *)[self computeCommandEncoder];
     e->_e78Concurrent = t == MTLDispatchTypeConcurrent; return e; }
 - (id<MTLComputeCommandEncoder>)computeCommandEncoderWithDescriptor:(MTLComputePassDescriptor *)d {
@@ -5534,10 +5540,12 @@ destinationBytesPerImage:(NSUInteger)img options:(MTLBlitOption)opt {
 - (id<MTLResourceStateCommandEncoder>)resourceStateCommandEncoder { return nil; }
 - (id<MTLResourceStateCommandEncoder>)resourceStateCommandEncoderWithDescriptor:(MTLResourceStatePassDescriptor *)d { return nil; }
 - (id<MTLBlitCommandEncoder>)blitCommandEncoder {
+    if (_dead) return nvmtl_dead_encoder([NVMTLBlitCommandEncoder class], self);
     nvmtl_g79_flush(self);
     NVMTLBlitCommandEncoder *e = [NVMTLBlitCommandEncoder new]; e->_cb = self; e->_owner = self; _nEnc++; return e;
 }
 - (id<MTLAccelerationStructureCommandEncoder>)accelerationStructureCommandEncoder {
+    if (_dead) return nvmtl_dead_encoder([NVMTLAccelerationStructureCommandEncoder class], self);
     nvmtl_g79_flush(self);
     NVMTLAccelerationStructureCommandEncoder *e = [NVMTLAccelerationStructureCommandEncoder new]; e->_cb = self; e->_owner = self; _nEnc++; return e;
 }
@@ -5629,8 +5637,9 @@ destinationBytesPerImage:(NSUInteger)img options:(MTLBlitOption)opt {
         dispatch_semaphore_wait(cap, DISPATCH_TIME_FOREVER);
     }
     NVMTLCommandBuffer *cb = [NVMTLCommandBuffer new];
-    if (!cb) { if (cap) dispatch_semaphore_signal(cap); return nil; }
+    if (!cb) { if (cap) dispatch_semaphore_signal(cap); return nil; }   // out of memory: not even a dead one can be made
     cb->_queue = self; cb->_capacityHeld = cap != nil;
+    if (_dead) { nvmtl_cb_make_dead(cb, MTLCommandBufferErrorDeviceRemoved, "this queue has no GPU queue"); return cb; }
     // The resource set exists from the start. Every encoder used to create it on first use
     // (`if (!cb->_resources) cb->_resources = [NVMTLResSet new]`), and encoders of one command buffer run on several
     // threads (parallel render encoders, CoreAnimation's async render queue): two threads both saw nil, the second
@@ -5639,11 +5648,17 @@ destinationBytesPerImage:(NSUInteger)img options:(MTLBlitOption)opt {
     // The set itself takes a lock for every operation; only its creation was unguarded. The first-use checks now never fire.
     cb->_resources = [NVMTLResSet new];
     if (nvmtl_vk_cmd_begin(&_q, &cb->_c)) {
-        // WindowServer asserts on this nil ("Failed to get a MTLCommandBuffer"). nvmtl_vk_cmd_begin already retried a
-        // refusal that could pass; the cause is the "vk: command buffer refused" line above, and for a disabled
-        // backend the "disabling backend" line before it.
-        nvlog("queue: command buffer begin FAILED in %s - the caller gets nil", getprogname());
-        return nil;
+        // Never nil: WindowServer asserts on it ("Failed to get a MTLCommandBuffer") or recurses until its stack
+        // overflows (SkyLight's RenderEncoder / SetScissor, 2026-11-24 after the GPU hot reset; finding
+        // 2026-11-25-plugin-crashes-root-cause.md). nvmtl_vk_cmd_begin already retried a refusal that could pass for
+        // ~0.8 s; the cause is the "vk: command buffer refused" line above, and for a disabled backend the "disabling
+        // backend" line before it. The caller gets a dead command buffer that completes with an error, as a Mac's do
+        // when the GPU is gone: device removed when the backend is down, out of memory when a resource refusal outlasted
+        // the retries.
+        const BOOL down = !nvmtl_vk_cmd_refusal_transient();
+        nvmtl_cb_make_dead(cb, down ? MTLCommandBufferErrorDeviceRemoved : MTLCommandBufferErrorOutOfMemory,
+                           down ? "the Vulkan backend is down" : "the command buffer could not be begun after retries");
+        return cb;
     }
     return cb;
 }

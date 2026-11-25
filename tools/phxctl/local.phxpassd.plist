@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- SPDX-License-Identifier: MIT -->
-<!-- local.phxpassd: a login agent that starts passd right after login, so its 30 s Secure Element lookup
-     (finding .agents/findings/2026-11-25-music-slow-load.md) runs in the background instead of under Music's first
-     launch. A mitigation, not Mac behaviour: remove it once the platform reports the missing Secure Element.
+<!-- local.phxpassd: a login agent that starts passd right after login, as a T2 Mac does (passd's launchd job has an
+     IOKit launch event on the T2 host driver, which this PC lacks). Its 30 s AppleSSE lookup, which Apple's code runs
+     unconditionally and which has no service to find here, then runs in the background instead of under Music's first
+     launch (findings 2026-11-25-music-slow-load.md, 2026-11-25-passd-secure-element.md). Moves to ryzentosh as a
+     per-user platform component.
      Install: cp to ~/Library/LaunchAgents/ and `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.phxpassd.plist`.
      Remove: `launchctl bootout gui/$(id -u)/local.phxpassd` and delete the file. -->
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

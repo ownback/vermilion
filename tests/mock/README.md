@@ -47,7 +47,7 @@ bash b15test.sh                # the idle-power display recipe script (must be 1
 bash m7test.sh                 # the M7 second-monitor boot script m7_boot.sh (must be 8/8)
 bash idledpm_test.sh           # idle_dpm.sh (one-display idle clocks + underflow watchdog), stand-in tools (7/7, 2026-11-23)
 bash dettest.sh                # det.sh -p <pipe> show/clear/set/rollback (must be 11/11)
-bash bringup_warm_test.sh      # bringup_navi31.sh + navi31_up.sh: a warm GPU (sOS running) or an unreadable C2PMSG_81 is refused with nothing written, a cold one goes on; fake phxctl and sudo (4/4, 2026-11-24)
+bash bringup_warm_test.sh      # bringup_navi31.sh + navi31_up.sh: a warm GPU (sOS running) or an unreadable C2PMSG_81 is refused with nothing written, a cold one goes on; navi31_up.sh's last line "navi31 up:" / "navi31 not up: <step> (<watchdog state>)"; fake phxctl and sudo (8/8, 2026-11-25)
 bash audio_match_test.sh       # tools/phxctl/audio_match.sh: one attach per boot, a display mode change when no engine came, no `off` (a detach makes the next attach hot-reset the GPU), fake kmutil/sysctl/ioreg (8/8, 11-24; portable)
 bash b21guard_mut.sh           # 15 mutations of the login-window guard (b21_on / b21_off and their hooks), each CAUGHT by run.sh b21_* (11-04)
 ```
@@ -143,7 +143,7 @@ daemon's wall-clock loops and its background jobs).
 | nmxaccel_fail | NMXAccel does not start | FAIL, no killall, reboot |
 | user_logged | `who` returns a user | FAIL "a user is logged in", **no killall** (safety), reboot |
 | killswitch | `~/gpu/phxboot-off` exists | "kill switch present", nothing done, no reboot |
-| mark_recovery | pending mark present (previous attempt did not finish) | reverts to GOP + creates the kill switch, no reboot |
+| mark_recovery | pending mark present (previous attempt did not finish) | reverts to GOP, no reboot (since 2026-11-25 no kill switch: `rec_no_killswitch`) |
 | not_desktop | no phxboot-desktop | "no desktop arm: GOP", no killall |
 | crash_loop | 3 crashes after the killall | FAIL "crashed/hung", reboot |
 | ws_norestart | WindowServer does not come back | FAIL "no WindowServer after the restart", reboot |
@@ -156,6 +156,15 @@ daemon's wall-clock loops and its background jobs).
 | hotplug_off/on/bootarg/bootarg_like/fail/nohead1/nom7/nodesk (11-01) | ~/gpu/phxboot-hotplug absent / present / boot-arg -phxhotplugoff / a look-alike boot-arg / the write refused / bind failed / no M7 / not a desktop boot | `debug.phxhotplug=2` written exactly once only with the flag on a desktop boot with head 1 bound, after SUCCESS + `done` (WindowServer restarted) and before `b15: started`; one log line with rc + read-back; a refusal is logged and the boot goes on |
 | gamma_off/on/pref_true/pref_absent/nocdpref/busy/busy_stuck/fail/nohead1/nodesk (11-01) | ~/gpu/phxboot-gamma, the cdpref answer, EBUSY once / always, EPERM | `debug.phxgamma=1` once at the same stage (EBUSY: up to 3 writes, anything else: 1); the pref is logged, **never set** (any `cdpref set/delete` fails the scenario) |
 | flags_both, flags_term | both flags; a TERM during the crash watch | one write each, hotplug before gamma before b15; TERM = no write |
+| rec_no_killswitch, rec_return, rec_backoff, rec_retry_fails, rec_oldfailf, nodesk_failed, nodesk_failed_rearm (2026-11-25) | an unfinished or failed attempt, on a stuck squat and on GOP boots, over 2-4 boots | the record `/var/db/phxboot.fails` counts it, no kill switch is made, the safe desktop (or a GOP boot without re-arm) until 1 clean fallback boot (3 after 3 failures in a row), then the full desktop by itself; an old `~/gpu/phxboot-failed` is taken over once |
+| warm_desk, warm_squat, warm_stuck (2026-11-25) | `refused: warm GPU` from the bring-up | no FAIL, no record change, no reboot, no allow list or `debug.phxagdc` write, the "shut down" notice |
+| upfail_desk, upfail_nodesk, upfail_stuck, upfail_squat, upfail_squat_armed, upfail_unreadable, upfail_loop, upfail_retry, bringup_hang (2026-11-25) | a bring-up without `navi31 up:` (KIQ, scheduler, sOS with the watchdog armed, an unreadable C2PMSG_81), a hang in it | no claim; the record's bfail; a non-stuck squat boot reboots onto IONDRV (with the watchdog still armed it only clears the squat and leaves the restart to the watchdog), any other stays up; after 2 in a row one boot skips the bring-up, the next tries again |
+| mark_early, term_bringup, safeboot (2026-11-25) | the mark during the bring-up; a TERM before the desktop attempt; `kern.safeboot` 1 | the mark holds `bringup`; the TERM clears it; Safe Mode does nothing at all |
+| rec_safe_fails, rec_gop_nmx, rec_gop_nobringup (2026-11-25, Fable pass) | a safe desktop that fails; a GOP fallback boot without NMXAccel or PhxBringup | none of them counts as a clean fallback boot (`last=skip`): the next boot is the safe desktop again / clean fallback boot 1 of 3 |
+| upfail_desk_oneshot, warm_desk_keeps (2026-11-25, Fable pass) | a failed bring-up / a warm refusal on a `phxboot-desktop` boot | the failure uses the file up (the next boot is GOP); the refusal keeps it |
+| term_upwait, term_upwait_done, term_uphang, term_claim_desk (2026-11-25, Fable pass) | launchd's TERM while `navi31_up.sh` runs (the stub sends it to the daemon and SIGKILLs it after a timeout); a TERM before the desktop attempt on a desktop boot | the trap runs at once: the mark cleared, `phxfb-boot` taken back, no claim, nothing counted next boot; a TERM `PHXBOOT_UP_HANG` s into the bring-up (the watchdog's restart of a hang) keeps the mark |
+| notice_carry_wd, notice_carry_warm, notice_carry_m2, notice_carry_own, notice_carry_safeboot, safeboot_squat (2026-11-25, Fable pass) | a restart after a failure (watchdog, m2_fail); Safe Mode on a squat | `/var/db/phxboot.notice-next` carries one sentence to the next boot, shown after login unless that boot has its own; the warm refusal after it words its notice with it; Safe Mode keeps it, and on a squat writes "Safe Mode can't show a picture" for the next normal boot |
+| m2fail_noclaim, m2fail_claimed, notice_safe, notice_nologin, notice_none, notice_stale (2026-11-25) | m2_fail before / after the claim; the notice with and without a login | allow list and `debug.phxagdc=0` only after the claim; one `launchctl asuser ... osascript` to the console user, kept in `/var/db/phxboot.notice` when nobody logs in, none on a full desktop |
 
 ## b15test.sh (10-29)
 `sh tests/mock/b15test.sh` runs tools/phxctl/b15_boot.sh (the idle-power display recipe the daemon starts with

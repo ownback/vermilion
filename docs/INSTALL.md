@@ -448,20 +448,30 @@ firmware, and loading it again into a running SMU is something the Linux driver 
    `VermilionBoot`'s `PhxFBSquatter` takes the IOFramebuffer category, so the firmware console never starts and the
    screen stays dark until the daemon arms the display. Otherwise the firmware framebuffer (GOP) drives the screen.
 2. Stops if the kill switch `~/gpu/phxboot-off` exists (a squat boot first reboots onto the firmware framebuffer).
-3. Stops if the in-progress mark `/var/db/phxboot.pending` exists, i.e. the previous desktop attempt never finished:
-   it creates the kill switch, clears the one-shots and stays on the firmware framebuffer (rebooting first on a squat
-   boot).
+   Only the owner sets the kill switch. In Safe Mode (`kern.safeboot` 1) it stops right after step 1's check: no
+   bring-up, no kext load, nothing armed, the failure record left as it is. A squat boot in Safe Mode has no picture:
+   `VermilionBoot` loads and squats in Safe Mode too, and Safe Mode doesn't load `VermilionAccel`. That stays so until
+   `VermilionBoot` doesn't squat with `-x` (plan step 2 of the recovery design). Hold the power button and start up
+   normally; that boot says why after login (the Safe Mode boot leaves the sentence in `/var/db/phxboot.notice-next`;
+   unverified on hardware).
+3. Stops if the in-progress mark `/var/db/phxboot.pending` exists, i.e. the previous attempt never finished: it counts
+   it in the failure record `/var/db/phxboot.fails`, clears the one-shots and stays on the firmware framebuffer
+   (rebooting first on a squat boot). After two failed bring-ups in a row one boot skips the bring-up (no GPU access),
+   the next tries again.
 4. A **desktop-arm boot** is a squat boot or one with `~/gpu/phxboot-desktop`. On it, the daemon sets `phxfb-boot`
    (read once by `PhxAMDFB`).
 5. Waits for `phx-build` in ioreg, loads `VermilionAccel.kext` with `kmutil load -p` if the AuxKC did not, and runs the
    bring-up (`~/gpu/phxctl/navi31_up.sh`: PSP, SMU, RLC, GART, MES, KIQ, compute and gfx queues; it arms a 3-minute
-   reboot in case the PSP hangs and cancels it at the end). Then SDMA idle, clock gating and the memory clock pin, each
-   behind its flag, and `mesboot claim`.
+   reboot in case the PSP hangs and cancels it at the end) with the in-progress mark set. A bring-up that doesn't end
+   with `navi31 up:` claims nothing (a warm GPU's refusal isn't counted as a failure; any other one is, and it uses up
+   `phxboot-desktop`). A shutdown or restart during the bring-up isn't counted; a TERM 60 s or more into it, such as
+   the watchdog's restart of a hung bring-up, is. Then SDMA idle, clock gating and the memory clock pin, each behind
+   its flag, and `mesboot claim`.
 6. Without a desktop arm: writes an allow list that gives every app Metal (WindowServer stays on the firmware
    framebuffer), logs `no desktop arm: GOP + Metal for apps` and `done`.
-7. With a desktop arm: touches the in-progress mark, waits for `PhxAMDFB` on the panel and for `metaltest`, refuses if
-   a user is logged in, arms the display pipe and `PhxAGDC`, lights the second monitor (flag), restarts WindowServer
-   **once** so it enumerates the Metal device, then watches 120 s for WindowServer crashes. Three crashes (or no
+7. With a desktop arm: keeps the in-progress mark (now holding `desktop`), waits for `PhxAMDFB` on the panel and for
+   `metaltest`, refuses if a user is logged in, arms the display pipe and `PhxAGDC`, lights the second monitor (flag),
+   restarts WindowServer **once** so it enumerates the Metal device, then watches 120 s for WindowServer crashes. Three crashes (or no
    WindowServer) = revert: the next boot is on the firmware framebuffer. Success logs `SUCCESS`, removes the mark,
    re-arms `phxfb-squat` for the next boot when `~/gpu/phxboot-auto` exists, and logs `done`.
 8. After `done`: VCN, the late clock gating / memory clock calls, hot-plug, gamma, the DP stream watcher and the
@@ -474,7 +484,11 @@ daemon notices (`~/gpu/phxboot-nvstuck`: it rebooted to clear the squat and is s
 second time. It brings up a **safe desktop** on the squat instead: the CPU copy at the boot mode, with no mode list,
 GPU present, flip, second monitor, display power recipe or VCN, and with Variable and HDR off. If that attempt does
 not finish either, the next boot stays dark but reachable over the network, and the boot after it tries the safe
-desktop again; it never loops. `rm ~/gpu/phxboot-off ~/gpu/phxboot-failed` gives the full desktop back. Never Reset
+desktop again; it never loops. The full desktop comes back by itself: after one clean safe-desktop boot (after 3
+failures in a row, after 3) the next boot tries it again, and a notification after login says why the desktop is in
+basic mode (2026-11-25; unverified on hardware). A safe desktop that fails doesn't count as a clean one. When the
+machine restarts after a failure (the bring-up watchdog, or the daemon's own revert), the boot after it says so after
+login. Never Reset
 NVRAM: it deletes the squat, which macOS can't set again (recovery in [XTX.md](XTX.md), "NVRAM").
 
 **Nobody may be logged in at the console or over an interactive SSH session before the WindowServer restart**: the
@@ -489,10 +503,10 @@ stated.
 
 | Flag | Read when | Effect |
 |---|---|---|
-| `phxboot-off` | start | **kill switch**: the daemon does nothing (a squat boot reboots onto the firmware framebuffer). Set by the daemon after an unfinished attempt |
-| `phxboot-desktop` | start | one desktop-arm attempt on a non-squat boot; removed by the daemon (one-shot) |
-| `phxboot-auto` | success / GOP boot | re-arms `phxfb-squat` for the next boot after a `SUCCESS`, and on a GOP boot unless `phxboot-failed` exists: the accelerated desktop at every boot |
-| `phxboot-failed` | GOP boot | written by the daemon at every revert to the firmware framebuffer; while it exists a GOP boot does not re-arm `phxfb-squat` (no reboot loop after a real failure). A `SUCCESS` removes it; remove it by hand after fixing the cause |
+| `phxboot-off` | start | **kill switch**: the daemon does nothing (a squat boot reboots onto the firmware framebuffer). Only the owner sets it (before 2026-11-25 the daemon set it after an unfinished attempt) |
+| `phxboot-desktop` | start | one desktop-arm attempt on a non-squat boot; removed by the daemon (one-shot), also by a failed bring-up; a warm GPU's refusal keeps it for the cold boot after the power-off |
+| `phxboot-auto` | success / GOP boot | re-arms `phxfb-squat` for the next boot after a `SUCCESS`, and on a GOP boot unless the failure record `/var/db/phxboot.fails` asks for more clean fallback boots first: the accelerated desktop at every boot |
+| `phxboot-failed` | start | written by daemons before 2026-11-25 at every revert; the current daemon takes it over into `/var/db/phxboot.fails` once and removes it |
 | `phxboot-b21guard` | start | the login-window guard (7.4). Absent or anything but `0` = on (default); `0` = the daemon never touches `SHOWFULLNAME` |
 | `phxboot-sdma` | after the bring-up | starts both SDMA engines idle, so the RLC can grant clock gating (without it the card idles at ~150 W) |
 | `phxboot-cg` | after the bring-up and after `done` | GFX clock gating as Linux enables it (without it the idle card runs ~250 W at a 110 C hotspot with the fans at full) |
@@ -617,9 +631,10 @@ login, `tail /var/log/phxboot.log` should show `Metal device ready`, `AGDC up`, 
 
 ### 8.3 Never reboot before `done`
 
-From the moment the daemon touches the in-progress mark until `SUCCESS`, a boot that ends without the daemon's own
-shutdown handling counts as a failed attempt: the next boot finds `/var/db/phxboot.pending`, logs
-`previous attempt did not finish -> GOP`, turns the kill switch on and stays on the firmware framebuffer. A clean
+From the moment the daemon sets the in-progress mark (before the bring-up) until `SUCCESS`, a boot that ends without
+the daemon's own shutdown handling counts as a failed attempt: the next boot finds `/var/db/phxboot.pending`, logs
+`previous attempt did not finish -> GOP`, counts it in `/var/db/phxboot.fails` and stays on the firmware framebuffer
+(on a stuck squat: the safe desktop); the boot after a clean fallback boot tries the full desktop again. A clean
 restart or shutdown (launchd sends TERM) is handled: the daemon logs `clean shutdown (TERM)`, clears the mark and
 re-arms the next boot. A hang, a power cut, a forced power-off or a job killed before its TERM handler ran is not.
 After `SUCCESS` the late steps still send SMU and display commands until `done`. Waiting for `done` before any reboot
@@ -638,18 +653,15 @@ power cycle.
 ### 8.5 Recover and re-arm
 
 1. Fix the cause the log names.
-2. Clear the kill switch and the failure marker, and arm the next boot:
-
-   ```sh
-   rm -f ~/gpu/phxboot-off ~/gpu/phxboot-failed
-   sudo nvram phxfb-squat=1
-   ```
-
+2. Nothing to clear: the daemon tries the full desktop again by itself after one clean fallback boot (after three
+   failures in a row, after three), and `record:` lines in the log say where the count stands. Remove the kill switch
+   if you set it (`rm -f ~/gpu/phxboot-off`). On a machine where macOS can write NVRAM, arm the next boot at once with
+   `sudo nvram phxfb-squat=1`.
 3. Reboot once and wait for `done`.
 
-Do not leave `/Library/GPUBundles/nvmtl-allow.txt` restricted before a desktop boot: after a failure the daemon writes
-a "test tools only" list until the next boot rewrites it, and with such a list `metaltest` gets no device and the
-attempt fails again.
+Do not leave `/Library/GPUBundles/nvmtl-allow.txt` restricted before a desktop boot: after a failure that came after
+the claim the daemon writes a "test tools only" list until the next boot rewrites it, and with such a list
+`metaltest` gets no device and the attempt fails again.
 
 To turn the GPU path off by hand: `touch ~/gpu/phxboot-off` and reboot. If macOS does not boot at all, disable the
 `VermilionBoot.kext` entry in OpenCore (or boot your EFI copy), or add `-phxacceloff` / `-phxbringupoff` to the

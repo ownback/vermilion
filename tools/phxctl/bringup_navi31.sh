@@ -57,8 +57,9 @@ bl_load(){   # <name> <offset in sos.bin> <size> <bootloader cmd>
 # GPU (the sOS already running, e.g. after a warm reboot from Linux) it would load the SMU firmware into a running SMU,
 # which Linux never does. So a running sOS, or a C2PMSG_81 that can't be read, is a refusal: nothing is written to the
 # GPU, no reboot is armed, exit 3. The refusal line is the last line printed: navi31_up.sh shows the last three and
-# reports "bring-up failed", and phxboot-navi31.sh matches "refused: warm GPU" and takes its fallback (m2_fail on a
-# desktop boot, firmware display only otherwise). A full power-off makes the GPU cold again.
+# reports "bring-up failed", and phxboot-navi31.sh matches "refused: warm GPU (" and claims nothing: no failure
+# counted, no reboot, a notice to shut down fully (since 2026-11-25; an unreadable C2PMSG_81 counts as a failed
+# bring-up there). A full power-off makes the GPU cold again.
 # RESUME=after_tmr continues on purpose on a GPU this script brought up earlier in the same boot; it skips the check.
 if [ "${RESUME:-}" != after_tmr ]; then
   echo "== sOS alive? (C2PMSG_81 sign of life, C2PMSG_58 version) =="

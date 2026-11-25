@@ -75,7 +75,37 @@ PROJECT_KNOWLEDGE.
       `/var/log/phxboot.log`: `NMXAccel up`, `PhxAMDFB on panel`, `SUCCESS`.
     - Rollback: the copy back the same way (Allow, restart).
   - Open, not in this branch: after a bring-up failure that isn't a warm refusal, `navi31_up.sh` and the daemon still
-    go on to the claim, with the watchdog armed (hw-safety-reviewer, 2026-11-24).
+    go on to the claim, with the watchdog armed (hw-safety-reviewer, 2026-11-24). Fixed on `ownback/recovery-daemon`
+    (item 3 step 1, below).
+
+- [ ] **Phase 2 item 3 step 1: deploy the daemon recovery without the manual rm** (branch `ownback/recovery-daemon`,
+  [design](findings/2026-11-25-recovery-trap-design.md) plan step 1), after the merge. Daemon and `navi31_up.sh` only:
+  no EFI, kext, NVRAM or system-volume change. One boot, under the machine lock. Everything below is mock-tested only
+  (unverified on hardware).
+  - Before: `bash tests/mock/run.sh`, `bash tests/mock/b15test.sh`, `bash tests/mock/bringup_warm_test.sh`,
+    `bash tests/mock/daemon_install_test.sh` green on main. `ls ~/gpu/phxboot-off ~/gpu/phxboot-failed
+    ~/gpu/phxboot-safe /var/db/phxboot.*`: on 2026-11-25 none of them existed, `~/gpu/phxboot-nvstuck` held `stuck`.
+    A `phxboot-failed` left then is taken over into the record by the first boot (`record: ... taken over`); a
+    `phxboot-off` is the owner's switch from now on: remove it first if an old daemon made it.
+  - Rollback copies: `mkdir -p ~/vermilion-rollback/recovery-daemon-1` and `cp -p ~/gpu/phxboot-navi31.sh
+    ~/gpu/phxctl/navi31_up.sh` into it.
+  - Install: `install -m 755 tools/phxctl/navi31_up.sh ~/gpu/phxctl/`; the daemon by rename (`cp
+    tools/phxctl/phxboot-navi31.sh ~/gpu/phxboot-navi31.sh.new && mv ~/gpu/phxboot-navi31.sh.new
+    ~/gpu/phxboot-navi31.sh`), owner and mode as before (`ls -l`).
+  - Check, one cold boot (the owner shuts down and powers on): `/var/log/phxboot.log` has `sOS check: C2PMSG_81=0x00000000
+    (cold)`, `navi31 up:`, `SUCCESS at`, and once the new line `record: fails=0 clean=0 bfail=0 skipped=0 last=full
+    (this boot: full)`; no `notice:` line and no `clean shutdown (TERM) ... during the bring-up` line;
+    `sudo cat /var/db/phxboot.fails` the same five lines; no `/var/db/phxboot.notice-next`; 240 Hz as before.
+  - Not tested by this boot (the paths need a failure): the safe desktop's return, the notification (`launchctl asuser`
+    + `osascript` as the user, unverified), the notice kept across a restart after a failure, the loop guard, a
+    shutdown during the bring-up (the TERM now reaches the trap at once), Safe Mode on the squat (still dark: it
+    should leave the "Safe Mode can't show a picture" notice for the next boot; whether the daemon runs in Safe Mode at
+    all is unverified). A later owner test can force one fallback without a GPU risk: `echo desktop | sudo tee
+    /var/db/phxboot.pending` before a restart gives one safe desktop with the notification after login, and the boot
+    after it the full desktop (OWNER-TESTS candidate).
+  - Rollback: copy both files back from `~/vermilion-rollback/recovery-daemon-1` (the daemon by rename), `sudo rm -f
+    /var/db/phxboot.fails /var/db/phxboot.notice /var/db/phxboot.notice-next`, shut down fully, boot. The old daemon
+    ignores the record; it sets `~/gpu/phxboot-off` / `phxboot-failed` again after a failure.
 
 - [ ] **Phase 2 item 2: deploy the plugin crash fixes** (branch `ownback/plugin-crash-fixes`, after the merge;
   [finding](findings/2026-11-25-plugin-crashes-root-cause.md)). A new `NVMTLDriver`, so also a VermilionTrust + EFI

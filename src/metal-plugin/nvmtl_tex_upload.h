@@ -72,15 +72,16 @@ typedef struct { nvmtl_uptab_entry e[NVMTL_UPTAB_N]; unsigned n; size_t bytes; }
 // Room in the table for one more upload of `bytes` staging bytes?
 static inline int nvmtl_uptab_room(const nvmtl_uptab *t, size_t bytes)
 {
-    return t->n < NVMTL_UPTAB_N && t->bytes + bytes <= NVMTL_UPTAB_CAP;
+    return t->n < NVMTL_UPTAB_N && bytes <= NVMTL_UPTAB_CAP - t->bytes;   // t->bytes never exceeds the cap
 }
 
 // Lists upload `h` of `bytes` staging bytes on the image whose handle is *tok. Returns 0 (nothing changed) if the
-// table is full or the image already has a pending upload (another thread uploaded to it at the same time): the caller
+// table has no room for it (count or bytes: another thread may have listed uploads since the caller's room check) or
+// the image already has a pending upload (another thread uploaded to it at the same time): the caller
 // then finishes `h` itself. So an image has at most one entry, and it is the handle on the image.
 static inline int nvmtl_uptab_list(nvmtl_uptab *t, uint64_t *tok, uint64_t h, size_t bytes)
 {
-    if (t->n >= NVMTL_UPTAB_N || *tok) return 0;
+    if (!nvmtl_uptab_room(t, bytes) || *tok) return 0;
     nvmtl_up_state s = { *tok };
     nvmtl_up_set(&s, h);
     *tok = s.infl;

@@ -5,7 +5,7 @@
    driven with fake fences; the plugin's lock and Vulkan calls around them are left out.
    Arms: the synchronous path leaves nothing pending; a second upload to an image finishes the first; destroy and
    readback finish a pending upload first; a sampling draw finishes nothing; the table bounds what is pending (count
-   and bytes) and a full table takes the synchronous path; reaping a done upload never clears a newer handle; two threads
+   and bytes, also when the upload is listed) and a full table takes the synchronous path; reaping a done upload never clears a newer handle; two threads
    uploading to one image leave one entry, finished at destroy; a parked (recycled) texture carries no pending upload.
    cc -fsanitize=address,undefined -I src/metal-plugin tests/plugin/test_tex_upload.c -o /tmp/test_tex_upload && /tmp/test_tex_upload */
 #include <stdio.h>
@@ -102,6 +102,14 @@ int main(void) {
       reap();
       CHECK(a.st.infl == (uint64_t)(uintptr_t)&v && u.finished, "reap cleared the newer handle");
       tab.n = 0; tab.bytes = 0; }
+    // the listing rechecks the byte bound: another thread's upload took the room after this one's room check
+    { image a = {0}, b = {0}; upload u = { .bytes = TABLE_CAP - 4096 }, v = { .bytes = 8192 };
+      sync_uploads = 0;
+      CHECK(nvmtl_uptab_room(&tab, v.bytes), "an empty table has no room");
+      CHECK(list(&a, &u) && !list(&b, &v), "a listing past the byte bound was accepted (%zu bytes pending)", tab.bytes);
+      CHECK(v.finished && sync_uploads == 1 && tab.n == 1 && tab.bytes == u.bytes && b.st.infl == 0, "the refused upload was left pending");
+      CHECK(!nvmtl_uptab_room(&tab, (size_t)-1), "a huge upload wrapped the byte bound");
+      destroy(&a); destroy(&b); }
     // two threads upload to one image at once: both find nothing pending and submit; the second listing is refused
     // and waited for, so the image keeps one entry, and destroy finishes it and empties the table
     { image a = {0}; upload u = { .bytes = 4096 }, v = { .bytes = 8192 };

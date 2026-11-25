@@ -25,7 +25,9 @@ PROJECT_KNOWLEDGE.
 - [ ] **Phase 2 item 1: deploy the safety fixes** (branch `ownback/safety-fixes`), after the merge. Three parts in
   this order, each with its own boot, under the machine lock. Before each one: `bash tests/mock/run.sh`,
   `bash tests/mock/b15test.sh` and `bash tests/mock/bringup_warm_test.sh` green on main.
-  - **(a) Daemon and bring-up scripts into `~/gpu`** (no EFI change, no system volume).
+  - **(a) Daemon and bring-up scripts into `~/gpu`** (no EFI change, no system volume). **Installed 2026-11-25
+    06:47; boot 2 (warm) passed** (`sOS check: C2PMSG_81=0x00000000 (cold)`, `SUCCESS at 06:50:12`); boot 1 (cold)
+    passed 2026-11-25 11:40.
     - First, optional, through the `linux-queue` skill: hw-safety-reviewer's read-only check. Run
       `journalctl -k -b <n>` on a Linux boot that followed a warm reboot and look for `MODE1 reset` near amdgpu's
       probe. If it's absent, a warm reset leaves the sOS stopped.
@@ -48,7 +50,8 @@ PROJECT_KNOWLEDGE.
       If the failure path ran, `rm -f ~/gpu/phxboot-off ~/gpu/phxboot-failed ~/gpu/phxboot-safe`. Then shut down
       fully and boot.
   - **(b) EFI change: no Reset NVRAM entry** (stage `vermilion-trust-bar1g-audio` without `ResetNvramEntry.efi`),
-    its own boot.
+    its own boot. **Change 34, live since 2026-11-25 06:56, passed** (SUCCESS, trust enforce / 0 denied, audio
+    attached; the live kexts reused via `VERMILION_KEXT_DIR`); the owner's picker check is open.
     - Build on the Mac (runbooks, "Building and installing the EFI on the Mac itself") with
       `--stage vermilion-trust-bar1g-audio`, not the default stage, using the kexts that are on the ESP now.
     - `sudo diff -rq /private/tmp/efi/EFI/OC build/efi/b650e-i-xtx-vermilion-trust-bar1g-audio/EFI/OC` may show only
@@ -64,6 +67,7 @@ PROJECT_KNOWLEDGE.
     - Any later rebuild of this stage (item 2's trust list, for example) carries this change too, so boot (b)
       first.
   - **(c) VermilionAccel without `debug.phxfb_kill_iondrv`** (AuxKC, the owner's Allow click), its own boot.
+    **Live since 2026-11-25 07:01, passed** (unknown oid, UUID `6FDD9916` loaded, SUCCESS).
     - Build: `MKSDK=<MacKernelSDK> sh scripts/build/accel.sh`. The branch build's binary is sha256 `03c1e47d`
       (2026-11-24, no link gate). `fork/main` at `f8432a4` rebuilds the installed `2578b185` byte for byte, so this
       part changes only the removed sysctl.
@@ -78,7 +82,8 @@ PROJECT_KNOWLEDGE.
     go on to the claim, with the watchdog armed (hw-safety-reviewer, 2026-11-24). Fixed on `ownback/recovery-daemon`
     (item 3 step 1, below).
 
-- [ ] **Phase 2 item 3 step 1: deploy the daemon recovery without the manual rm** (branch `ownback/recovery-daemon`,
+- [x] **Live and passed 2026-11-25 16:57 (#26; restart, all checks below green; fallback paths still unverified).**
+  **Phase 2 item 3 step 1: deploy the daemon recovery without the manual rm** (branch `ownback/recovery-daemon`,
   [design](findings/2026-11-25-recovery-trap-design.md) plan step 1), after the merge. Daemon and `navi31_up.sh` only:
   no EFI, kext, NVRAM or system-volume change. One boot, under the machine lock. Everything below is mock-tested only
   (unverified on hardware).
@@ -163,6 +168,12 @@ PROJECT_KNOWLEDGE.
   RADV's own BOs still take a handle each; a process with ~4000 live textures fails as Maps did. Choose: pool small
   images in the plugin, or let the kext's `bos` / `maps` tables grow (an N48N ABI minor with RADV; the VA map table is
   GPU VM work: `hw-safety-reviewer`).
+- [ ] **Music's 30 s first launch: passd's Secure Element wait** (platform, not the plugin; finding
+  `2026-11-25-music-slow-load.md`). Every cold start of passd runs libAppleSSE's 60 x 0.5 s lookup for an `AppleSSE`
+  service that needs a T2. Music's account save waits for it through accountsd. First the owner test in the finding
+  (cold vs warm passd). Then: find what makes `PKSecureElement registerObserver:` run on a Mac without a Secure
+  Element, and report that from the platform (ryzentosh). Until then, a login agent that kickstarts passd is the
+  mitigation, unverified.
 - [ ] **Phase 2 item 2: the plugin's other `syslog()` calls** (`NVMTLX420.m`, `nvmtl_imgmem.c`, `nvmtl_pitch_align.c`,
   `NVMTLWSCapture.m`, `NVMTLHolders.m`, the ANGLE line in `NVMTLDevice.m`) still bypass `nvlog`: move them to the
   `org.vermilion.nvmtl` subsystem too.

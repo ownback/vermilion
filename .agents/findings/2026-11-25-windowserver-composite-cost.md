@@ -142,12 +142,31 @@ composite.
 Fixes, by gain for Maps (none fits in the plugin alone; design only):
 
 1. **Scan out CoreDisplay's display surfaces** (removes row 3, and makes C a VRAM write; kext + plugin, L). The plugin
-   already knows the two display surfaces (`nvmtl_ws_note_display`, CDCOPY). If PhxAccel backed those IOSurfaces with
-   VRAM inside BAR0 (2 x 14.7 MB of the 256 MiB, so CPU readers keep working), GPU present could register them as
-   its slots (`g_scan.reg` already takes a VkDeviceMemory) and flip to the surface itself instead of copying it. The
-   flip stays the present selector HUBP0 uses today. Only the slot addresses change. **Display programming: goes
-   through `hw-safety-reviewer` before it is built.** Precondition: a WindowServer frame is never drawn into the
-   surface being scanned out (CDCOPY alternates two surfaces; the 3-slot latch logic has to hold for 2 surfaces).
+   already knows the two display surfaces (`nvmtl_ws_note_display`, CDCOPY). PhxAccel backs those IOSurfaces with the
+   kext's two large scan-out slots (VRAM 256 and 288 MiB, `PhxScanLayout.h`, CPU-visible in the live 1 GiB BAR0), and
+   GPU present flips HUBP0 to the surface itself instead of copying into a slot. **`hw-safety-reviewer` (2026-11-25):
+   not OK as first written. OK once these changes are in:**
+   - The flip stays today's three writes (`HUBPREQ0_DCSURF_FLIP_CONTROL`, then `PRIMARY_SURFACE_ADDRESS_HIGH` and
+     `PRIMARY_SURFACE_ADDRESS`, `phx_scan.cpp`), a subset of Linux's `hubp3_program_surface_flip_and_addr`. On the
+     large slots, even the addresses are today's. No `SURFACE_CONFIG`, pitch, tiling, DCC, MALL, DMUB, SMU or PSP
+     write. Read the live `VMID_SETTINGS_0` and TMZ bits once to confirm they are Linux's 0.
+   - The register selector can't take client memory: it rebinds onto its own slots and refuses VRAM BOs
+     (`phx_scan_client.cpp`). Use the fixed large slots, or a new path that registers a pinned range and validates
+     it: inside VRAM and the `DCN_VM_FB_LOCATION` window, pitch = HUBP0's live pitch (10240 at 1440p; other modes
+     keep the copy), 256 B pitch and offset alignment, 2 MiB address alignment, format = HUBP0's.
+   - BAR0 is 1 GiB (EFI stage `vermilion-trust-bar1g`), and [0, 256 MiB) is all fixed regions. Read the BAR size;
+     with a 256 MiB BAR0, stay on the copy.
+   - **The GPU must never reach its own BAR through a host import.** Today GPU present and RADV import the surface's
+     pages (`doBoImportHost` doesn't check for BAR pages). The kext must refuse host imports of pages inside BAR0,
+     and the GPU reaches VRAM-backed surfaces only through local-VRAM PTEs. Linux's userptr refuses such mappings.
+   - Two surfaces, not three slots. CoreDisplay's write (pass C) into a surface waits until that surface is not
+     pending, not `EARLIEST_INUSE` and not front: Linux's flip-complete test, covering b74's taken-flip case. Expect
+     up to one vblank of waiting.
+   - Flip away before free. Before PhxAccel frees or reuses a scanned-out surface (BGRA-to-l10r swap, HDR toggle,
+     mode change, WindowServer exit), the kext flips away and verifies it. PhxAccel and VermilionBoot need an
+     explicit handshake for this. Console surface A stays the restore target.
+   - CPU readers (flicker probe, PhxAMDFB's CPU copy, screenshots) then read write-combined BAR memory: turn the probe
+     off for VRAM-backed surfaces.
 2. **GPU-used IOSurfaces in VRAM, shared across processes** (TODO 13 item 2, L): Maps' drawable written and
    WindowServer's composite read in VRAM. Row 1 goes from 2.8 ms towards Horizon's tiled figure (12.5x faster at
    C2), and Maps loses its per-frame tiled-to-pages copy. Kext (cross-process BO import for IOSurfaces: "NVK import
@@ -160,7 +179,12 @@ Fixes, by gain for Maps (none fits in the plugin alone; design only):
 4. **Interim, plugin only (TODO 13 item 1's redo, M):** SkyLight's targets and the display surfaces drawn tiled in VRAM,
    GPU present copying VRAM to VRAM, and one page write per frame for CPU readers. Smaller gain than 1 and 2, and the
    flicker history of this path (findings 2026-11-19, E0-E3) means hardware A/B first.
-5. **Later:** direct scan-out of a fullscreen opaque app drawable (games, Horizon), with the same slot mechanism as 1.
+5. **Later:** direct scan-out of a fullscreen opaque app drawable (games, Horizon). `hw-safety-reviewer`: not OK
+   yet. App drawables are tiled, and acquire requires HUBP0 linear with DCC off. A tiled flip needs
+   `DCSURF_TILING_CONFIG`, meta address and format writes, and there is no Linux capture of such a flip on this card.
+   So: capture one on Linux first (KMS direct scan-out with a GFX11 modifier), or limit it to linear drawables of
+   matching format and size, where only the address changes as in 1. It also needs a cross-process VRAM BO import and
+   fix 1's lifetime rules for an app that can quit or crash while its drawable is on screen.
 
 ## 5. What this branch changes (plugin, measurement only; built, host test, not installed)
 
@@ -207,4 +231,5 @@ Expected: `present` gpu_us 0.5-0.9 ms (unverified). If it is near 1 ms, fix 1 is
 - Maps' frame rate (~35/s) and the 24 % long-frame share: estimates from aggregates without timestamps.
 - The cause of the ~13 us per-pass floor (RADV's L2 flush on image-less barriers): from reading the code, not measured.
 - The GPU part of the present copy: only the CPU's copy+wait is measured, and in the next boot under desktop load.
-- The effect of fixes 1-5: none built. This branch's change is built and host-tested only.
+- The effect of fixes 1-5: none built. This branch's change is built and host-tested only. `hw-safety-reviewer`
+  passed the plugin diff (only timestamp packets RADV also emits on Linux; flip and latch unchanged).

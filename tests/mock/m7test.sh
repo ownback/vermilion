@@ -172,9 +172,15 @@ fs2mk; MD165=1; MRATE=165; run light; run bind; MRATE=; MD165=; check fs2_direct
 # C3 (the Acer dark after a cold boot): on by default (M7_C3 unset; the mock's script dir has no phxboot-c3-off) -> debug.phxc3=9 first (before the DAL mins / mode / survey); a refusal or a kext without
 # the oid only logs; without the flag nothing is written to debug.phxc3
 c3mk() { mk; echo -1 > $O/debug.phxc3; printf 'result=PASS mode=9 step=L1475 why=loaded\nboot: x\nring: loaded 1475/1475\npipe0: same=1\n' > $O/debug.phxc3_stat; }
-c3mk; dalok; MRATE=144; run light; MRATE=; check c3_load_first '[ $RC = 0 ] && [ "$(head -1 $O/writes)" = debug.phxc3=9 ] && grep -q "C3: PHY D SRAM load done: result=PASS" $W/out && grep -q "m7: C3 ring: loaded 1475/1475" $W/out && grep -q "stream passed" $W/out && [ "$(head -1 $W/dal | cut -c1-7)" = "smu 0x1" ]'
+c3mk; dalok; MRATE=144; run light; MRATE=; check c3_load_first '[ $RC = 0 ] && [ "$(head -1 $O/writes)" = debug.phxc3=9 ] && grep -q "C3: PHY D SRAM load done: result=PASS" $W/out && grep -q "m7: C3 ring: loaded 1475/1475" $W/out && grep -q "stream passed" $W/out && [ "$(grep -v ^c3image $W/dal | head -1 | cut -c1-7)" = "smu 0x1" ]'
 c3mk; MRATE=144; dalok; M7_C3=0 run light; MRATE=; check c3_off_untouched '[ $RC = 0 ] && ! grep -q phxc3 $O/writes && ! grep -q C3 $W/out'
 c3mk; dalok; mv $W/sysctl $W/sysctl.real; printf '#!/bin/bash\n[ "$1" = -w ] && [ "${2%%%%=*}" = debug.phxc3 ] && exit 1\nexec %s "$@"\n' "$W/sysctl.real" > $W/sysctl; chmod +x $W/sysctl
 echo 'result=refused mode=9 step=- why=G2: PHY D programmed' > $O/debug.phxc3_stat; MRATE=144; M7_C3=1 run light; MRATE=; check c3_refused_goes_on '[ $RC = 0 ] && grep -q "C3: PHY D SRAM load not done: result=refused" $W/out && grep -q "stream passed" $W/out'
 mk; M7_C3=1 run light; check c3_old_kext_skip '[ $RC = 0 ] && grep -q "needs b114" $W/out && ! grep -q phxc3 $O/writes && grep -q "stream passed" $W/out'
+# C3 image (kext b163+: no AMD bytes in the binary): `phxctl c3image <fw file>` runs before debug.phxc3=9; exit 2 (a kext before b163) goes on, any other failure skips the load
+c3img() { c3mk; printf '#!/bin/sh\nif [ "$1" = c3image ]; then echo "PHX c3image $2" >> %s/writes; echo "c3image: fake rc %s"; exit %s; fi\necho "$*" >> %s/dal\necho "smu msg $1 arg $2 -> kr 0x0 resp 0x01 (OK)"\n' "$O" "$1" "$1" "$W" > $W/phx; chmod +x $W/phx; MPHX=$W/phx; }
+c3img 0; MRATE=144; M7_C3_FW=$W/fw/dcn_3_2_0_dmcub.bin run light; MRATE=; check c3_image_before_load '[ $RC = 0 ] && [ "$(sed -n 1p $O/writes)" = "PHX c3image $W/fw/dcn_3_2_0_dmcub.bin" ] && [ "$(sed -n 2p $O/writes)" = debug.phxc3=9 ] && grep -q "m7: C3 image: c3image: fake rc 0" $W/out && grep -q "C3: PHY D SRAM load done" $W/out'
+c3img 1; MRATE=144; run light; MRATE=; check c3_image_refused_skips_load '[ $RC = 0 ] && ! grep -q debug.phxc3=9 $O/writes && grep -q "C3 image not installed (rc 1: c3image: fake rc 1): C3 load skipped" $W/out && grep -q "stream passed" $W/out'
+c3img 2; MRATE=144; run light; MRATE=; check c3_image_old_kext_goes_on '[ $RC = 0 ] && grep -q "m7: C3 image: c3image: fake rc 2" $W/out && grep -q debug.phxc3=9 $O/writes && grep -q "C3: PHY D SRAM load done" $W/out'
+c3mk; MRATE=144; dalok; M7_C3=0 run light; MRATE=; check c3_off_no_image '[ $RC = 0 ] && ! grep -q c3image $W/dal'
 echo "$PASSN passed, $FAILN failed"; [ $FAILN = 0 ]

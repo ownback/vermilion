@@ -686,6 +686,37 @@ static int phxC3Sysctl SYSCTL_HANDLER_ARGS {
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxc3, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxC3Sysctl, "I",
             "b113 B-22 T-C3-1 (root): 1-5 the T-C3-1a REG_SEQ sub-tests in order, 9 the PHY D prologue + SRAM load (power-on chain only); reads the last result");
+// debug.phxc3_image (b163): the C3 image, from the installed firmware, not from this binary. Root writes exactly 0xA000 bytes
+// (the slice of dcn_3_2_0_dmcub.bin at offset 0xE200, which the boot daemon cuts out with `phxctl c3image`); the kext keeps it
+// only when its SHA-256 and CRC-32 equal the values the build computed from the file it fetched (PhxC3Load.h imageSeal).
+// Wrong length or hash: refused, the image stays absent and debug.phxc3=9 / debug.phxdplink refuse at their image gate (today's
+// refusal for a bad CRC). It writes nothing to the GPU. Reads return 4 bytes: 1 installed, 0 not. Under gP2Busy.
+static int phxC3ImageSysctl SYSCTL_HANDLER_ARGS {
+    (void)oidp; (void)arg1; (void)arg2;
+    if (!req->newptr) {
+        const uint32_t st = phxc3::image() ? 1u : 0u;
+        return SYSCTL_OUT(req, &st, sizeof st);
+    }
+    if (proc_suser(req->p)) return EPERM;
+    if (req->newlen != sizeof(uint16_t) * kPhxC3ImageWords) {
+        IOLog("PhxBringup: debug.phxc3_image refused: %lu bytes, expected %lu\n", static_cast<unsigned long>(req->newlen),
+              static_cast<unsigned long>(sizeof(uint16_t) * kPhxC3ImageWords));
+        return EINVAL;
+    }
+    if (!OSCompareAndSwap(0, 1, &gP2Busy)) return EBUSY;
+    int e = SYSCTL_IN(req, phxc3::imageBuf(), req->newlen);
+    int rc = e ? phxc3::kImgLen : phxc3::imageSeal();
+    OSCompareAndSwap(1, 0, &gP2Busy);
+    if (e) { IOLog("PhxBringup: debug.phxc3_image refused: copy in failed (%d)\n", e); return e; }
+    if (rc) {
+        IOLog("PhxBringup: debug.phxc3_image refused: the %s does not match the firmware this kext was built against\n", rc == phxc3::kImgSha ? "SHA-256" : "CRC-32");
+        return EINVAL;
+    }
+    IOLog("PhxBringup: debug.phxc3_image: installed (%u halfwords, SHA-256 and CRC-32 match)\n", kPhxC3ImageWords);
+    return 0;
+}
+SYSCTL_PROC(_debug, OID_AUTO, phxc3_image, CTLTYPE_OPAQUE | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxC3ImageSysctl, "S",
+            "b163 (root): write the 0xA000-byte C3 slice of dcn_3_2_0_dmcub.bin (SHA-256 and CRC-32 checked against the build's); read: 1 installed, 0 not");
 static int phxC3StatSysctl SYSCTL_HANDLER_ARGS {
     (void)oidp; (void)arg1; (void)arg2;
     if (req->newptr) return EPERM;

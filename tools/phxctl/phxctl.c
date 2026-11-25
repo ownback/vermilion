@@ -7,6 +7,8 @@
  *   phxctl smu <msg> [<arg>]              one SMU 13.0.4 message from the kext's allow-list (root, phxdebug=1)
  *   phxctl smuinfo                        TestMessage, PMFW / driver-if versions, enabled features
  *   phxctl psp status|create <off>|destroy  PSP 13.0.4 KM ring in the UMA carve-out at byte offset <off> (root, phxdebug=1)
+ *   phxctl c3image <dcn_3_2_0_dmcub.bin>  hand the C3 slice of the installed firmware to the kext (debug.phxc3_image, root); 0 installed,
+ *                                         2 the kext has no such oid (before b163, image built in), 1 refused or unreadable
  *   phxctl serve                          read server for a watchdog (b15_boot.sh): one process, one connection, for the
  *                                         many reads a long-running script would otherwise make one process each (root)
  *
@@ -14,6 +16,7 @@
  * GC segment 0 = 0x1260, segment 1 = 0xA000.
  */
 #include <IOKit/IOKitLib.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -189,6 +192,34 @@ static const struct named_reg gc_regs[] = {
    {"SDMA0_F32_CNTL", 0xA000 + 0x589a},
 };
 
+// The C3 slice of dcn_3_2_0_dmcub.bin (offset 0xE200, 0xA000 bytes): the kext holds no AMD bytes and checks the slice's
+// SHA-256 and CRC-32 against the firmware revision it was built for (PhxC3Load.h imageSeal).
+#define C3_OFF 0xE200u
+#define C3_LEN 0xA000u
+static int c3image(const char *path)
+{
+   static uint8_t buf[C3_LEN];
+   FILE *f = fopen(path, "rb");
+   if (!f || fseek(f, C3_OFF, SEEK_SET) != 0 || fread(buf, 1, C3_LEN, f) != C3_LEN) {
+      fprintf(stderr, "c3image: %s: cannot read 0x%x bytes at 0x%x\n", path, C3_LEN, C3_OFF);
+      if (f)
+         fclose(f);
+      return 1;
+   }
+   fclose(f);
+   if (sysctlbyname("debug.phxc3_image", NULL, NULL, buf, C3_LEN)) {
+      int e = errno;
+      if (e == ENOENT) {
+         fprintf(stderr, "c3image: no debug.phxc3_image (kext before b163: the image is built in)\n");
+         return 2;
+      }
+      fprintf(stderr, "c3image: the kext refused the slice of %s: %s (wrong firmware revision or length)\n", path, strerror(e));
+      return 1;
+   }
+   printf("c3image: installed from %s (0x%x bytes at 0x%x)\n", path, C3_LEN, C3_OFF);
+   return 0;
+}
+
 int main(int argc, char **argv)
 {
    if (argc < 2) {
@@ -196,6 +227,8 @@ int main(int argc, char **argv)
                       "psp status|create <off>|destroy | vram <off> [count] | serve\n");
       return 2;
    }
+   if (!strcmp(argv[1], "c3image"))
+      return argc >= 3 ? c3image(argv[2]) : 2;
    if (open_kext())
       return 1;
 

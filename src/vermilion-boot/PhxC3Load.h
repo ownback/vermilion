@@ -22,9 +22,34 @@
 #pragma once
 #include <stdint.h>
 #include "PhxDmub.h"
-#include "phx_c3_image.inc"   // kPhxC3Image[20480], kPhxC3ImageCrc32 (tools/firmware/c3_image.py)
+#include "PhxSha256.h"
+#include "phx_c3_hash.inc"    // kPhxC3ImageWords, kPhxC3ImageCrc32, kPhxC3HashSha256[32]: hashes only (tools/firmware/c3_image.py)
 
 namespace phxc3 {
+
+// The image (a 0xA000-byte slice of dcn_3_2_0_dmcub.bin as 20480 little-endian halfwords) is not part of this binary: the boot
+// daemon writes it to debug.phxc3_image from the installed firmware file, and imageSeal() accepts it only when its SHA-256
+// and CRC-32 equal the values the build computed from the file it fetched (phx_c3_hash.inc). Until then image() is null and
+// every user of it refuses (the gates in PhxPipe2.h and PhxDpRun.h), as it did for a failed CRC before.
+enum ImageRc { kImgOk = 0, kImgLen = 1, kImgSha = 2, kImgCrc = 3 };
+static uint16_t gImageWords[kPhxC3ImageWords];
+static unsigned gImageLoaded;
+inline const uint16_t *image() { return gImageLoaded ? gImageWords : nullptr; }
+inline uint16_t *imageBuf() { gImageLoaded = 0; return gImageWords; }   // the caller fills it, then imageSeal()
+inline uint32_t imageCrc(const uint16_t *h, unsigned n);
+inline int imageSeal() {
+    gImageLoaded = 0;
+    phxsha::Sha256 s;
+    uint8_t d[32];
+    phxsha::init(s);
+    phxsha::update(s, reinterpret_cast<const uint8_t *>(gImageWords), sizeof gImageWords);   // x86_64 / arm64: little-endian halfwords
+    phxsha::final(s, d);
+    for (unsigned i = 0; i < 32; i++) if (d[i] != kPhxC3HashSha256[i]) return kImgSha;
+    if (imageCrc(gImageWords, kPhxC3ImageWords) != kPhxC3ImageCrc32) return kImgCrc;
+    gImageLoaded = 1;
+    return kImgOk;
+}
+inline void imageClear() { gImageLoaded = 0; }
 
 enum : uint32_t { kRmw = 1, kBurst = 3, kWait = 4 };
 static constexpr unsigned kMaxRmw = 5, kMaxBurst = 14;
@@ -100,12 +125,14 @@ inline const Shape *shapeAt(const Shape *t, unsigned nRows, unsigned i) {
     for (unsigned r = 0; r < nRows; r++) { if (i < t[r].count) return &t[r]; i -= t[r].count; }
     return nullptr;
 }
-// Command i (0-based, L(i+1)) of the mode-9 program; img = the image (the embedded one; a host test passes a copy).
-inline bool loadCmd(unsigned i, uint32_t *c, const uint16_t *img = kPhxC3Image) {
+// Command i (0-based, L(i+1)) of the mode-9 program; img = the image (null: the installed one; a host test passes a copy).
+inline bool loadCmd(unsigned i, uint32_t *c, const uint16_t *img = nullptr) {
     for (unsigned k = 0; k < phxdmub::kCmdDw; k++) c[k] = 0;
     if (i < kProN) { for (unsigned k = 0; k < phxdmub::kCmdDw; k++) c[k] = kPro[i][k]; return true; }
     if (i == kLast) { for (unsigned k = 0; k < phxdmub::kCmdDw; k++) c[k] = kEnd[k]; return true; }
     if (i > kLast) return false;
+    if (!img) img = image();
+    if (!img) return false;   // no image installed (the gates refuse before this)
     const unsigned at = (i - kProN) * kMaxBurst, n = kPhxC3ImageWords - at < kMaxBurst ? kPhxC3ImageWords - at : kMaxBurst;
     c[0] = kBurst | (4u * n) << 24; c[1] = kRes20;
     for (unsigned k = 0; k < n; k++) c[2 + k] = img[at + k];
@@ -178,7 +205,7 @@ inline bool cmdOk(const uint32_t *c, const Shape &s, const char **why) {
     return !w;
 }
 
-// CRC-32 (zlib polynomial 0xEDB88320) of the image as its little-endian bytes: compared with kPhxC3ImageCrc32 before mode 9.
+// CRC-32 (zlib polynomial 0xEDB88320) of the image as its little-endian bytes: compared with kPhxC3ImageCrc32 before mode 9 (and by imageSeal).
 inline uint32_t imageCrc(const uint16_t *h, unsigned n) {
     uint32_t c = 0xffffffffu;
     for (unsigned i = 0; i < 2 * n; i++) {

@@ -20,9 +20,9 @@ EOF
   chmod +x "$T/bin/$cc"
 done
 : "${MKSDK:?set MKSDK to a MacKernelSDK checkout (docs/BUILD.md)}"
-# VermilionBoot includes a header generated from linux-firmware (git-ignored; tools/firmware/c3_image.py)
+# VermilionBoot includes a header of hashes generated from linux-firmware (git-ignored; tools/firmware/c3_image.py)
 FWD=${PHX_FW:-$HOME/gpu/fw/navi31}
-[ -f "$ROOT/src/vermilion-boot/phx_c3_image.inc" ] || [ ! -f "$FWD/dcn_3_2_0_dmcub.bin" ] ||
+[ -f "$ROOT/src/vermilion-boot/phx_c3_hash.inc" ] || [ ! -f "$FWD/dcn_3_2_0_dmcub.bin" ] ||
   (cd "$ROOT" && python3 tools/firmware/c3_image.py --fw "$FWD/dcn_3_2_0_dmcub.bin" >/dev/null)
 export PATH="$T/bin:$PATH"
 # VermilionTrust includes its generated cdhash list (gen_list.sh, git-ignored): index it with a stub when it's missing

@@ -6,9 +6,9 @@
 # NVMTLDriver dlopens air-runtime/libLLVM.dylib next to itself (src/metal-plugin/NVMTLLibraryLoad.m). Without it,
 # and without air-opt, it cannot read any metallib: WindowServer's Metal compositor gets no shaders from QuartzCore's
 # default.metallib and aborts (XTX machine, 2026-11-19).
-# The source is this project's own build, scripts/build/llvm.sh -> $VERMILION_OUT/air-runtime (default build/air-runtime),
-# which is what runs without <src dir>. NullMoth's copy (docs/INSTALL.md 5.2) is only a fallback: with no <src dir> and
-# no build of ours, a copy already in the bundle is kept (and the script says so); with none at all it fails.
+# Without <src dir> the source is this project's own build: scripts/build/llvm.sh -> $VERMILION_OUT/air-runtime
+# (default build/air-runtime). NullMoth's copy (docs/INSTALL.md 5.2) is only a fallback: with no <src dir> and no build
+# of ours, a copy already in the bundle is kept (and the script says so); with none at all it fails.
 # <src>/MD5SUMS (md5 path), when present, is checked first. Exit 0 only when both libraries are in place.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)

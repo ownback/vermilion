@@ -14,14 +14,14 @@
   139 MB, all targets, install name `@loader_path/libLLVM.dylib`, minos 14.0, depends on `@loader_path/libzstd.1.dylib`
   (zstd 1.5.7), system libz, libxml2, libedit, libffi, libc++.
 - Ours (`scripts/build/llvm.sh`): LLVM 21.1.8 and zstd 1.5.7 from the release tarballs (SHA-256 pinned), shared libLLVM
-  with the X86 target only, no tools, no libxml2/libedit/libffi, system libz from the SDK, same install names, minos 14.0.
-  56 MB. It depends on the system libraries and `@loader_path/libzstd.1.dylib` only (the script fails otherwise).
+  with the X86 target only, no tools, no libxml2/libedit/libffi, system libz from the SDK, same install names, minos
+  14.0. 56 MB. It depends on the system libraries and `@loader_path/libzstd.1.dylib` only (the script fails otherwise).
 
 ## Equivalence (this Mac, nothing installed)
 
 Harness: the plugin's in-memory read (`nvmtl_air_in_memory`: parse the `0x0B17C0DE` wrapper, the unroll pipeline for
-`air.simdgroup_matrix_8x8` modules, print) over every metallib under `/System/Library` and `/Applications` larger than 8 KB
-(317 files), once per dylib; then the installed `libnvmtl_translate.dylib` on every 25th blob that has a stage.
+`air.simdgroup_matrix_8x8` modules, print) over every metallib under `/System/Library` and `/Applications` larger than
+8 KB (317 files), once per dylib; then the installed `libnvmtl_translate.dylib` on every 25th blob that has a stage.
 
 - 70,053 bitcode blobs (111 of them through the unroll pipeline): the printed IR is byte-identical (SHA-256 per blob
   equal, length equal).

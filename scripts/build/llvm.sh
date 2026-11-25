@@ -38,9 +38,11 @@ ZSRC=$W/zstd-$ZSTD_VER; LSRC=$W/llvm-project-$LLVM_VER.src
 [ -f "$ZSRC/LICENSE" ] || { rm -rf "$ZSRC"; tar -xzf "$DL/zstd-$ZSTD_VER.tar.gz" -C "$W"; }
 [ -f "$LSRC/llvm/LICENSE.TXT" ] || { rm -rf "$LSRC"; tar -xJf "$DL/llvm-project-$LLVM_VER.src.tar.xz" -C "$W"; }
 
-# Reproducible: no build or home path in the binaries. The SDK is the active one; only the minimum macOS is pinned.
-SDK=$(xcrun --sdk macosx --show-sdk-path)   # zlib from the SDK, never a MacPorts or Homebrew copy that the user may not have
-MAPS="-ffile-prefix-map=$HOME=/build -fdebug-prefix-map=$HOME=/build -ffile-prefix-map=$W=/llvm-build -fdebug-prefix-map=$W=/llvm-build"   # the last matching map wins: widest first
+# Path-neutral: no build or home path in the binaries (step 4 checks it). The SDK is the active one; only the minimum
+# macOS is pinned. zlib comes from the SDK, never from a MacPorts or Homebrew copy that the user may not have.
+SDK=$(xcrun --sdk macosx --show-sdk-path)
+# The last matching prefix map wins, so the widest one ($HOME) comes first.
+MAPS="-ffile-prefix-map=$HOME=/build -fdebug-prefix-map=$HOME=/build -ffile-prefix-map=$W=/llvm-build -fdebug-prefix-map=$W=/llvm-build"
 COMMON="-DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES=x86_64 -DCMAKE_OSX_DEPLOYMENT_TARGET=$MINOS"
 STAGE=$W/air-runtime
 rm -rf "$STAGE"; mkdir -p "$STAGE/LICENSES"
@@ -65,7 +67,8 @@ cmake -S "$LSRC/llvm" -B "$W/llvm-build" -G Ninja $COMMON \
   -DLLVM_ENABLE_ASSERTIONS=OFF -DLLVM_ENABLE_PLUGINS=OFF -DLLVM_ENABLE_BINDINGS=OFF \
   -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_DOCS=OFF \
   -DLLVM_BUILD_TOOLS=OFF \
-  -DLLVM_ENABLE_ZLIB=FORCE_ON -DZLIB_LIBRARY="$SDK/usr/lib/libz.tbd" -DZLIB_LIBRARY_RELEASE="$SDK/usr/lib/libz.tbd" -DZLIB_INCLUDE_DIR="$SDK/usr/include" -DLLVM_ENABLE_ZSTD=FORCE_ON -DLLVM_USE_STATIC_ZSTD=OFF \
+  -DLLVM_ENABLE_ZLIB=FORCE_ON -DZLIB_LIBRARY="$SDK/usr/lib/libz.tbd" -DZLIB_LIBRARY_RELEASE="$SDK/usr/lib/libz.tbd" \
+  -DZLIB_INCLUDE_DIR="$SDK/usr/include" -DLLVM_ENABLE_ZSTD=FORCE_ON -DLLVM_USE_STATIC_ZSTD=OFF \
   -Dzstd_INCLUDE_DIR="$ZSRC/lib" -Dzstd_LIBRARY="$W/zstd-build/lib/libzstd.$ZSTD_VER.dylib" \
   -DLLVM_ENABLE_LIBXML2=OFF -DLLVM_ENABLE_LIBEDIT=OFF -DLLVM_ENABLE_FFI=OFF -DLLVM_ENABLE_TERMINFO=OFF \
   -DLLVM_ENABLE_CURL=OFF -DLLVM_ENABLE_HTTPLIB=OFF -DLLVM_APPEND_VC_REV=OFF
@@ -91,7 +94,7 @@ printf 'LLVM %s (SHA-256 %s)\nzstd %s (SHA-256 %s)\nSource: %s\n        %s\nBuil
   "$LLVM_VER" "$LLVM_SHA256" "$ZSTD_VER" "$ZSTD_SHA256" "$LLVM_URL" "$ZSTD_URL" >"$STAGE/LICENSES/SOURCES.txt"
 ( cd "$STAGE" && for f in libLLVM.dylib libzstd.1.dylib; do echo "$(md5 -q "$f")  $f"; done >MD5SUMS )
 
-# 4. checks: no build path, x86_64, every symbol the plugin resolves, the dependencies
+# 4. checks: no build path, x86_64, the 38 symbols the plugin resolves (NVMTLLibraryLoad.m), the dependencies
 homecheck "$STAGE/libLLVM.dylib" "$W"
 homecheck "$STAGE/libzstd.1.dylib" "$W"
 file "$STAGE/libLLVM.dylib" | grep -q x86_64 || { echo "llvm.sh: libLLVM.dylib is not x86_64" >&2; exit 1; }

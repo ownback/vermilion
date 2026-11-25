@@ -250,8 +250,8 @@ device, and the boot falls back to the firmware framebuffer.**
   with LLVM exception) and zstd 1.5.7 (BSD) from the pinned release tarballs into `build/air-runtime/` with their
   notices in `LICENSES/`, and `sh tools/phxctl/air_runtime_install.sh` installs it (notices into
   `Contents/Resources/air-runtime`). The same build runs in CI (`.github/workflows/air-reader.yml`). NullMoth's bundle
-  carries an LLVM 21.1.8 build of it too (Homebrew's): the reference machine's copy came from there, and it stays
-  only as a fallback: without a build of ours, `air_runtime_install.sh` keeps a copy already in the bundle.
+  carries an LLVM 21.1.8 build of it too (Homebrew's); the reference machine's copy came from there. It is only a
+  fallback: without a build of ours, `air_runtime_install.sh` keeps a copy already in the bundle.
 - **`spirv-val`** (SPIRV-Tools). The translator validates every SPIR-V module it produces by running `spirv-val`
   (`src/translator/translator/src/tools.rs`). It looks in `METAL2VULKAN_SPIRV_VAL` (an absolute path), then
   `/opt/homebrew/opt/llvm/bin`, `/usr/local/opt/llvm/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, then `PATH`. From

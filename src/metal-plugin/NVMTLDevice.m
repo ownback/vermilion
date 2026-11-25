@@ -97,18 +97,22 @@ const char *nvmtl_log_path(void) {
     }
     return path;
 }
-void nvlog(const char *fmt, ...) {
-    uint64_t rep; if (nvlog_dropped(fmt, &rep)) return;
-    char b[512]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
-    char t[640];
-    if (rep) snprintf(t, sizeof t, "%s   [logged %llu times now]", b, (unsigned long long)rep);
-    else     snprintf(t, sizeof t, "%s", b);
+// One finished line to the logs; nvlog formats it and limits each call site.
+static void nvlog_emit(const char *t) {
 #if NVMTL_RELEASE
     if (nvmtl_log_failure(t)) syslog(LOG_ERR, "NullMoth: %s", t);
 #else
     syslog(LOG_NOTICE, "NVMTL: %s", t);
     FILE *f = fopen(nvmtl_log_path(), "a"); if (f) { fprintf(f, "pid %d NVMTL: %s\n", getpid(), t); fclose(f); }
 #endif
+}
+void nvlog(const char *fmt, ...) {
+    uint64_t rep; if (nvlog_dropped(fmt, &rep)) return;
+    char b[512]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+    char t[640];
+    if (rep) snprintf(t, sizeof t, "%s   [logged %llu times now]", b, (unsigned long long)rep);
+    else     snprintf(t, sizeof t, "%s", b);
+    nvlog_emit(t);
 }
 
 #define NVMTL_OOM_STREAK      32

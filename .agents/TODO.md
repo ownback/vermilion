@@ -77,6 +77,51 @@ PROJECT_KNOWLEDGE.
   - Open, not in this branch: after a bring-up failure that isn't a warm refusal, `navi31_up.sh` and the daemon still
     go on to the claim, with the watchdog armed (hw-safety-reviewer, 2026-11-24).
 
+- [ ] **Phase 2 item 2: deploy the plugin crash fixes** (branch `ownback/plugin-crash-fixes`, after the merge;
+  [finding](findings/2026-11-25-plugin-crashes-root-cause.md)). A new `NVMTLDriver`, so also a VermilionTrust + EFI
+  change (runbooks, "Deploying a plugin, translator or RADV build"). One EFI change, its own boot, under the machine
+  lock, after item 1 (b) has booted (the EFI rebuild carries it). Everything below is (unverified) until that boot.
+  - Before: on main, `VULKAN_HEADERS=<Vulkan-Headers>/include sh scripts/build/plugin.sh`, then the four host tests in
+    `tests/plugin/` green (`test_copy_compat.c`, `test_safe_copy.c` as in their headers; `test_dead_cmdbuf.m` and
+    `test_texture_nil_log.m` against `build/NVMTLDriver`). Note the new binary's cdhash (`codesign -dvvv
+    build/NVMTLDriver 2>&1 | grep CDHash`).
+  - Rollback copy: `mkdir -p ~/vermilion-rollback/NVMTLDriver.pre-crashfixes-<date> && cp -p
+    /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/NVMTLDriver` into it. The installed build is UUID `B42521DC`
+    (cdhash `344c621f`, 2026-11-25); check that it still is before copying.
+  - Install: the binary as `.new` next to the old one, then `mv` (a running WindowServer keeps the file it mapped).
+    The path resolves through the `/Library/GPUBundles` symlink into `CoreTypes.bundle/Contents/Library/PhxGPU`, a
+    firmlink into the Data volume: not a system-volume change. Then `PHXTRUST_KEEP=1 sh scripts/build/trust.sh` (the
+    old cdhash stays as `-previous`) and rebuild the EFI on the Mac; `diff -rq` against the ESP shows only
+    `Kexts/VermilionTrust.kext`. Install with `EFI/OC.prev` = the current EFI. Delete `build/efi/` afterwards.
+  - Check after the boot:
+    - `sysctl debug.phxtrust_stat`: `mode=enforce`, `denied_unlisted=0`; `sysctl debug.phxtrust_files` lists the new
+      `NVMTLDriver` cdhash; accelerated desktop at 240 Hz; `/var/log/phxboot.log` ends in `SUCCESS`.
+    - The plugin reaches the unified log: `log show --last 5m --predicate 'subsystem == "org.vermilion.nvmtl"' | head`
+      shows `NVMTL:` lines from WindowServer.
+    - Music (the owner, normal use): "Drake - Jaded" and a scroll through the album grid. No new `Music-*.ips`. Any
+      `readback dropped` or `went away during the GPU wait` line in the log is the old crash, now caught.
+    - Maps reproduction (the owner's OK first; a GPU load as large as normal Maps use): open Maps, pan and zoom over a
+      city in Explore, switch to Satellite and 3D, stop at the crash or after 2 min. Then
+      `log show --last 5m --predicate 'subsystem == "org.vermilion.nvmtl"' > ~/maps-nvmtl-log.txt`, note any new
+      `Maps-*.ips`, and look for `texture nil:` lines: they name the path, the reason and the descriptor. The fix for
+      that path is the item below ("Maps: the path the reproduction names").
+  - Rollback: the old binary back from the rollback copy as `.new` + `mv` (the new trust list keeps it as
+    `-previous`), restart; or `EFI/OC.prev` (the old list doesn't trust the new binary: restore the old binary first).
+    If the desktop has no acceleration after the boot (WindowServer refused the plugin), restore the old binary over
+    ssh and restart.
+- [ ] **Phase 2 item 2, step 2: Music write-back as Apple does** (M; finding section 1, fix 2). No CPU copy through
+  the app's address: import the IOSurface's pages when the texture is made (or let the kext take them by IOSurface
+  ID), and write the private image back with a GPU copy (`vkCmdCopyImageToBuffer`, `bufferRowLength` 600) at the end
+  of the command buffer that wrote it. This extends the multi-plane `_planeHost` path to single-plane surfaces with an
+  unaligned pitch (2400 B), both ways. Step 1 (the fault-safe copy) is on `ownback/plugin-crash-fixes`.
+- [ ] **Phase 2 item 2: Maps: the path the reproduction names** (finding section 2, fix 2): the Metal contract is nil
+  only for an invalid descriptor. If it is the 250 ms allocation block (`allocations failing` in the log): evict,
+  fall back to system memory or wait, never fail a whole window. Ties in with sizing the pools from the hardware
+  (row A3, item 8).
+- [ ] **Phase 2 item 2: the plugin's other `syslog()` calls** (`NVMTLX420.m`, `nvmtl_imgmem.c`, `nvmtl_pitch_align.c`,
+  `NVMTLWSCapture.m`, `NVMTLHolders.m`, the ANGLE line in `NVMTLDevice.m`) still bypass `nvlog`: move them to the
+  `org.vermilion.nvmtl` subsystem too.
+
 - [x] **03: VermilionAccel with `debug.phxgl`** (not an EFI change): installed 23:05, booted 23:18 (UUID `2B25514A`),
   OpenGL over Metal verified 23:25 (finding section 8). Rollback:
   `~/vermilion-rollback/VermilionAccel.kext.pre-phxgl-20261123`, `kmutil load -p`, Allow, restart; or just
@@ -192,8 +237,9 @@ PROJECT_KNOWLEDGE.
       standby. Linux's DPMS sequence captured; the fix moved to **05 Sleep and wake** (coordination thread, owner's OK)
 - [ ] b138 freeze at 1280x1024 (low priority): leading guess is GPU present restarting on the small slot layout
       ([finding](findings/2026-11-20-b138-freeze-and-squat-loop.md)); then GPU present at every size
-- [ ] Music's skipped readbacks: the `nvmtl_plane_mapped` guard stops the crash, but those pixels never reach the
-      surface. A GPU mapping of the IOSurface pages, as a real driver does
+- [ ] Music's skipped readbacks: the `nvmtl_plane_mapped` guard and the fault-safe readback copy (phase 2 item 2)
+      stop the crash, but those pixels never reach the surface. A GPU mapping of the IOSurface pages, as a real
+      driver does: "Phase 2 item 2, step 2" under Staged now
 - [ ] b150's underflow fix was checked at 144 Hz only (4 vs 0 underflows); check at 240 with ODM + DSC
 - [ ] `bringup_navi31.sh` says "this card is rev 0xcc" and "non-kicker firmware": name both revisions; find out
       whether the XTX needs kicker firmware ([docs/XTX.md](../docs/XTX.md) #6)

@@ -34,7 +34,7 @@ VermilionAccel `03c1e47d`). Everything not tested on hardware is marked (unverif
 
 ### Kernel (VermilionBoot, Boot KC)
 
-- `PhxFBSquatter` (`src/vermilion-boot/phx_classes.cpp:415-460`, personality `src/vermilion-boot/Info.plist:40-55`:
+- `PhxFBSquatter` (`src/vermilion-boot/phx_classes.cpp:415-461`, personality `src/vermilion-boot/Info.plist:40-56`:
   `IOProviderClass IOPCIDevice`, `IONameMatch display`, `IOPCIPrimaryMatch 0x744c1002`, `IOMatchCategory
   IOFramebuffer`, score 30000). It beats IONDRVFramebuffer (score 20000, System KC, so it probes later) for the
   IOFramebuffer category of the GPU's function 0. While the category is held, PhxAMDFB (on the PhxDisplay nub) is
@@ -43,17 +43,17 @@ VermilionAccel `03c1e47d`). Everything not tested on hardware is marked (unverif
 - `takeSquatArming()` (`:428-447`): squat when `/options` has `phxfb-squat`. It removes the property, forces a commit
   (`IONVRAM-FORCESYNCNOW-PROPERTY`) and reads it back. When the read-back still finds it, it calls the variable
   "stuck" and doesn't squat. `probe()` (`:449-454`) returns no driver with `-phxbringupoff`.
-- Why the stuck check never fires: the removal only edits IODTNVRAM's copy in memory, which then reads "absent".
-  The firmware write is refused later, out of sight. On the next boot the firmware still has the variable. The
-  daemon's `rearm` (`tools/phxctl/phxboot-navi31.sh:265`) writes the same copy in memory and reads it back, so its
-  "read-back ok" proves nothing across a reboot. Today `nvram phxfb-squat` reads `1`: that is the in-memory value the
-  11:42 SUCCESS re-armed, not proof of a firmware write.
+- Why the stuck check never fires: the removal only edits IODTNVRAM's copy in memory, which then reads "absent". The
+  firmware write is refused later, out of sight. On the next boot the firmware still has the variable. The daemon's
+  `rearm` (`tools/phxctl/phxboot-navi31.sh:265`) writes the same copy in memory and reads it back, so its "read-back ok"
+  proves nothing across a reboot. On 2026-11-25 `nvram phxfb-squat` reads `1`: that is the in-memory value the 11:42
+  SUCCESS re-armed, not proof of a firmware write.
 - The kext has no Safe Mode, Recovery or installer check. Its `OSBundleRequired` is `Root`
-  (`src/vermilion-boot/Info.plist`), so it loads in Safe Mode and Recovery. VermilionAccel has none, and it loads from
-  the AuxKC, which neither of them loads (unverified for this build).
-- PhxAMDFB's `phxfb-boot` (`src/vermilion-accel/accel/phxfb.cpp:1382-1414`) has the same one-shot pattern. The
-  daemon sets it in the same boot (`:320`), so it works as a same-boot handshake, but its "removed and committed" is
-  just as unreal across a reboot.
+  (`src/vermilion-boot/Info.plist:75-76`), so it loads in Safe Mode and Recovery. VermilionAccel has none, and it loads
+  from the AuxKC, which neither of them loads (unverified for this build).
+- PhxAMDFB's `phxfb-boot` (`src/vermilion-accel/accel/phxfb.cpp:1382-1414`) has the same one-shot pattern. The daemon
+  sets it in the same boot (`phxboot-navi31.sh:320`), so it works as a same-boot handshake, but its "removed and
+  committed" is just as unreal across a reboot.
 
 ### OpenCore
 
@@ -113,9 +113,9 @@ On the XTX machine (squat at every boot, `STUCK=1`), from the code above and the
 | Safe Mode (Shift) | daemon: unknown whether third-party LaunchDaemons run (unverified); VermilionAccel doesn't load | **likely no picture** (unverified) | - | as above |
 | `-phxbringupoff` | not a squat boot: IONDRV, GOP + Metal for apps | GOP | - | it is an EFI change (boot-args from the config) |
 
-Two smaller facts from the log: `previous shutdown cause` reads 5 on today's boots. The early-boot kernel lines of
-2026-11-24 00:16 (the boot after the 00:14 freeze) are no longer in the unified log. So whether VirtualSMC reports
-a different cause after a freeze is unknown. It isn't used below.
+Two smaller facts from the log: `previous shutdown cause` reads 5 on the boots of 2026-11-25. The early-boot kernel
+lines of 2026-11-24 00:16 (the boot after the 00:14 freeze) are no longer in the unified log. So whether VirtualSMC
+reports a different cause after a freeze is unknown. It isn't used below.
 
 ## 3. The Fable-pass open points (item 1) in detail
 
@@ -125,8 +125,9 @@ a different cause after a freeze is unknown. It isn't used below.
    the safe desktop until the `rm`. A refusal is not a driver failure. It must not set `FAILF`, call `m2_fail` or
    reboot.
 2. **`m2_fail` after a refusal** runs `apps_only` (writes the allow list), `b21_on` (loginwindow keys), and
-   `sysctl -w debug.phxagdc=0`. PhxAMDFB registers that oid only at the end of its start (`:627-630`), and it doesn't
-   start without a claim, so the write fails and reaches no hardware (code reading; unverified on hardware).
+   `sysctl -w debug.phxagdc=0`. PhxAMDFB registers that oid only at the end of its start
+   (`phxboot-navi31.sh:627-630`), and it doesn't start without a claim, so the write fails and reaches no hardware
+   (code reading; unverified on hardware).
    Harmless, but none of it belongs on a GPU that nothing touched.
 3. **A bring-up failure that isn't the warm refusal still claims the GPU.** `:328` matches only `refused: warm GPU`.
    For any other `navi31_up.sh` failure, the daemon goes on to `aoc_modes`, `p0modes`, the VRR and HDR writes and
@@ -193,7 +194,7 @@ No hold, and so IONDRV at once:
   `rp`, `arp0` and the `IMAGEBOOT_ROOT_ARG` / `IMAGEBOOT_AUTHROOT_ARG` boot-args (`bsd/kern/imageboot.c`). Which
   one boot.efi passes for an APFS Recovery boot, and whether it passes it as a boot-arg or in `/chosen`, is
   (unverified): the first Recovery test records it. A normal boot here has none of them in `kern.bootargs`
-  (checked today). The timeout covers a miss.
+  (checked 2026-11-25). The timeout covers a miss.
 
 ### 5.3 The daemon: record, fallback, return, notice
 
@@ -237,7 +238,8 @@ No hold, and so IONDRV at once:
 The design adds no register write and no SMU, PSP or DAL message. It terminates no driver on the GPU's functions.
 It keeps the kill switch, the pending mark, the bring-up watchdog and the dark-display restart. It makes the GOP
 revert real instead of a reboot into the same squat. Reset NVRAM becomes harmless: nothing depends on
-`phxfb-squat` any more. Bringing it back, and rewording hard rule 1, is the owner's decision.
+`phxfb-squat` any more. Bringing the picker's Reset NVRAM entry back, and rewording hard rule 1, is the owner's
+decision.
 
 ## 6. Ranked plan
 

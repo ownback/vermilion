@@ -46,8 +46,11 @@ still claims the GPU (part of item 3). Seen by the Fable pass on #22 (`8a663b0`)
 - `m2_fail` after a refusal still runs `debug.phxagdc=0` and `apps_only` on the untouched GPU: unreviewed;
 - the audit finding (`2026-11-24-audit-display.md`) still calls `debug.phxfb_kill_iondrv` live; it is gone since 07:01.
 
-Item 2: a read-only root-cause agent started 2026-11-25 07:05 and was stopped at 07:10 for the owner's shutdown;
-restart it with the same brief (finding `2026-11-25-plugin-crashes-root-cause.md`, branch `ownback/plugin-crash-rca`).
+Item 2: root causes in #23 (Music: surface freed during the GPU wait after the guard; A6: nil command buffer after a
+GPU loss, WindowServer recurses; Maps: no plugin log reaches the sandbox, unsolved). Fix branch
+`ownback/plugin-crash-fixes` in progress (fault-safe readback, dead command buffer, os_log); the Maps reproduction
+runs after its deploy. Item 3: design in #24 (`AAPL,iokit-ignore-ndrv` instead of the squatter, released in the same
+boot); step 1 (daemon only) in progress on `ownback/recovery-daemon`.
 Step (a)'s cold-boot check passed 2026-11-25 11:40 (power-off, `sOS check: C2PMSG_81=0x00000000 (cold)`, `SUCCESS at
 11:42:43`).
 

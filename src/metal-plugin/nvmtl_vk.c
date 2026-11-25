@@ -4978,7 +4978,8 @@ static int nvmtl_vk_cmd_begin_once(nvk_queue *q, nvk_cmdbuf *out)
 // CoreDisplay asserts on nil ("Failed to get a MTLCommandBuffer", the 2026-10-26 login crashes). The plugin's own
 // uploads, blits and restarts begin command buffers here too, and a failure there drops that work silently. So a
 // refusal that can pass (pool, allocation or begin failing while other threads free theirs) is retried for about
-// 0.8 s before any caller sees it; a backend that is down fails at once.
+// 0.8 s before any caller sees it; a backend that is down fails at once. -[NVMTLCommandQueue commandBuffer] turns a
+// failure from here into a dead command buffer (NVMTLDeadEncoder.m), never nil.
 int nvmtl_vk_cmd_begin(nvk_queue *q, nvk_cmdbuf *out)
 {
     int tries = 0;

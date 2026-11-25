@@ -1333,7 +1333,9 @@ static id nvmtl_surface_sync(NVMTLTexture *t) {
 // its base address after that memory is freed: Music, on the XTX machine on 2026-11-22/23 (26 crash reports, "Drake -
 // Jaded" every time), wrote its readback to an address that was in no region, right after an ImageIO guard page,
 // while the size checks in nvmtlSurfaceCopyable all passed. A GPU-mapped surface on a real Mac never touches that
-// mapping. Checked after IOSurfaceLock, per copy (one mach_vm_region per VM region the plane spans).
+// mapping. Checked after IOSurfaceLock, per copy (nvmtl_span_mapped: one mach_vm_region per VM region the plane spans).
+// The plane can still go between this check and the copy: nvmtl_vk_image_read checks again after its GPU wait and
+// copies through the kernel (nvmtl_safe_copy.h), so a readback into a plane that is gone is dropped, not a fault.
 #include "nvmtl_safe_copy.h"
 static BOOL nvmtl_plane_mapped(NVMTLTexture *r, const void *base, size_t row, vm_prot_t need) {
     const nvk_image *i = &r->_i;

@@ -1,0 +1,72 @@
+# SPDX-License-Identifier: MIT
+# The AIR bitcode reader (libLLVM.dylib + libzstd.1.dylib) built from LLVM's source by scripts/build/llvm.sh, with the
+# licence notices the bundle ships. Runs on a tag push and by hand; uploads the result as an artefact.
+# The result depends only on scripts/build/llvm.sh (versions and SHA-256s are pinned in it), so a finished build is
+# cached by the hash of that script and its helper, and a rerun without a change to them does no compiling.
+name: air-reader
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  air-reader:
+    # Intel macOS: the reader must be x86_64 (the reference machine is an x86_64 Hackintosh)
+    runs-on: macos-15-intel
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Tools
+        run: |
+          uname -m
+          brew list cmake >/dev/null 2>&1 || brew install cmake
+          brew list ninja >/dev/null 2>&1 || brew install ninja
+          brew list ccache >/dev/null 2>&1 || brew install ccache
+          cmake --version | head -1
+          ninja --version
+
+      - name: Cache the finished build
+        id: done
+        uses: actions/cache@v4
+        with:
+          path: build/air-runtime
+          key: air-reader-${{ runner.os }}-x86_64-${{ hashFiles('scripts/build/llvm.sh', 'scripts/build/lib.sh') }}
+
+      - name: Cache the compiler output
+        if: steps.done.outputs.cache-hit != 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: air-reader-ccache-${{ hashFiles('scripts/build/llvm.sh') }}
+          restore-keys: air-reader-ccache-
+
+      - name: Build
+        if: steps.done.outputs.cache-hit != 'true'
+        env:
+          LLVM_LAUNCHER: ccache
+          CCACHE_BASEDIR: ${{ github.workspace }}
+          CCACHE_MAXSIZE: 2G
+        run: sh scripts/build/llvm.sh
+
+      - name: Check the result
+        run: |
+          set -eu
+          cd build/air-runtime
+          file libLLVM.dylib | grep -q x86_64
+          otool -L libLLVM.dylib libzstd.1.dylib
+          ls LICENSES
+          shasum -a 256 libLLVM.dylib libzstd.1.dylib | tee ../air-runtime.SHA256SUMS
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: air-runtime
+          path: |
+            build/air-runtime/
+            build/air-runtime.SHA256SUMS
+          if-no-files-found: error
+          retention-days: 90

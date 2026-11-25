@@ -115,8 +115,10 @@ Listed for the release packages ([`docs/RELEASE.md`](docs/RELEASE.md)); each nee
 - `spirv-val` (KhronosGroup SPIRV-Tools, Apache-2.0): the translator validates its output with it;
   `tools/phxctl/recovery_install.sh` installs `build/spirv-val`.
 - The AIR bitcode reader `air-runtime/libLLVM.dylib` (LLVM, Apache-2.0 with LLVM exceptions) and `libzstd.1.dylib`
-  (zstd, BSD-3-Clause): today taken from NullMoth's bundle by `tools/phxctl/air_runtime_install.sh`; to be built by
-  this project from source before a release.
+  (zstd, BSD-3-Clause): built by this project from the release sources of LLVM 21.1.8 and zstd 1.5.7
+  (`scripts/build/llvm.sh`, CI: `.github/workflows/air-reader.yml`); the build writes the notices
+  (`LLVM-LICENSE.txt`, `ZSTD-LICENSE.txt`, `ZSTD-COPYING.txt`, `SOURCES.txt`) to `air-runtime/LICENSES/`, and
+  `tools/phxctl/air_runtime_install.sh` installs them next to the libraries. NullMoth's copy is only a fallback.
 - The FFmpeg libraries `libavcodec_phx` / `libavutil_phx` (LGPL-2.1-or-later): a release must offer their
   corresponding source (FFmpeg n7.1 + `patches/ffmpeg` + `scripts/build/ffmpeg.sh`).
 - `libvulkan_radeon.dylib` (Mesa, MIT) and `libnvmtl_translate.dylib` (LGPL-3.0-or-later, with the Rust crate

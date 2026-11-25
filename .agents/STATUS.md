@@ -9,14 +9,13 @@ The evidence for every row is in the audit findings, by row number:
 [last threads' state](findings/2026-11-24-audit-thread-handover.md). States: **works**, **broken**, **missing**,
 **not standard** (works, but not as Apple would ship it). Size: S about a day, M days, L weeks.
 
-## Boot in progress (2026-11-25 23:35)
+## Last boot (2026-11-25 23:35, XTX machine): EFI change 38 passed
 
-**EFI change 38:** VermilionBoot b162 (XTX-only gate + direct VRAM scan-out, off until the switch file) and
-VermilionAudio 1.7.3; VermilionTrust 1.0.4 unchanged; VermilionAccel 0.1.1 in the AuxKC (approved 23:34). Must show:
-boot log `phx-build` 162 and no board-refusal line, `SUCCESS` in `/var/log/phxboot.log`, `debug.phxaudio_stat`
-patched, `sysctl debug.phxscan_layout` ending in `allowed 1, BAR0 1024 MiB`, `kmutil showloaded` with
-org.vermilion.accel 0.1.1, desktop at 240 Hz, monitor sound. If not: swap `EFI/OC` and `EFI/OC.prev` (change 37; copy
-in `~/vermilion-rollback/EFI-OC.change37-20261125`), and put back `~/vermilion-rollback/VermilionAccel.kext.0.1.0-20261125`.
+VermilionBoot b162 (XTX-only gate + direct VRAM scan-out, off until the switch file), VermilionAudio 1.7.3,
+VermilionAccel 0.1.1 (AuxKC), VermilionTrust 1.0.4. Seen: `phx-build` 162, no board-refusal line, daemon `SUCCESS` at
+23:38:11 (2 min 20 s after boot), 2560x1440 at 240 Hz, `debug.phxaudio_stat` patched, `debug.phxscan_layout`
+`allowed 1, BAR0 1024 MiB`, refused 0. A shutdown-stall report from the restart (known, plan B5). `EFI/OC.prev` is
+change 37. Next: boot B (NVMTLDriver 1c15df79 with #40 + #34, VermilionTrust), then the `ws-direct` switch.
 
 ## Phase 2 order: stabilise
 

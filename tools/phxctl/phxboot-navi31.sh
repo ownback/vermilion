@@ -443,6 +443,13 @@ echo "$UPOUT" | grep -m1 '^sOS check:'   # C2PMSG_81 before the power-up, at eve
 # The one-shots set for this boot are taken back (phxfb-boot), no Metal allow list or debug.phxagdc write (nothing runs
 # on the GPU, the oid does not exist), and no reboot by the daemon except a non-stuck squat boot's way back to IONDRV.
 upfail_end(){ trap - TERM; rm -f "$MARK"; [ $DESK = 1 ] && nvram -d phxfb-boot; sync; }
+# ~/gpu/phxboot-desktop (one desktop attempt on a non-squat boot) after a bring-up that did not come up: a failure uses
+# it up, as m2_fail does, so the next boot doesn't run the same attempt again (it is a GOP boot until the owner arms
+# again). The warm refusal keeps it: nothing was attempted, and the cold boot after the power-off should get the desktop
+# that was asked for. A refusal repeats only on another warm boot, and the daemon never restarts after one.
+desk_used(){ [ -e "$DESKTOP" ] || return 0
+  if [ "$1" = keep ]; then echo "phxboot-desktop kept for the next boot (the refusal was no desktop attempt)"
+  else rm -f "$DESKTOP"; sync; echo "phxboot-desktop used up by the failed bring-up: the next boot is a GOP boot"; fi; }
 # A warm GPU (PSP sOS already running): bringup_navi31.sh wrote nothing and refused. That is not a driver failure: the
 # record stays as it was and nothing reboots (a restart keeps the GPU warm). Only a full power-off makes it cold again.
 # On a squat boot the screen stays dark until the kext can hand the display back in the same boot (plan step 3).
@@ -450,12 +457,12 @@ upfail_end(){ trap - TERM; rm -f "$MARK"; [ $DESK = 1 ] && nvram -d phxfb-boot; 
 # PhxBringup doesn't answer: a failure that repeats, so it takes the failure path below (counted, the loop guard),
 # where "shut down fully" would be the wrong advice.
 case "$UPOUT" in *"refused: warm GPU ("*)
-  upfail_end; REC_L=skip; rec_save "warm GPU refused"
+  upfail_end; desk_used keep; REC_L=skip; rec_save "warm GPU refused"
   echo "warm GPU: bring-up refused, no Metal this boot ($([ $SQUAT = 1 ] && echo 'a squat boot: no display without the claim, the screen stays dark; ssh and T3 reach the machine' || echo 'firmware display')); power the machine off fully, then boot macOS. Nothing was written to the GPU: not counted as a failed attempt, no reboot"
   notice "The graphics card was still running from another operating system. Shut down (don't restart), then turn the computer on again to get graphics acceleration back."
   leave;; esac
 if [ $UPOK = 0 ]; then
-  upfail_end; REC_B=$(inc "$REC_B"); REC_L=skip; rec_fail "bring-up failed"
+  upfail_end; desk_used; REC_B=$(inc "$REC_B"); REC_L=skip; rec_fail "bring-up failed"
   echo "bring-up failed: no claim, no Metal this boot ($(echo "$UPOUT" | grep -m1 '^navi31 not up:' || echo "navi31_up.sh rc $UPRC without 'navi31 up:'"))"
   # A failure inside bringup_navi31.sh leaves its watchdog armed: it gives the PSP, SMU and RLC their 3 minutes, so the
   # daemon doesn't restart sooner (hw-safety review 2026-11-25); a non-stuck squat boot only clears the squat, so that

@@ -35,6 +35,15 @@ still claims the GPU (part of item 3). Seen by the Fable pass on #22 (`8a663b0`)
 - `m2_fail` after a refusal still runs `debug.phxagdc=0` and `apps_only` on the untouched GPU: unreviewed;
 - STATUS row 1 and the audit finding call `debug.phxfb_kill_iondrv` live until deploy step (c).
 
+Item 3: design on #24 (finding `2026-11-25-recovery-trap-design.md`). Step 1 (daemon and `navi31_up.sh` only, no
+EFI change) on branch `ownback/recovery-daemon`, mock-tested, not deployed (TODO, "Phase 2 item 3 step 1"). It closes
+the three points above: the warm refusal records nothing, writes nothing and doesn't restart the machine; `m2_fail`
+writes the Metal allow list and `debug.phxagdc=0` only after the claim; a bring-up without `navi31 up:` claims nothing
+(the watchdog stays; after 2 failed bring-ups in a row one boot skips the bring-up). The record
+`/var/db/phxboot.fails` replaces the daemon-made kill switch and `phxboot-failed`: one clean safe-desktop boot (3
+after 3 failures in a row), then the full desktop by itself, with one notification after login (unverified on
+hardware). Safe Mode exits. On a squat boot a refusal or a failed bring-up stays dark until step 3.
+
 System sleep, HDMI, a second monitor and the release shape need the phase 3 work first (bring-up in the kernel, own
 mode setting).
 

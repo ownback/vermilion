@@ -169,10 +169,12 @@ sequenceDiagram
 
 The fail-safes matter as much as the bring-up ([INSTALL.md](INSTALL.md) sections 7-8):
 
-- **Kill switch** `~/gpu/phxboot-off`: the daemon does nothing.
-- **Pending mark** `/var/db/phxboot.pending`: if a desktop attempt didn't finish, the next boot stays on the GOP and
-  sets the kill switch.
-- **Revert:** any failure goes back to the firmware framebuffer on the next boot (`phxboot-failed`).
+- **Kill switch** `~/gpu/phxboot-off`: the daemon does nothing. Only the owner sets it.
+- **Pending mark** `/var/db/phxboot.pending`: set from the bring-up on; if an attempt didn't finish, the next boot
+  stays on the GOP (on a stuck squat: the safe desktop).
+- **Revert:** any failure goes back to the firmware framebuffer (or the safe desktop) on the next boot. The record
+  `/var/db/phxboot.fails` brings the full desktop back by itself after clean fallback boots. A bring-up that didn't
+  finish claims nothing.
 - **Watchdog:** a 3-minute reboot is armed while the PSP and SMU are being loaded.
 - **Hang watch:** two WindowServer GPU hangs within five minutes mean a revert.
 

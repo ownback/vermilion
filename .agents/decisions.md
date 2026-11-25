@@ -602,3 +602,21 @@ the same register, then a Mode1 reset (an SMU message and PCI config writes; hw-
 Refusing is the part of that we can do without adding a message.
 **Revisit:** if a warm macOS restart turns out to leave the sOS running (the daemon logs `sOS check:` at every boot).
 Then the warm restart needs Linux's Mode1 reset path, with its own hw-safety review.
+
+## 2026-11-25: The daemon returns to the full desktop by itself (phase 2 item 3 step 1)
+
+**Decision:** the boot daemon keeps its failure record in `/var/db/phxboot.fails` (root-owned, written only by it) and
+no longer creates the kill switch or `~/gpu/phxboot-failed`. After a failed or unfinished attempt the next boots are
+fallback boots (the safe desktop on a stuck squat, GOP elsewhere) until N of them finished, then the full desktop is
+tried again. N = 1, and 3 once 3 attempts in a row failed. A fallback boot counts as clean at the next boot's start
+when it left no in-progress mark, not at its TERM: a dark boot the owner powers off would never count, and the
+daemon of a failed stuck-squat boot exits early. The warm refusal is not a failure. A bring-up without `navi31 up:`
+claims nothing; after 2 failed bring-ups in a row one boot skips the bring-up (no watchdog, no restart), the next
+tries again. One notification after login says why the desktop is in basic mode.
+**Why:** one freeze cost a degraded machine until a manual `rm` (STATUS D7). One clean boot shows that the machine and
+the plain path work, and the failures seen so far (the 2026-11-24 freeze, the HDR freeze) did not repeat on the next
+attempt. A failure that repeats costs every second boot, after 3 in a row every fourth: never every boot, never a
+manual repair, and never more than 2 restarts in a row by themselves. Design:
+`findings/2026-11-25-recovery-trap-design.md`.
+**Revisit:** with plan step 3 (the kext hands the display back in the same boot) the fallback becomes a GOP boot and
+the safe desktop goes (step 4). If a failure repeats on hardware more often than the backoff allows for, raise N.

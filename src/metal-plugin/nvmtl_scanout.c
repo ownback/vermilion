@@ -11,7 +11,7 @@
  * Cobalt64 does. The display pipe's own copies keep going to the console surface, which is off screen meanwhile.
  * Any failure gives the plane back and leaves this process on the CPU copy for good.
  *
- * Direct scan-out (kext b161, nvmtl_scan_direct.h; /Library/GPUBundles/nvmtl/ws-direct): with CDCOPY, the two display
+ * Direct scan-out (kext b162, nvmtl_scan_direct.h; /Library/GPUBundles/nvmtl/ws-direct): with CDCOPY, the two display
  * surfaces' own GPU memory is bound to VRAM slots 0 and 1, so CoreDisplay draws them in VRAM and a present is the flip
  * alone, no copy. Slot 2 only takes the bounce (the surface on screen written again with no other flip coming). Before
  * a command buffer that writes a bound surface is submitted, nvmtl_vk_scanout_write_gate waits until HUBP0 cannot be
@@ -37,7 +37,7 @@ struct nvmtl_scan_status { uint32_t acquired, flags, front_slot, pending_slot; u
                            uint64_t presents, latched, replaced, repeats, vupdates, latch_irq, latch_poll, refused, first_latch_ns, last_latch_ns;
                            uint64_t idle_ms, watchdog_restores, storm_trips, geom_refused; struct nvmtl_scan_slot slot[3]; };
 #include "nvmtl_scan_direct.h"
-/* kext b161 (PhxNativeABI.h): selector 22 PHXN_SEL_SCAN_DIRECT, reached through RADV's radv_darwin_n48n_call */
+/* kext b162 (PhxNativeABI.h): selector 22 PHXN_SEL_SCAN_DIRECT, reached through RADV's radv_darwin_n48n_call */
 #define NVMTL_SEL_SCAN_DIRECT    22u
 #define NVMTL_SCANQ_DIRECT_OK    (1u << 8)   /* PHXN_SCANQ_DIRECT_OK */
 #define NVMTL_SCANSLOT_WRITABLE  (1u << 4)   /* PHXN_SCANSLOT_WRITABLE: not pending, not EARLIEST_INUSE, not the latched front */
@@ -68,7 +68,7 @@ static struct {
     uint64_t presents, drops, copyUs;
     uint64_t waitUs, probeUs, flipUs, lastT, gapBin[5];   /* present split + present-to-present interval buckets (<8, <16, <33, <100, >=100 ms) */
     dispatch_source_t keepalive;
-    int direct, nslots;                          /* b161: 1 = direct scan-out (slots 0/1 bound, slot[0] the bounce); slot BOs made */
+    int direct, nslots;                          /* b162: 1 = direct scan-out (slots 0/1 bound, slot[0] the bounce); slot BOs made */
     int (*n48n)(VkDevice, uint32_t, const uint64_t *, uint32_t, const void *, size_t, uint64_t *, uint32_t *, void *, size_t *);
     int (*bohandle)(VkDevice, VkDeviceMemory, uint32_t *);
     nvmtl_scan_dsurf dsurf[2];
@@ -84,7 +84,7 @@ static int g_scan_geom_wait;
    cause is not known (.agents/findings/2026-11-20-b138-freeze-and-squat-loop.md); lift this only with that understood. */
 static uint32_t g_scan_first_w, g_scan_first_h;
 
-/* b161 direct scan-out state outside g_scan. g_sd (the display surfaces CoreDisplay wrote, nvmtl_scan_direct.h) is fed
+/* b162 direct scan-out state outside g_scan. g_sd (the display surfaces CoreDisplay wrote, nvmtl_scan_direct.h) is fed
    from the commit path, under the class lock, so it has its own lock and never releases there: entries it drops wait in
    g_sd_dead until the next present releases them. */
 static pthread_mutex_t g_sd_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -243,7 +243,7 @@ static void nvmtl_scan_teardown_locked(void)
         if (g_scan.slotMem[k]) pvkFreeMemory(g_dev, g_scan.slotMem[k], NULL);
         g_scan.slot[k] = VK_NULL_HANDLE; g_scan.slotMem[k] = VK_NULL_HANDLE; g_scan.slotId[k] = 0;
     }
-    for (int i = 0; i < 2; i++) {   /* b161: released, so their BOs are on their own pages again */
+    for (int i = 0; i < 2; i++) {   /* b162: released, so their BOs are on their own pages again */
         nvmtl_scan_dsurf *d = &g_scan.dsurf[i];
         if (d->pages.buf) nvmtl_vk_buffer_destroy(&d->pages);
         if (d->owner) CFRelease(d->owner);
@@ -273,7 +273,7 @@ static void nvmtl_scan_lost_locked(const char *why, const struct nvmtl_scan_stat
     if (g_scan.restarts < 50) { g_scan.state = 0; g_scan.retryAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) + 2000000000ull; }
 }
 
-/* b161: out of direct scan-out (copied back, released, torn down); GPU present starts again in 0.5 s. fail = a failure
+/* b162: out of direct scan-out (copied back, released, torn down); GPU present starts again in 0.5 s. fail = a failure
    (cooldown, then off for the process: nvmtl_sd_fail), else an ordinary change (new surfaces, a format, the switch). */
 static void nvmtl_scan_direct_out_locked(const char *why, int fail)
 {
@@ -295,7 +295,7 @@ static void nvmtl_scan_keepalive(void *ctx)
     pthread_mutex_unlock(&g_scan_lock);
 }
 
-/* b161: bind the pair to slots 0 and 1 (PHXN_SEL_SCAN_DIRECT). With the submit lock held and the GPU idle, so no write
+/* b162: bind the pair to slots 0 and 1 (PHXN_SEL_SCAN_DIRECT). With the submit lock held and the GPU idle, so no write
    is in flight while a BO's maps move from its pages to the slot's VRAM; then each slot gets the surface's current
    pages (one copy each, the last one this path makes). The release undoes the binding. */
 static int nvmtl_scan_direct_bind_locked(const nvmtl_sd_cand *c0, const nvmtl_sd_cand *c1, uint32_t w, uint32_t h, uint32_t pitch, uint32_t fmt)
@@ -328,7 +328,7 @@ static int nvmtl_scan_direct_bind_locked(const nvmtl_sd_cand *c0, const nvmtl_sd
     return ok ? 0 : -1;
 }
 
-/* b161: whether this start binds the display surfaces (nvmtl_sd_start). 1 direct (*c0 / *c1 the pair), 0 copy, -1 wait
+/* b162: whether this start binds the display surfaces (nvmtl_sd_start). 1 direct (*c0 / *c1 the pair), 0 copy, -1 wait
    for the second display surface (the CPU copy keeps the panel meanwhile). */
 static int nvmtl_scan_direct_choose_locked(uint32_t sid, uint32_t w, uint32_t h, uint32_t pitch, const struct nvmtl_scan_query *q,
                                            nvmtl_sd_cand *c0, nvmtl_sd_cand *c1)
@@ -420,7 +420,7 @@ static int nvmtl_scan_start_locked(uint32_t sid, uint32_t w, uint32_t h, uint32_
         if (!ok) { nvmtl_scan_off_locked("the l10r conversion pipeline would not build"); return -1; }
     }
     g_scan.w = w; g_scan.h = h; g_scan.pitch = pitch;
-    /* b161: direct binds slots 0 and 1 first, so the one slot BO made below (the bounce) is registered into slot 2 */
+    /* b162: direct binds slots 0 and 1 first, so the one slot BO made below (the bounce) is registered into slot 2 */
     g_scan.nslots = 3;
     if (direct == 1) {
         if (nvmtl_scan_direct_bind_locked(&dc0, &dc1, w, h, pitch, q.hubp_format)) { nvmtl_scan_direct_out_locked("the binding failed", 1); return -1; }
@@ -448,7 +448,7 @@ static int nvmtl_scan_start_locked(uint32_t sid, uint32_t w, uint32_t h, uint32_
     return 0;
 }
 
-/* b161: the bounce. The surface on screen is to be written again and no other flip is coming: its VRAM is copied into the
+/* b162: the bounce. The surface on screen is to be written again and no other flip is coming: its VRAM is copied into the
    third slot (VRAM to VRAM) and HUBP0 flips there; the write then waits for that flip as for any other. */
 static int nvmtl_scan_direct_bounce_locked(const nvmtl_scan_dsurf *d)
 {
@@ -460,7 +460,7 @@ static int nvmtl_scan_direct_bounce_locked(const nvmtl_scan_dsurf *d)
     nvmtl_e0("B sid %u bounced to slot %u", d->sid, g_scan.slotId[0]);
     return 0;
 }
-/* b161: a present in direct scan-out: the flip to the surface's own slot. 0 presented, -1 out of direct (the next
+/* b162: a present in direct scan-out: the flip to the surface's own slot. 0 presented, -1 out of direct (the next
    present starts again: the copy path or a new pair). */
 static int nvmtl_scan_direct_present_locked(const void *ref, uint32_t sid, int l10r)
 {
@@ -482,7 +482,7 @@ static int nvmtl_scan_direct_present_locked(const void *ref, uint32_t sid, int l
     if (((st.flags & NVMTL_SCANST_FMT10) != 0) != (d->l10r != 0)) { nvmtl_scan_direct_out_locked("the scan-out format changed", 0); return -1; }
     /* No flip while a write may still draw into this surface: one committed before the binding (it skipped the gate:
        only the first frames after a start), or a newer one the gate let through (its own present shows the frame;
-       hw-safety review of b161, item 4). HUBP0 stays where it is meanwhile. A hold that lasts (a count that never comes
+       hw-safety review of b162, item 4). HUBP0 stays where it is meanwhile. A hold that lasts (a count that never comes
        down) must not freeze the panel: the copy path after NVMTL_SD_GATE_MAX_US. */
     { static uint64_t heldSince;
       const int ungated = atomic_load(&g_sd_ungated) != 0, newer = atomic_load(&g_sd_out[sid & 63]) != 0;
@@ -511,7 +511,7 @@ static int nvmtl_scan_direct_present_locked(const void *ref, uint32_t sid, int l
               (unsigned long long)g_scan.gapBin[4]);
     return 0;
 }
-/* b161, the write gate: called by the commit path (outside the class lock) before a command buffer that writes the
+/* b162, the write gate: called by the commit path (outside the class lock) before a command buffer that writes the
    full-screen surfaces sid[0..n) through memories mem[0..n) can be submitted. Returns once HUBP0 cannot be fetching any
    bound one of them (the kext's PHXN_SCANSLOT_WRITABLE: Linux's flip-complete test), so CoreDisplay never draws into the
    frame being scanned out. The bound ones are counted as in flight (g_sd_out) in the same g_scan_lock section that saw
@@ -579,7 +579,7 @@ int nvmtl_vk_scanout_write_gate(uint32_t n, const uint32_t *sid, const void *con
 int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t w, uint32_t h, uint32_t pitch, int l10r)
 {
     if (nvmtl_vk_init() || !g_lib) return -1;
-    nvmtl_sd_reap();   /* b161: display surfaces the commit path dropped, released outside the class lock */
+    nvmtl_sd_reap();   /* b162: display surfaces the commit path dropped, released outside the class lock */
     pthread_mutex_lock(&g_scan_lock);
     int ret = -1;
     /* M7 S4b head gate (nvmtl_headmap_gate.c), before the start and geometry checks: another head's surface must never

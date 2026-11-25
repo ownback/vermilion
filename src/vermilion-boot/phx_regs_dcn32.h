@@ -16,7 +16,7 @@ static constexpr uint32_t kOtg0VTotalMin = 0x04FF0, kOtg0VTotalMax = 0x04FF1;   
 static constexpr uint32_t kOtg0TrigAManualTrig = 0x04FFA;   // OTG0_OTG_TRIGA_MANUAL_TRIG (Linux optc2_program_manual_trigger)
 static constexpr uint32_t kHubpreq0PrimaryAddr          = 0x3aca;   // HUBPREQ0_DCSURF_PRIMARY_SURFACE_ADDRESS
 static constexpr uint32_t kHubpreq0PrimaryAddrHigh      = 0x3acb;   // HUBPREQ0_DCSURF_PRIMARY_SURFACE_ADDRESS_HIGH
-static constexpr uint32_t kHubpreq0VmidSettings0        = 0x3ac9;   // HUBPREQ0_VMID_SETTINGS_0 (VMID [3:0]; b161 reads it, Linux's 0)
+static constexpr uint32_t kHubpreq0VmidSettings0        = 0x3ac9;   // HUBPREQ0_VMID_SETTINGS_0 (VMID [3:0]; b162 reads it, Linux's 0)
 static constexpr uint32_t kHubpreq0SurfaceControl       = 0x3ada;   // HUBPREQ0_DCSURF_SURFACE_CONTROL (dcn_3_2_0_sh_mask.h: bit 0 PRIMARY_SURFACE_TMZ, bit 1 DCC_EN)
 static constexpr uint32_t kHubpreq0FlipControl          = 0x3adb;   // HUBPREQ0_DCSURF_FLIP_CONTROL (bit 1 immediate, bit 8 update pending)
 static constexpr uint32_t kHubpreq0SurfaceInuse         = 0x3ae0;   // HUBPREQ0_DCSURF_SURFACE_INUSE

@@ -143,7 +143,7 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxcalls);
         sysctl_register_oid(&sysctl__debug_phxscan);
         sysctl_register_oid(&sysctl__debug_phxscan_layout);   // b126
-        sysctl_register_oid(&sysctl__debug_phxscan_direct);   // b161
+        sysctl_register_oid(&sysctl__debug_phxscan_direct);   // b162
         if (!gMmIdxLock) gMmIdxLock = IOSimpleLockAlloc();   // b82: before the sysctls that use it
         sysctl_register_oid(&sysctl__debug_phxpipe2);
         sysctl_register_oid(&sysctl__debug_phxpipe2_stat);
@@ -800,7 +800,7 @@ IOReturn IOAccelPhxNativeClient::doBoImportHost(IOExternalMethodArguments *a) {
         md->release();
         return r;
     }
-    // b161: never a page of the GPU's own BARs (a CPU-visible VRAM BO's mapping, b159, or the framebuffer aperture): the
+    // b162: never a page of the GPU's own BARs (a CPU-visible VRAM BO's mapping, b159, or the framebuffer aperture): the
     // GPU would reach its VRAM through a system-memory PTE pointing back at its BAR. VRAM is reached through local-VRAM
     // PTEs only (vmMapVram); Linux's userptr refuses such mappings (amdgpu_ttm_tt_get_user_pages -> hmm_range_fault:
     // hmm_vma_walk_test, mm/hmm.c, refuses VM_IO / VM_PFNMAP).

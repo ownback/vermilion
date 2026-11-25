@@ -26,13 +26,13 @@ SYSCTL_INT(_debug, OID_AUTO, phxmtype, CTLFLAG_RW | CTLFLAG_LOCKED, &gPteMtype, 
 static int gScanOn = 0;
 SYSCTL_INT(_debug, OID_AUTO, phxscan, CTLFLAG_RW | CTLFLAG_LOCKED, &gScanOn, 0,
            "1 = scanout selectors 9..14 (GPU-written VRAM slots flipped on HUBP0) allowed, 0 = refused and any held plane restored");
-// b161: debug.phxscan_direct, the kill switch of direct scan-out (PhxScanDirect.h, PHXN_SEL_SCAN_DIRECT). 1 at boot: nothing
+// b162: debug.phxscan_direct, the kill switch of direct scan-out (PhxScanDirect.h, PHXN_SEL_SCAN_DIRECT). 1 at boot: nothing
 // binds a slot until the Metal plugin asks (its own switch, /Library/GPUBundles/nvmtl/ws-direct). Writing 0 refuses new
 // binds, clears PHXN_SCANQ_DIRECT_OK, and the watchdog hands a plane that scans a bound surface back to the console
 // within 50 ms; the plugin then runs the copy path.
 static int gScanDirectOn = 1;
 SYSCTL_INT(_debug, OID_AUTO, phxscan_direct, CTLFLAG_RW | CTLFLAG_LOCKED, &gScanDirectOn, 0,
-           "b161: 1 = WindowServer's display surfaces may be bound to the large slots and scanned directly; 0 = copy path, a bound plane restored");
+           "b162: 1 = WindowServer's display surfaces may be bound to the large slots and scanned directly; 0 = copy path, a bound plane restored");
 static SInt64 gScanDirectBinds, gScanDirectRefused, gHostBarRefused;
 static int gScanDirectLastErr;
 static volatile UInt32 gSysctlUp;

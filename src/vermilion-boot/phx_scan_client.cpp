@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// phx_scan_client.cpp: scanout selectors (9..14, b161 22), user-client side.
+// phx_scan_client.cpp: scanout selectors (9..14, b162 22), user-client side.
 // Part of the PhxBringup.cpp translation unit (included there, in order); not compiled on its own.
 
 // ---- scanout selectors (9..14), see PhxBringup::scanAcquire ----------------------------------------------------
@@ -58,7 +58,7 @@ IOReturn IOAccelPhxNativeClient::doScan(uint32_t selector, IOExternalMethodArgum
         return r;
     }
     case PHXN_SEL_SCAN_DIRECT: {
-        // b161: a display surface's own BO onto slot 0 or 1 (PhxScanDirect.h); the same rebinding as REGISTER below, for
+        // b162: a display surface's own BO onto slot 0 or 1 (PhxScanDirect.h); the same rebinding as REGISTER below, for
         // a host import too (the IOSurface's pages stay wired and untouched; the GPU reaches the slot instead)
         if (!shape(a, 1, 2, sizeof(phxn_scan_reg), 0))
             return kIOReturnBadArgument;

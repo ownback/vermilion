@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
-/* nvmtl_scan_direct.h: direct scan-out of WindowServer's display surfaces (kext b161, PHXN_SEL_SCAN_DIRECT), the
+/* nvmtl_scan_direct.h: direct scan-out of WindowServer's display surfaces (kext b162, PHXN_SEL_SCAN_DIRECT), the
    decisions without Vulkan or IOKit, so tests/plugin/test_scan_direct.c drives the same code on a host.
 
    GPU present (nvmtl_scanout.c) copied each CoreDisplay display surface from its system pages into a VRAM slot before

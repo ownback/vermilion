@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// PhxScanDirect.h (b161): direct scan-out of WindowServer's display surfaces, the kernel-free rules. Pure (no kernel
+// PhxScanDirect.h (b162): direct scan-out of WindowServer's display surfaces, the kernel-free rules. Pure (no kernel
 // headers), so tests/kext/scan_direct_test.cpp builds it on a host.
 //
 // GPU present (phx_scan.cpp) copies each display surface from its system pages into a VRAM slot and flips HUBP0 to the

@@ -38,7 +38,7 @@
 #include "PhxCpDma.h"
 #include "PhxGpuTime.h"   // b157: GPU time per context (phx_gputime.cpp)
 #include "PhxScanLayout.h"   // b126: GPU-present slot layout by frame size (phx_scan.cpp)
-#include "PhxScanDirect.h"   // b161: direct scan-out of the display surfaces (phx_scan.cpp, phx_scan_client.cpp)
+#include "PhxScanDirect.h"   // b162: direct scan-out of the display surfaces (phx_scan.cpp, phx_scan_client.cpp)
 #include "PhxDdc.h"
 #include "PhxEdid.h"
 #include "PhxHpd.h"   // b102 hot-plug K1 + A2 (phx_hpd.cpp)

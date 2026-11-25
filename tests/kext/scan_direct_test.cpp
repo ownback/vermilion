@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// scan_direct_test.cpp: host test of src/vermilion-boot/PhxScanDirect.h (direct scan-out of the display surfaces, kext b161).
+// scan_direct_test.cpp: host test of src/vermilion-boot/PhxScanDirect.h (direct scan-out of the display surfaces, kext b162).
 //   c++ -std=c++17 -Wall -Wextra -Werror -I src/vermilion-boot -o /tmp/scan_direct_test tests/kext/scan_direct_test.cpp && /tmp/scan_direct_test
 #include "PhxScanDirect.h"
 #include "PhxScanLayout.h"

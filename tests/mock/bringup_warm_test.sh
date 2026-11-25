@@ -22,7 +22,7 @@ HERE=$(cd "$(dirname "$0")" && pwd); TOOLS=$HERE/../../tools/phxctl
 . "$HERE/lib/portable.sh"
 [ "$(id -u)" = 0 ] && { echo "bringup_warm_test.sh: do not run as root (the script would call the real reboot timer)"; exit 2; }
 PASSN=0; FAILN=0
-mk() {   # mk <C2PMSG_81 value> [error|openfail]: a fresh fake home with ~/gpu/phxctl, the firmware names and the fakes
+mk() {   # mk <C2PMSG_81 value> [error|openfail|nosos]: a fresh fake home with ~/gpu/phxctl, the firmware names and the fakes
   W=$(mktemp -d "$MOCKTMP/bringupwarm.XXXXXX"); R=$W/regs; mkdir -p "$R" "$W/home/gpu/phxctl" "$W/home/gpu/fw/navi31" "$W/bin"
   cp "$TOOLS/bringup_navi31.sh" "$TOOLS/navi31_up.sh" "$W/home/gpu/phxctl/"
   for f in psp_13_0_0_sos.bin smu_13_0_0.bin sdma_6_0_0.bin gc_11_0_0_pfp.bin gc_11_0_0_me.bin gc_11_0_0_mec.bin \

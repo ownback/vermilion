@@ -4,7 +4,8 @@
 # compute queue — every step that works today. Stops at the first step that fails.
 # The last line says how it ended: "navi31 up: ..." (the daemon claims the GPU only then) or "navi31 not up: <step>
 # (<the bring-up watchdog's state>)". bringup_navi31.sh arms a 3-minute reboot watchdog before its first write and
-# cancels it at its end; a failure inside it leaves the watchdog armed on purpose, a failure after it has none.
+# cancels it at its end. The three states: a refusal before the first write has no watchdog; a failure inside
+# bringup_navi31.sh after that leaves it armed on purpose; a failure in a later step here finds it cancelled.
 set -u
 M(){ sudo -n /usr/local/sbin/mesboot "$@"; }
 step(){ echo "== $1"; shift; out=$("$@" 2>&1); echo "$out" | tail -3; }

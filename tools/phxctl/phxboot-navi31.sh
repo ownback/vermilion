@@ -163,9 +163,9 @@ rec_when(){ local left=$(( $(rec_need) - REC_C - 1 ))
 # Notice (2026-11-25): one plain sentence to the user after login, as a notification of the logged-in user (no dialog,
 # nothing waits for it), and its "notice:" line here. $NOTICE holds it until it was shown; one left from an earlier boot
 # is dropped at the start (it was about that boot). Waits up to PHXBOOT_NOTICE_WAIT s (900) for a console user, in the
-# background on a boot whose daemon keeps running (the safe desktop); notice_join waits for it before an exit, since
-# launchd ends the job's other processes when the daemon exits. Shown through launchctl asuser + sudo -u, so it runs in
-# the user's session as the user (unverified on hardware).
+# background (PHXBOOT_NOTICE_FG=1, the mocks: in the foreground), so a daemon that keeps running (the safe desktop)
+# goes on; notice_join waits for it before an exit, since launchd ends the job's other processes when the daemon exits.
+# Shown through launchctl asuser + sudo -u, so it runs in the user's session as the user (unverified on hardware).
 NOTICE=${PHXBOOT_NOTICE:-/var/db/phxboot.notice}; NOTICEPID=""
 notice_show(){ local u="" uid t=0 w=${PHXBOOT_NOTICE_WAIT:-900}
   while [ $t -lt $w ]; do u=$(who 2>/dev/null | awk '$2=="console"{print $1; exit}'); [ -n "$u" ] && break; sleep 3; t=$((t+3)); done

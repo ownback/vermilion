@@ -447,8 +447,8 @@ firmware, and loading it again into a running SMU is something the Linux driver 
 1. Waits up to 60 s to see whether this is a **squat boot**: when the one-shot NVRAM variable `phxfb-squat` is set,
    `VermilionBoot`'s `PhxFBSquatter` takes the IOFramebuffer category, so the firmware console never starts and the
    screen stays dark until the daemon arms the display. Otherwise the firmware framebuffer (GOP) drives the screen.
-2. Stops in Safe Mode (`kern.safeboot` 1) and if the kill switch `~/gpu/phxboot-off` exists (a squat boot first
-   reboots onto the firmware framebuffer). Only the owner sets the kill switch.
+2. Stops if the kill switch `~/gpu/phxboot-off` exists (a squat boot first reboots onto the firmware framebuffer).
+   Only the owner sets the kill switch. In Safe Mode (`kern.safeboot` 1) it stops before step 1, without the wait.
 3. Stops if the in-progress mark `/var/db/phxboot.pending` exists, i.e. the previous attempt never finished: it counts
    it in the failure record `/var/db/phxboot.fails`, clears the one-shots and stays on the firmware framebuffer
    (rebooting first on a squat boot). After two failed bring-ups in a row one boot skips the bring-up (no GPU access),
@@ -462,9 +462,9 @@ firmware, and loading it again into a running SMU is something the Linux driver 
    clock gating and the memory clock pin, each behind its flag, and `mesboot claim`.
 6. Without a desktop arm: writes an allow list that gives every app Metal (WindowServer stays on the firmware
    framebuffer), logs `no desktop arm: GOP + Metal for apps` and `done`.
-7. With a desktop arm: touches the in-progress mark, waits for `PhxAMDFB` on the panel and for `metaltest`, refuses if
-   a user is logged in, arms the display pipe and `PhxAGDC`, lights the second monitor (flag), restarts WindowServer
-   **once** so it enumerates the Metal device, then watches 120 s for WindowServer crashes. Three crashes (or no
+7. With a desktop arm: keeps the in-progress mark (now holding `desktop`), waits for `PhxAMDFB` on the panel and for
+   `metaltest`, refuses if a user is logged in, arms the display pipe and `PhxAGDC`, lights the second monitor (flag),
+   restarts WindowServer **once** so it enumerates the Metal device, then watches 120 s for WindowServer crashes. Three crashes (or no
    WindowServer) = revert: the next boot is on the firmware framebuffer. Success logs `SUCCESS`, removes the mark,
    re-arms `phxfb-squat` for the next boot when `~/gpu/phxboot-auto` exists, and logs `done`.
 8. After `done`: VCN, the late clock gating / memory clock calls, hot-plug, gamma, the DP stream watcher and the
@@ -650,9 +650,9 @@ power cycle.
    `sudo nvram phxfb-squat=1`.
 3. Reboot once and wait for `done`.
 
-Do not leave `/Library/GPUBundles/nvmtl-allow.txt` restricted before a desktop boot: after a failure the daemon writes
-a "test tools only" list until the next boot rewrites it, and with such a list `metaltest` gets no device and the
-attempt fails again.
+Do not leave `/Library/GPUBundles/nvmtl-allow.txt` restricted before a desktop boot: after a failure that came after
+the claim the daemon writes a "test tools only" list until the next boot rewrites it, and with such a list
+`metaltest` gets no device and the attempt fails again.
 
 To turn the GPU path off by hand: `touch ~/gpu/phxboot-off` and reboot. If macOS does not boot at all, disable the
 `VermilionBoot.kext` entry in OpenCore (or boot your EFI copy), or add `-phxacceloff` / `-phxbringupoff` to the

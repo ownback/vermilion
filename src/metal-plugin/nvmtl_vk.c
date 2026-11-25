@@ -6801,9 +6801,10 @@ int nvmtl_vk_image_write_region_level_layer(nvk_queue *q, nvk_image *img, const 
     if (nvmtl_vk_cmd_begin(q, c)) { if (au) { nvmtl_vk_buffer_destroy(&au->stage); free(au); } return -1; }
     // The synchronous copy keeps its old barrier. The async one is ordered after earlier GPU work that wrote or read
     // the image (a render into it, or a draw still sampling the old contents), as NVMTL_SURFIN_ORDERED does for the
-    // async surface copy-in: nothing waits on the CPU for that work any more.
-    if (au) img_to(c, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
-                   VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+    // async surface copy-in: nothing waits on the CPU for that work any more. The barrier is emitted also when the
+    // image is already in TRANSFER_DST (left there by a blit, say): the ordering is needed, not only the transition.
+    if (au) img_barrier(c, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+                        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 1);
     else img_to(c, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 0, VK_ACCESS_TRANSFER_WRITE_BIT,
                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     VkBufferImageCopy bic = { 0, 0, 0, { nvmtl_copy_aspect(img), level, img->mtl_type == 7 ? 0u : layer, 1 }, { (int32_t)x, (int32_t)y, img->mtl_type == 7 ? (int32_t)layer : 0 }, { w, h, 1 } };

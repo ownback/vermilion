@@ -57,8 +57,14 @@ boot); step 1 (daemon only) in progress on `ownback/recovery-daemon`.
 Step (a)'s cold-boot check passed 2026-11-25 11:40 (power-off, `sOS check: C2PMSG_81=0x00000000 (cold)`, `SUCCESS at
 11:42:43`).
 
+#23-#26 merged 2026-11-25. #25's deploy waits for the owner's OK: the plugin lives in `CoreTypes.bundle` on the
+system volume (`/` mounts sealed, read-only).
+
 Item 3: design on #24 (finding `2026-11-25-recovery-trap-design.md`). Step 1 (daemon and `navi31_up.sh` only, no
-EFI change) on branch `ownback/recovery-daemon`, mock-tested, not deployed (TODO, "Phase 2 item 3 step 1"). It closes
+EFI change, #26) installed 2026-11-25 under the lock, rollback in `~/vermilion-rollback/recovery-daemon-1`; booting on a
+warm restart (the owner asked for it; a warm restart reads C2PMSG_81 = 0 like a cold boot, finding
+`2026-11-25-warm-restart-sos-cold.md`). Expected: `navi31 up:`, `SUCCESS at`, one `record: fails=0 ... (this boot:
+full)`, no `notice:` line (TODO, "Phase 2 item 3 step 1"). It closes
 the three points above: the warm refusal records nothing, writes nothing and doesn't restart the machine; `m2_fail`
 writes the Metal allow list and `debug.phxagdc=0` only after the claim; a bring-up without `navi31 up:` claims nothing
 (the watchdog stays; after 2 failed bring-ups in a row one boot skips the bring-up). The record

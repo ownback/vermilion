@@ -3,8 +3,8 @@
 # Music's slow first launch: passd waits 30 s for a Secure Element (Phase 2 item 2, 2026-11-25)
 
 After #25 (NVMTLDriver `15204728`, live since the 17:04 boot), Music no longer crashes, but the owner reported that it
-"takes ages to load" (first launch 17:12:10, one process). Read-only research on the XTX machine (macOS 26.7.1
-25G241, SMBIOS MacPro7,1). Sources:
+"takes ages to load" (first launch 17:12:10, one process). The research was read-only, on the XTX machine (macOS
+26.7.1 25G241, SMBIOS MacPro7,1). Sources:
 
 - `~/vermilion-captures/2026-11-25-maps/nvmtl-since-1704.log` (the plugin's `org.vermilion.nvmtl` log);
 - `/usr/bin/log show` for Music, accountsd, passd and launchd;
@@ -24,9 +24,10 @@ main thread blocked in one synchronous call, `-[ACAccountStore saveVerifiedAccou
 | accountsd | `PassbookAccountNotificationPlugin` → `-[PKPassLibrary noteACAccountChanged:]`, synchronous XPC to `com.apple.passd.library`. accountsd logs `TIMING: Daemon save took 30.3563859462738` | 17:12:11.989 | 17:12:42.316 |
 | passd (spawned for this call: launchd `Successfully spawned passd ... because ipc (mach)` at 17:12:11.996) | the `passd.library` listener `dispatch_sync`s onto `com.apple.passd.main`. That queue is in `-[PKSecureElement registerObserver:]` → `_registerPairingChangeHandler` → `SSESetEffacementNotificationHandler` → libAppleSSE `init` → `usleep`: **60 × "AppleSSE service not found, retrying..." every 0.5 s**, then `AssertMacros: service (value = 0x0)` and `err == 0 (value = 0xffffffffffffffec)` | 17:12:12.120 | 17:12:42.294 |
 
-The 2026-11-23 07:12 hang report shows the same chain in its stacks. Music's main thread was 23.9 s unresponsive. accountsd was
-"blocked by turnstile waiting for passd ... after 3 hops". In passd, the `passd.library` listener thread waited on
-`passd.main`, which sat in `PKSecureElement registerObserver:` → libAppleSSE `init` + `usleep`.
+The 2026-11-23 07:12 hang report shows the same chain in its stacks. Music's main thread was unresponsive for
+23.9 s. accountsd was "blocked by turnstile waiting for passd ... after 3 hops". In passd, the `passd.library`
+listener thread waited on `passd.main`, which sat in `PKSecureElement registerObserver:` → libAppleSSE `init` +
+`usleep`.
 
 **Why the service is missing.** libAppleSSE imports `IOServiceGetMatchingService` and `usleep` and retries the lookup.
 `AppleSSE.kext`'s x86 personality (`AppleSSE_x86`) matches `IOProviderClass = AppleSEPManager`, the T2's Secure Enclave.
@@ -45,8 +46,8 @@ matching rule; not seen on a real Mac).
 | 2026-11-25 17:12 (after #25) | spawned by Music's save at 17:12:11.996 | 30.36 s | **32.37 s** |
 
 The 18:35 launch was before #25, so #25 didn't cause the slow load. It was there already, and the crashes made it
-easy to miss. The hang reports of 2026-11-22 20:33 and 22:25 are the same chain, unverified: the passd frames are
-there, but only the 11-23 report was read in full.
+easy to miss. The hang reports of 2026-11-22 20:33 and 22:25 look like the same chain (unverified: the passd frames
+are there, but only the 11-23 report was read in full).
 
 ## The plugin's share of the launch
 
@@ -78,7 +79,7 @@ Enclave), not to Vermilion's GPU stack. Options, best first:
    platform makes libAppleSSE's `init` never run. That would be the Mac-like fix. This means reverse engineering
    PassKitCore and libAppleSSE, kept to notes, with no Apple code in the repo (rule 6). It belongs to the platform
    side (ryzentosh), not vermilion-xtx.
-2. **Mitigation (S, unverified): start passd at login.** A per-user LaunchAgent (`RunAtLoad`) runs
+2. **Mitigation (S; unverified): start passd at login.** A per-user LaunchAgent (`RunAtLoad`) runs
    `launchctl kickstart gui/<uid>/com.apple.passd`. passd then spends its 30 s in the background right after login,
    and Music opened more than ~30 s after login finds it warm (1.3 s, as at 19:28). Apps opened sooner still wait for
    the rest. passd stayed up for at least 53 min (18:35 → 19:28) and was still running 6 min after 17:12; whether it
@@ -108,4 +109,4 @@ Measured by Music's own log line. Nothing is installed or started for test A.
   boot, run `launchctl kickstart gui/$(id -u)/com.apple.passd`, wait 35 s, then open Music. Same log command.
   Expected: no `spawned passd`, `Daemon save took` under 1 s, `MusicUI bootstrap took` about 1-2 s.
 
-If B is fast and A is slow, passd's Secure Element wait is the whole difference (so far shown on 3 launches).
+If B is fast and A is slow, passd's Secure Element wait is the whole difference (so far seen on 3 launches).

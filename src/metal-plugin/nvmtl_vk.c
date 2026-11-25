@@ -22,6 +22,7 @@
 #include <vulkan/vulkan.h>
 #include "nvmtl_vk.h"
 #include "nvmtl_tex_upload.h"
+#include "nvmtl_passtime.h"
 #include "nvmtl_cmd_refusal.h"
 #include "nvmtl_copy_compat.h"
 #include "nvmtl_safe_copy.h"
@@ -5872,17 +5873,31 @@ int nvmtl_vk_fill_buffer(nvk_queue *q, nvk_buffer *b, size_t offset, size_t size
 static int nvmtl_counter_flush(nvk_cmdbuf *c);
 static void nvmtl_counter_retire(nvk_cmdbuf *c);
 static int nvmtl_counter_reset_finish(nvk_cmdbuf *c, VkCommandBuffer *reset);
-static int g_pt_left; static uint64_t g_pt_seq;
+static int g_pt_left; static uint64_t g_pt_seq, g_pt_arms;
 void nvmtl_vk_pt_note(nvk_cmdbuf *c, uint32_t fs)
 {
     if (!c || !c->pt_open || !c->pt_pool || c->pt_n >= 128 || !fs) return;
     for (unsigned k = 0; k < 4; k++) { if (c->pt_fs[c->pt_n][k] == fs) return; if (!c->pt_fs[c->pt_n][k]) { c->pt_fs[c->pt_n][k] = fs; return; } }
 }
+/* The per-pass timer's log, $TMPDIR/nvmtl-passtime-<pid>.log (WindowServer's TMPDIR is cleared at boot: copy it first) */
+static FILE *g_pt_fp;
+static void nvmtl_pt_open(void)
+{
+    char fp[512]; const char *td = getenv("TMPDIR");
+    snprintf(fp, sizeof fp, "%s/nvmtl-passtime-%d.log", td && *td ? td : "/tmp", (int)getpid());
+    g_pt_fp = fopen(fp, "a");
+    if (!g_pt_fp) nvlog("passtime: cannot open %s", fp);
+}
+static FILE *nvmtl_pt_file(void) { static pthread_once_t once = PTHREAD_ONCE_INIT; pthread_once(&once, nvmtl_pt_open); return g_pt_fp; }
+/* Arms once per touch of the request file in every process that renders (nvmtl_passtime.h); the file is never unlinked */
 int nvmtl_pt_armed(void)
 {
-    static uint64_t next; uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
+    static uint64_t next; static nvmtl_pt_req last; uint64_t now = clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW);
     if (g_pt_left <= 0 && now >= next) { next = now + 250000000ull;
-        if (access("/tmp/nvmtl-passtime-request", F_OK) == 0) { unlink("/tmp/nvmtl-passtime-request"); g_pt_left = 400; nvlog("passtime: ARMED for 400 passes"); } }
+        struct stat st; const int ex = stat("/tmp/nvmtl-passtime-request", &st) == 0;
+        const uint64_t mt = ex ? (uint64_t)st.st_mtimespec.tv_sec * 1000000000ull + (uint64_t)st.st_mtimespec.tv_nsec : 0;
+        if (nvmtl_pt_should_arm(ex, ex ? (uint64_t)st.st_ino : 0, mt, clock_gettime_nsec_np(CLOCK_REALTIME), &last)) {
+            g_pt_left = 400; g_pt_arms++; nvlog("passtime: ARMED for 400 passes (arm %llu)", (unsigned long long)g_pt_arms); } }
     return g_pt_left > 0;
 }
 void nvmtl_vk_cmd_end_render(nvk_cmdbuf *c) {
@@ -6185,14 +6200,15 @@ int nvmtl_vk_submit_finish(nvmtl_inflight *f)
     if (c->pt_pool && c->pt_n) {
         uint64_t r[256] = {0}; const unsigned n = c->pt_n;
         if (pvkGetQueryPoolResults(g_dev, (VkQueryPool)c->pt_pool, 0, 2 * n, sizeof(uint64_t) * 2 * n, r, 8, VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
-            static FILE *pf; if (!pf) { char fp[512]; const char *td = getenv("TMPDIR"); snprintf(fp, sizeof fp, "%s/nvmtl-passtime-%d.log", td && *td ? td : "/tmp", (int)getpid()); pf = fopen(fp, "a"); }
+            FILE *pf = nvmtl_pt_file();
+            const unsigned long long wall_ms = (unsigned long long)(clock_gettime_nsec_np(CLOCK_REALTIME) / 1000000ull);
             const double us = g_lim.timestampPeriod / 1000.0; const uint64_t mask = g_timestamp_bits >= 64 ? ~0ull : ((1ull << g_timestamp_bits) - 1);
             const uint64_t seq = ++g_pt_seq;
             for (unsigned i = 0; pf && i < n; i++) {
                 const double gpu = (double)((r[2 * i + 1] - r[2 * i]) & mask) * us;
                 const double gap = i ? (double)((r[2 * i] - r[2 * i - 1]) & mask) * us : 0.0;
-                fprintf(pf, "cb %llu pass %u %ux%u fmt %u gpu_us %.1f gap_us %.1f fs %08x %08x %08x %08x\n", (unsigned long long)seq, i, c->pt_w[i], c->pt_h[i], c->pt_f[i], gpu, gap,
-                        c->pt_fs[i][0], c->pt_fs[i][1], c->pt_fs[i][2], c->pt_fs[i][3]);
+                fprintf(pf, "cb %llu pass %u %ux%u fmt %u gpu_us %.1f gap_us %.1f fs %08x %08x %08x %08x t %llu arm %llu\n", (unsigned long long)seq, i, c->pt_w[i], c->pt_h[i], c->pt_f[i], gpu, gap,
+                        c->pt_fs[i][0], c->pt_fs[i][1], c->pt_fs[i][2], c->pt_fs[i][3], wall_ms, (unsigned long long)g_pt_arms);
             }
             if (pf) fflush(pf);
         }

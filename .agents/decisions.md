@@ -701,3 +701,14 @@ not the threat this guard answers: the machine lock and the review of every chan
 - Licence: the megamind's call. NullMoth-derived parts stay PolyForm Noncommercial (they have to), new files MIT.
 - VermilionTrust: a known limit for the preview, B4 stays open work (the megamind's call).
 - Every kext we produce gets its own clean repo with CI and a GitHub release (ryzentosh-sse first).
+
+## Release package: where the daemon lives (P1, 2026-11-26)
+
+- The preview package installs the boot daemon and its scripts into the desktop user's `~/gpu`, not a root-owned
+  system path as docs/RELEASE.md first designed. The daemon and its helpers hard-code `~/gpu` (`navi31_up.sh`,
+  `bringup_navi31.sh`, `b15_boot.sh` and others), and moving them is an untestable change to bring-up scripts. The
+  layout is the one `recovery_install.sh` writes and the reference machine has run. The root-runs-user-writable-scripts
+  risk stays until B1 (TODO 06 item 3). A pristine copy of the files is in `/usr/local/libexec/vermilion`.
+- A failed firmware download in the post-install script is a warning, not a failed install: the Installer rolls
+  nothing back, and the GPU simply stays on the basic display until `vermilion-firmware` succeeds.
+- The package changes neither Software Update nor sleep; INSTALL.md says to set them.

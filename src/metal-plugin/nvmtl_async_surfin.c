@@ -57,7 +57,8 @@ static int nvmtl_asyncup_room(size_t bytes)
     return room;
 }
 // Lists a submitted async upload on its image and in the table. Returns 0 if another thread filled the table since
-// nvmtl_asyncup_room: the upload is then finished (waited for) here and nothing is left pending.
+// nvmtl_asyncup_room, or listed its own upload to this image: the upload is then finished (waited for) here and nothing
+// of it is left pending.
 static int nvmtl_asyncup_list(nvk_image *img, nvmtl_asyncup *au, size_t bytes)
 {
     pthread_mutex_lock(&g_asyncup_mutex);

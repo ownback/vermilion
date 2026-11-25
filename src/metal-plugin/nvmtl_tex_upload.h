@@ -76,10 +76,11 @@ static inline int nvmtl_uptab_room(const nvmtl_uptab *t, size_t bytes)
 }
 
 // Lists upload `h` of `bytes` staging bytes on the image whose handle is *tok. Returns 0 (nothing changed) if the
-// table is full: the caller then finishes `h` itself.
+// table is full or the image already has a pending upload (another thread uploaded to it at the same time): the caller
+// then finishes `h` itself. So an image has at most one entry, and it is the handle on the image.
 static inline int nvmtl_uptab_list(nvmtl_uptab *t, uint64_t *tok, uint64_t h, size_t bytes)
 {
-    if (t->n >= NVMTL_UPTAB_N) return 0;
+    if (t->n >= NVMTL_UPTAB_N || *tok) return 0;
     nvmtl_up_state s = { *tok };
     nvmtl_up_set(&s, h);
     *tok = s.infl;
@@ -88,11 +89,11 @@ static inline int nvmtl_uptab_list(nvmtl_uptab *t, uint64_t *tok, uint64_t h, si
     return 1;
 }
 
-// Removes the image's entry from the table.
-static inline void nvmtl_uptab_unlist(nvmtl_uptab *t, const uint64_t *tok)
+// Removes upload h's entry from the table.
+static inline void nvmtl_uptab_unlist(nvmtl_uptab *t, uint64_t h)
 {
     for (unsigned i = 0; i < t->n; i++)
-        if (t->e[i].tok == tok) { t->bytes -= t->e[i].bytes; t->e[i] = t->e[--t->n]; return; }
+        if (t->e[i].h == h) { t->bytes -= t->e[i].bytes; t->e[i] = t->e[--t->n]; return; }
 }
 
 // Reads and clears the image's handle and removes its entry: the caller finishes the returned handle (0 for none).
@@ -101,7 +102,7 @@ static inline uint64_t nvmtl_uptab_take(nvmtl_uptab *t, uint64_t *tok)
     nvmtl_up_state s = { *tok };
     const uint64_t h = nvmtl_up_before_consume(&s);
     *tok = 0;
-    if (h) nvmtl_uptab_unlist(t, tok);
+    if (h) nvmtl_uptab_unlist(t, h);
     return h;
 }
 

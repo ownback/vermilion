@@ -45,6 +45,9 @@ static void               nvAccelWriteStamp(int index, unsigned int value);
 #include <IOKit/graphics/IOFramebuffer.h>   // IOFramebuffer, IOFBInterruptProc, kIOFBVBLInterruptType -- for the forced VBL register
 extern "C" void _ZN18IOAccelDisplayPipe18signalVBLInterruptEPv(void *pipe);   // the family's 'vbl ' proc; vblFire calls it each tick
 #include "tahoe_fwd.h"   // macOS 26: inherited slots Apple no longer exports, forwarded through its vtables
+#ifdef NMX_ACCEL
+#include "../../vermilion-boot/PhxGpuId.h"   // the board gate: VermilionAccel starts only on an RX 7900 XTX (1002:744c rev c8)
+#endif
 #include "nvaccel_stubs.h"
 // PhxDisplay: a private provider nub NMXAccel publishes (post-start, once Metal is live) so PhxAMDFB matches it
 // (IOProviderClass=PhxDisplay) instead of the IOPCIDevice. That avoids the IOFramebuffer-category contest with
@@ -778,6 +781,14 @@ public:
             const unsigned ven = pci->configRead16(0x00), dev = pci->configRead16(0x02);
 #ifdef NMX_ACCEL
             static const char *const kind = "AMD/Intel";
+            // Owner decision 2026-11-25: XTX only. Three PCI config reads; VermilionBoot refuses the same boards, so on
+            // another card NMXGPU never claims the device either, and this is the second gate.
+            const phxgpu::Board board = phxgpu::classifyPci(pci);
+            if (!phxgpu::supported(board)) {
+                ALOG("%04x:%04x rev %02x is %s, not an RX 7900 XTX (1002:744c rev c8) - not claiming, the GPU is left untouched",
+                     ven, dev, pci->configRead8(phxgpu::kCfgRevision), phxgpu::name(board));
+                return NULL;
+            }
             if (cls != 0x03 || (ven != 0x1002 && ven != 0x8086)) {
 #else
             static const char *const kind = "NVIDIA";
@@ -800,6 +811,7 @@ public:
         // for matching to settle - a start() that blocked matching for the claim would hold the boot at the logo. NMXGPU
         // re-runs matching on the device (registerService) after it sets nmxgpu-claimed, which offers it here again.
         if (IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, provider)) {
+            if (!phxgpu::supported(phxgpu::classifyPci(pci))) return false;   // second gate; probe logged the refusal
             if (pci->getProperty("nmxgpu-claimed") != kOSBooleanTrue) {
                 ALOG("NMXGPU has not claimed %04x:%04x yet - not starting now; offered again when it does",
                      pci->configRead16(0x00), pci->configRead16(0x02));

@@ -138,6 +138,9 @@ class Cap:
             if self.pci in open(n).read():
                 self.dri = os.path.dirname(n)
         self.rev = open(f"/sys/class/drm/{self.card}/device/revision").read().strip()
+        # the replay plans are for the RX 7900 XTX only (src/vermilion-boot/PhxGpuId.h): refuse another board
+        if self.rev.lower() != "0xc8":
+            sys.exit(f"{self.pci}: PCI revision {self.rev} is not an RX 7900 XTX (0xc8): Vermilion supports the XTX only")
         self.conn = None
         for c in sorted(glob.glob(f"/sys/class/drm/{self.card}-DP-*")):
             if open(c + "/status").read().strip() == "connected":

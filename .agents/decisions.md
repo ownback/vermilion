@@ -683,3 +683,21 @@ or escapes (`re""boot`, `\cp`) or by an unusual path; write tools the verb list 
 case, globs); relative writes after `cd` or from a parent directory; a variable that builds a path; options that run a
 program (`git grep -O`, `rg --hostname-bin`); a script written in one call and run in another. A deliberate bypass is
 not the threat this guard answers: the machine lock and the review of every change are.
+
+## Release decisions (owner, 2026-11-25 evening, on the release audit #35)
+
+- First release: `0.1.0-preview` of vermilion-xtx for the reference machine. RX 7900 XTX only: drop the XT; the kext
+  refuses every other `0x744c` variant (G1).
+- The AuxKC Allow click stays: the owner does it and accepts the limit (plan item B3 dropped).
+- Reference implementation: reverse engineer Apple's own AMD stack shipped in this macOS (AMDRadeonX6000, the
+  RX 6800/6900 XT path) with the reverse-engineer-anything (REA) tools, and build ours from it. Reusing Apple's code
+  is fine by the owner ("use as much of it as you can"), which overrides the old wording of hard rule 6 for this
+  project; the legal risk of Apple code in a public repo was named to the owner.
+- Firmware: not shipped; a kext plus a post-install script that runs in macOS and fetches it.
+- Signing: unsigned, with a Gatekeeper step in INSTALL.md.
+- No notice to upstream before announcing.
+- Commits: the GitHub noreply address from now on (`git config --global user.email` set 2026-11-25); the old history
+  stays (no force-push). The owner turns on "Block command line pushes that expose my email".
+- Licence: the megamind's call. NullMoth-derived parts stay PolyForm Noncommercial (they have to), new files MIT.
+- VermilionTrust: a known limit for the preview, B4 stays open work (the megamind's call).
+- Every kext we produce gets its own clean repo with CI and a GitHub release (ryzentosh-sse first).

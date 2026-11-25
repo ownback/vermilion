@@ -181,6 +181,23 @@ PROJECT_KNOWLEDGE.
   capture gets GPU time per process (`GPUTIME=1`) and per pass (`/tmp/nvmtl-passtime-request`) in fullscreen, in a
   window and with Maps in VRAM. It decides between Maps' passes (shaders, MSAA in system memory) and WindowServer's
   composite for the ~7.5 ms of GPU per frame.
+- [ ] **Phase 2 item 2: WindowServer's composite behind Maps, the capture after the passtime change** (branch
+  `ownback/ws-composite-cost`, [finding](findings/2026-11-25-windowserver-composite-cost.md) section 6). Install the
+  plugin (trust + EFI, one boot), then phase B fullscreen with `GPUTIME=1` and one touch of the request file at 10 s
+  and 20 s; copy WindowServer's passtime log at once (its TMPDIR is cleared at boot). Reads the present copy's GPU
+  time, Maps' real frame rate and WindowServer's composites per Maps frame (fs3d: ~35 vs 119/s, ~3.1 ms each).
+- [ ] **Passtime: review notes from the clean-up of #34** (plugin, measurement only; each is a behaviour change, none
+  touches the path while the timer is off). (1) `nvmtl_pt_armed` runs on every encoding thread with no lock: two
+  threads in one 250 ms poll can both arm for one touch (two ARMED lines, `arm` skips a number, lines of one window
+  carry two numbers), and `g_pt_left--` can lose a count. A lock or a compare-and-swap around the poll fixes it.
+  (2) `arm <n>` is read when the line is written, not when the pass was recorded, and counts per process: a process
+  that drew nothing within 15 s of a touch is one behind the others. Match windows across processes by `t`, or log
+  the request's mtime instead. (3) A touch that arrives while a process is still armed is taken only when its 400
+  passes are done, and lost if that is more than 15 s later. (4) Presents are timed while `g_pt_left > 0` and never
+  count it down: a process that presents but stops drawing passes logs (fprintf + fflush under the scan-out lock)
+  on every present with no end. (5) The present line is written between `t1` and `t2`, so it counts as
+  flicker-probe time in the `ws gpu present split` averages. (6) `gpu_us` of a `widen-cpu` present is the barriers
+  only.
 - [ ] **Phase 2 item 2: deploy the Maps CPU fixes** (branch `ownback/maps-gpu-saturation`; finding section 4): async
   `replaceRegion:` uploads, bounded, on by default outside WindowServer; cache-hit touches once a minute. A plugin
   install = trust + EFI change, one boot. Check: Maps' log has `vk: async texture upload ON` and `async texture upload
@@ -596,6 +613,15 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   fps: a 14.7 MB copy to the pages after each of WindowServer's ~3 command buffers per frame). Redo: one copy per frame
   at the swap commit, or GPU present copying the tiled image straight into its VRAM slot. Effort M. Plugin: EFI
   change + restart (the daemon flag `wstiled` is already there).
+  Maps (2026-11-25, [finding](findings/2026-11-25-windowserver-composite-cost.md)): ~3.1 ms per composite at 119/s while
+  Maps draws ~35/s. The Maps layer from system memory ~1.0 ms (2.8 ms with a new frame), glass and UI ~0.8 ms (a
+  ~13 us floor per pass), GPU present's full read-back of the display surface ~1 ms copy+wait. The Mac way for a
+  composited fullscreen app: **scan out CoreDisplay's display surfaces from VRAM** (no present copy; kext + plugin, L).
+  `hw-safety-reviewer` set five conditions before it is built (finding section 4 fix 1: the large slots, the 1 GiB BAR
+  check, no host import of BAR pages, Linux's flip-complete test, flip away before free). Then item 2.
+- [ ] **1b. Narrow render-pass dependencies** (plugin, S-M): every pass has image-less ALL_COMMANDS / MEMORY_* entry
+  and exit dependencies, likely an L2 flush per pass in RADV (unverified); ~0.4-0.5 ms of WindowServer's frame is
+  the ~13 us per-pass floor. Measure RADV's flush bits per pass (or A/B `NVMTL_RP_K1=1`) before changing it.
 - [ ] **2. GPU-used IOSurfaces resident in VRAM** (app drawables, WindowServer's surfaces): removes the per-frame copy
   of each tiled drawable to its system-memory pages (~0.6 ms at 1440p, not timed alone) and WindowServer's
   system-memory reads. Gap: the rest of Horizon's frame after item 1. Effort L. Kext + plugin: EFI change + restart.

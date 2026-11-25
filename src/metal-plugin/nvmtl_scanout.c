@@ -40,6 +40,7 @@ static struct {
     uint32_t w, h, pitch, next, slotId[3];
     VkBuffer slot[3]; VkDeviceMemory slotMem[3];
     VkCommandPool pool; VkCommandBuffer cb; VkFence fence;
+    VkQueryPool tq;                              /* the copy's two GPU timestamps, made on the first present while passtime is armed */
     VkDescriptorSetLayout dsl; VkPipelineLayout pl; VkPipeline conv; VkDescriptorPool dp; VkDescriptorSet ds;   /* l10r -> 8-bit */
     struct { const void *ref; uint32_t sid; void *base; nvk_buffer buf; } src[8];
     unsigned srcNext;
@@ -75,6 +76,7 @@ static void nvmtl_scan_teardown_locked(void)
     if (g_scan.cb) pvkFreeCommandBuffers(g_dev, g_scan.pool, 1, &g_scan.cb);
     if (g_scan.pool) pvkDestroyCommandPool(g_dev, g_scan.pool, NULL);
     if (g_scan.fence) pvkDestroyFence(g_dev, g_scan.fence, NULL);
+    if (g_scan.tq) pvkDestroyQueryPool(g_dev, g_scan.tq, NULL);
     if (g_scan.conv) pvkDestroyPipeline(g_dev, g_scan.conv, NULL);
     if (g_scan.pl) pvkDestroyPipelineLayout(g_dev, g_scan.pl, NULL);
     if (g_scan.dp) pvkDestroyDescriptorPool(g_dev, g_scan.dp, NULL);
@@ -89,7 +91,7 @@ static void nvmtl_scan_teardown_locked(void)
         if (g_scan.src[i].ref) CFRelease(g_scan.src[i].ref);
         memset(&g_scan.src[i], 0, sizeof g_scan.src[i]);
     }
-    g_scan.cb = VK_NULL_HANDLE; g_scan.pool = VK_NULL_HANDLE; g_scan.fence = VK_NULL_HANDLE; g_scan.conv = VK_NULL_HANDLE;
+    g_scan.cb = VK_NULL_HANDLE; g_scan.pool = VK_NULL_HANDLE; g_scan.fence = VK_NULL_HANDLE; g_scan.conv = VK_NULL_HANDLE; g_scan.tq = VK_NULL_HANDLE;
     g_scan.pl = VK_NULL_HANDLE; g_scan.dp = VK_NULL_HANDLE; g_scan.ds = VK_NULL_HANDLE; g_scan.dsl = VK_NULL_HANDLE;
     g_scan.next = 0; g_scan.lastT = 0;
 }
@@ -265,6 +267,16 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
     { VkCommandBufferAllocateInfo cbai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, NULL, g_scan.pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1 };
       if (pvkAllocateCommandBuffers(g_dev, &cbai, &g_scan.cb) != VK_SUCCESS) { g_scan.cb = VK_NULL_HANDLE; nvmtl_scan_off_locked("command buffer failed"); goto out; } }
     pvkBeginCommandBuffer(g_scan.cb, &bi);
+    /* While passtime is armed in this process, the copy (with its barriers) is timed on the GPU and logged next to the
+       passes. copy_wait (the CPU's view, t0 to t1) minus this is the recording, the submit, the time the copy queued
+       behind other work and the fence wake-up; for widen-cpu also the CPU widening. A present doesn't count against
+       the armed passes: every present is logged until this process has drawn its NVMTL_PT_PASSES render passes. */
+    int timed = 0;
+    if (g_pt_left > 0 && g_timestamp_bits) {
+        if (!g_scan.tq) { VkQueryPoolCreateInfo qi = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, NULL, 0, VK_QUERY_TYPE_TIMESTAMP, 2, 0 };
+            if (pvkCreateQueryPool(g_dev, &qi, NULL, &g_scan.tq) != VK_SUCCESS) g_scan.tq = VK_NULL_HANDLE; }
+        if (g_scan.tq) { pvkCmdResetQueryPool(g_scan.cb, g_scan.tq, 0, 2); pvkCmdWriteTimestamp(g_scan.cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, g_scan.tq, 0); timed = 1; }
+    }
     VkMemoryBarrier before = { VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT };
     pvkCmdPipelineBarrier(g_scan.cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, NULL, 0, NULL);
     if (fmt10 && !l10r) {
@@ -295,6 +307,7 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
         VkMemoryBarrier after = { VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT };
         pvkCmdPipelineBarrier(g_scan.cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 1, &after, 0, NULL, 0, NULL);
     }
+    if (timed) pvkCmdWriteTimestamp(g_scan.cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, g_scan.tq, 1);
     pvkEndCommandBuffer(g_scan.cb);
     VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, 0, NULL, NULL, 1, &g_scan.cb, 0, NULL };
     pvkResetFences(g_dev, 1, &g_scan.fence);
@@ -304,6 +317,17 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
     if (sr != VK_SUCCESS || pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, 1000000000ull) != VK_SUCCESS) { nvmtl_scan_off_locked("the copy did not complete"); goto out; }
     uint64_t o[3];
     const uint64_t t1 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    if (timed) {   /* after t1: reading the queries and writing the line count as flicker-probe time (probeUs) */
+        uint64_t r[2] = {0}; FILE *pf = nvmtl_pt_file();
+        if (pf && pvkGetQueryPoolResults(g_dev, g_scan.tq, 0, 2, sizeof r, r, 8, VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+            const uint64_t mask = g_timestamp_bits >= 64 ? ~0ull : ((1ull << g_timestamp_bits) - 1);
+            fprintf(pf, "present sid %u slot %u %s gpu_us %.1f copy_wait_us %.1f bytes %zu t %llu arm %llu\n", sid, k,
+                    fmt10 && !l10r ? "widen-cpu" : l10r && !fmt10 ? "narrow" : "copy", (double)((r[1] - r[0]) & mask) * (g_lim.timestampPeriod / 1000.0),
+                    (double)(t1 - t0) / 1000.0, (size_t)pitch * h, (unsigned long long)(clock_gettime_nsec_np(CLOCK_REALTIME) / 1000000ull),
+                    (unsigned long long)g_pt_arms);
+            fflush(pf);
+        }
+    }
     nvmtl_flick_probe(sid, base, w, h, pitch, l10r);
     const uint64_t t2 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     if (g_scan.present(g_dev, g_scan.slotId[k], o)) { struct nvmtl_scan_status ls; memset(&ls, 0, sizeof ls); g_scan.status(g_dev, &ls);

@@ -305,6 +305,7 @@ say whether the path is accelerated or a fallback.
 |---|---|
 | `tools/metaltest/metalbench.m` | off-screen Metal render / compute / submit round trip |
 | `tools/metaltest/apiprobe.m` | what each graphics API reports to an app |
+| `tools/metaltest/mtlq.m` | what the Metal device answers (name, families, limits, feature flags, counter sets); no queue, buffer or pipeline |
 | `tools/metaltest/webprobe.m` | what a WebKit page gets through Safari's GPU process: WebGL 1 / 2, WebGPU, a small WebGL draw loop, Media Capabilities per codec; with a movie, the frames a `<video>` presents |
 | `tools/metaltest/wgsamples.m` | the deployed webgpu-samples one by one in a WKWebView: frame rate, page and WebGPU errors, a window capture each (needs network) |
 | `tools/metaltest/vkwindow.m` | a Vulkan window (`VK_EXT_metal_surface`, FIFO swapchain) through the driver the loader finds: presents per second, and whether the pixels reach the screen |

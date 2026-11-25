@@ -1,6 +1,6 @@
 # Vermilion documentation
 
-Vermilion is a macOS Tahoe driver for AMD Navi 31 GPUs (RX 7900 XT, and in this fork the RX 7900 XTX). These pages
+Vermilion is a macOS Tahoe driver for the AMD RX 7900 XTX (Navi 31). Upstream also drove the RX 7900 XT; this fork refuses it. These pages
 are written for two audiences at once: **people** installing or hacking on it, and **language models** that need
 context before they change code. Coding agents also have [`../CLAUDE.md`](../CLAUDE.md) and the working notes in
 [`../.agents/`](../.agents/).
@@ -9,11 +9,13 @@ context before they change code. Coding agents also have [`../CLAUDE.md`](../CLA
 
 | If you want to... | Read |
 |---|---|
-| know what this is and whether it can work for you | [`../README.md`](../README.md), then [REFERENCE-MACHINES.md](REFERENCE-MACHINES.md) |
+| know what this is and whether it can work for you | [`../README.md`](../README.md), then [`../SUPPORT.md`](../SUPPORT.md) and [REFERENCE-MACHINES.md](REFERENCE-MACHINES.md) |
+| install, update, uninstall or recover it (users) | [`../INSTALL.md`](../INSTALL.md) |
+| know how releases are built and what they contain | [RELEASE.md](RELEASE.md), [`../CHANGELOG.md`](../CHANGELOG.md) |
 | understand how it works | [ARCHITECTURE.md](ARCHITECTURE.md), with [GLOSSARY.md](GLOSSARY.md) open |
 | run it on an RX 7900 XTX | [XTX.md](XTX.md) |
 | build it | [BUILD.md](BUILD.md) |
-| install it | [INSTALL.md](INSTALL.md) (upstream's guide, written for the XT reference machine) |
+| install every part by hand (the expert reference) | [INSTALL.md](INSTALL.md) (upstream's guide, written for the XT reference machine this fork no longer supports) |
 | get the AMD firmware it loads | [FIRMWARE.md](FIRMWARE.md) |
 | know why names start with `phx` / `nv` / `nmx` | [NAMING.md](NAMING.md) |
 | know where the fallback EDIDs come from | [EDID.md](EDID.md) |

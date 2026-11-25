@@ -44,7 +44,11 @@ The owner's target widened the same evening: publishable for real users by the e
 | C2 | HDR (item 4), replug / monitor power / input switch (5), display sleep (6), DDC/CI (9), Night Shift / calibration (D22) | `ownback/display-parity` |
 | C3 | GPU hang recovery (7), 4K video async decode, H.264, AV1 fallback, WebGPU render bundles (10) | `ownback/hang-video-parity` |
 | C4 | Comparison with Apple's own AMD driver stack on this macOS (ioreg, Metal answers, PerformanceStatistics, install layout) | `ownback/apple-amd-comparison` |
+| C5 | From the comparison (#33): per-process GPU time (N1), GPU sensors (N2), GPU counters for Instruments (N6), power-policy node (N8) | `ownback/gpu-stats-parity` |
+| C6 | System Information ROM / Slot rows (N4), plugin bundle identity (N7), DP audio name's stray byte | `ownback/sysinfo-identity` |
+| C7 | Hardware encode and IOGVA codec keys (N3) | `ownback/video-encode-parity` |
 
+Apple ships no Navi 31 support (#33): the reference for parity is Apple's RDNA 2 (Navi 21/23) stack on this macOS.
 Owner contact: a message that needs the owner starts with **PING!**. Subagents get a model sized to the task.
 
 ## Order

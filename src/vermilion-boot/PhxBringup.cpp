@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR GPL-2.0-only
 //
-//  PhxBringup.cpp — RX 7900 XT (Navi 31, 1002:744c) bring-up kext; it began on the Phoenix Radeon 780M.
+//  PhxBringup.cpp — RX 7900 XTX (Navi 31, 1002:744c rev C8) bring-up kext; it began on the Phoenix Radeon 780M.
 //
 //  Publishes the service the RADV Darwin backend opens (class PhxBringup, user client type 'N48N')
 //  and answers ABI v1 selectors 0..8 with the same rules as Mesa's in-process mock kext
@@ -41,6 +41,7 @@
 #include "PhxDdc.h"
 #include "PhxEdid.h"
 #include "PhxHpd.h"   // b102 hot-plug K1 + A2 (phx_hpd.cpp)
+#include "PhxGpuId.h"   // b161: the board gate (RX 7900 XTX only)
 
 extern struct sysctl_oid sysctl__debug_phxkey;   // debug.phxkey, the virtual keyboard (phx_vkbd.cpp)
 // b82 (M7 S2): the pipe-1 ladder and the DMCUB ring (phx_pipe2.cpp)
@@ -76,7 +77,7 @@ static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret);   // b134, phx_p0od
 static bool p0OdmKnows(uint32_t key);   // b138 (phx_p0odm.cpp): a key of the replay set
 static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called by start() (debug.phxpoweron, gate G1)
 
-#define PHX_KEXT_BUILD 160u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
+#define PHX_KEXT_BUILD 161u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
 
 // The kext is ONE translation unit: the files below hold its code by function and are included here, in this
 // order (the order is the original single-file order; moving code between them must keep it). build.sh compiles

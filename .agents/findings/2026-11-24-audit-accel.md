@@ -66,7 +66,7 @@ States: **works**, **broken**, **missing**, **not standard** (works, but not the
   GC 11.0.0, the 6 GiB / 2 GiB / 256 MiB pools), the canned RADV profile with the XT's profile for any revision other
   than 0xc8, the profile-name marketing string. Row 19, row 3.
 - **Rule 6 (no Apple code or disassembly):** `src/vermilion-accel/accel/re/IOGraphicsAccelerator2.h:18` quotes an
-  instruction from Apple's binary (`movl $0xdd8, %ecx`), and the reconstructed class layouts plus raw field offsets
+  instruction from Apple's binary (reworded 2026-11-25, `2026-11-25-release-readiness.md`), and the reconstructed class layouts plus raw field offsets
   (`accel/re/`, `accel/iofam/`, `nvaccel_stubs.h`) come from Apple's kext. Inherited from NullMoth and needed to link;
   worth a review of what may stay.
 - **Rule 8 (say what is verified):** PROJECT_KNOWLEDGE's DRM row says the Music crash is fixed (plugin `33b9a186`,

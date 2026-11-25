@@ -35,7 +35,7 @@ flowchart TB
     BOOT["VermilionBoot.kext (src/vermilion-boot)<br/>PhxBringup + N48N user client"]
     TRUST["VermilionTrust.kext (src/vermilion-trust)<br/>AMFI allowlist: Vermilion's cdhashes"]
   end
-  GPU["RX 7900 XT / XTX<br/>PSP, SMU, GFX, SDMA, VCN, DCN"]
+  GPU["RX 7900 XTX<br/>PSP, SMU, GFX, SDMA, VCN, DCN"]
   RADV -- "N48N user client:<br/>BOs, VA, submit, wait" --> BOOT
   RADV -. "sandboxed processes:<br/>proxy through NMXAccel" .-> ACC
   PLG -- "IOAccelerator interfaces" --> ACC
@@ -47,7 +47,9 @@ flowchart TB
 
 ### VermilionBoot.kext (`src/vermilion-boot`)
 
-Injected by OpenCore, so it needs no approval in macOS. It matches the PCI device `0x744c1002`.
+Injected by OpenCore, so it needs no approval in macOS. It matches the PCI device `0x744c1002` and starts only on an
+RX 7900 XTX: `PhxBringup::probe` and `PhxFBSquatter::probe` read the PCI revision (`PhxGpuId.h`) and return nothing for
+anything but `0xC8`, before any register access ([XTX.md](XTX.md), "Supported board").
 
 - **`PhxBringup`** (`phx_classes.cpp`, `phx_core.cpp`) maps the GPU's registers and a window into VRAM. It reads
   the VRAM size from the memory controller registers (`FB_LOCATION_BASE/TOP`) and publishes `phx-build`, the PCI
@@ -106,7 +108,7 @@ Mesa at commit `f5cb8ee0` with 20 patches:
 - **0001-0009 (Cobalt64):** a Darwin backend that replaces the Linux DRM ioctls with the N48N user client.
 - **0010-0015 (nullarc):** Phoenix APU support and the proxy path.
 - **0016-0018:** a "canned" Navi 31 device profile and its shims; 0018 picks the profile by PCI revision (XTX: Mesa's
-  `navi31`, XT: `navi31_xt`).
+  `navi31`; `navi31_xt` is left over from upstream and no longer reached, the kexts refuse an XT).
 - **0019:** the kext handshake line goes to the unified log (stderr only with `RADV_DARWIN_VERBOSE=1`).
 - **0020:** a window surface for apps. Built with `-Dplatforms=macos` (`RADV_PLATFORMS=macos sh scripts/build/radv.sh`),
   RADV offers `VK_KHR_surface`, `VK_EXT_metal_surface` and swapchains through Mesa's Metal WSI (a copy to host memory
@@ -146,7 +148,7 @@ sequenceDiagram
   participant WS2 as WindowServer (restarted)
   OC->>K: boot, inject VermilionBoot + VermilionTrust (boot-args phxdebug=1 ...)
   Note over GPU: the GOP already lit the monitor
-  K->>VB: match 0x744c1002, map BARs, publish phx-build
+  K->>VB: match 0x744c1002, revision C8 only, map BARs, publish phx-build
   K->>WS1: WindowServer starts on the firmware framebuffer (no Metal)
   K->>D: launchd starts local.phxboot
   D->>D: kill switch? unfinished previous attempt? then GOP only
@@ -208,7 +210,7 @@ The display engine (DCN 3.2) is the most board- and monitor-specific part.
   the installed plugin, translator, LLVM, zstd and RADV through library validation in platform processes such as
   WindowServer. A new build of any of them needs a VermilionTrust and EFI rebuild
   ([runbooks](../.agents/runbooks.md#deploying-a-plugin-translator-or-radv-build-2026-11-23)). The kext's hook offsets
-  were read from 25G241 only. On the XTX machine since 2026-11-22; on the XT *(unverified)*.
+  were read from 25G241 only. On the XTX machine since 2026-11-22.
   - The older setup, still in the `vermilion` EFI stage and in [INSTALL.md](INSTALL.md): `amfi=0x80` with Lilu +
     AMFIPass. It turns library validation off for every process and makes every app a platform binary, which denies
     third-party privacy prompts. Whether it also breaks FairPlay 1.x (Apple Music) was never tested: on the XTX

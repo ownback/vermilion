@@ -6,6 +6,8 @@ bool PhxBringup::start(IOService *provider) {
     int dummy = 0;
     if (PE_parse_boot_argn("-phxbringupoff", &dummy, sizeof(dummy)))
         return false;
+    if (!phxGpuAllowed(provider))   // b161: probe asked already; this is the second gate before the first register access
+        return false;
     if (!IOService::start(provider))
         return false;
     gPhx = this;
@@ -225,15 +227,9 @@ void PhxBringup::readFbLayout() {
     setProperty("phx-fb-size", fbSize, 64);
     setProperty("phx-fb-phys", fbPhys, 64);
     // About This Mac / System Information name the GPU from the PCI device's "model" and size its memory from
-    // "VRAM,totalMB"; without them the 780M read "Display, 15 MB" (the boot framebuffer). The name follows the PCI
-    // revision as in libdrm's amdgpu.ids (744C: C8 XTX, CC XT, CE GRE, CF 7900M); any other revision keeps the XT name.
-    const char *model = "AMD Radeon RX 7900 XT";
-    switch (pci->configRead8(kIOPCIConfigRevisionID)) {
-        case 0xC8: model = "AMD Radeon RX 7900 XTX"; break;
-        case 0xCE: model = "AMD Radeon RX 7900 GRE"; break;
-        case 0xCF: model = "AMD Radeon RX 7900M"; break;
-        default: break;
-    }
+    // "VRAM,totalMB"; without them the 780M read "Display, 15 MB" (the boot framebuffer). Only an XTX gets this far
+    // (PhxGpuId.h), so the name is fixed.
+    const char *model = "AMD Radeon RX 7900 XTX";
     if (OSData *m = OSData::withBytes(model, static_cast<unsigned>(strlen(model) + 1))) {
         pci->setProperty("model", m);
         m->release();

@@ -180,7 +180,9 @@ panning steadily. Check in the summary that the SMU shows ~94 % at ~2.9 GHz (pha
 1. GPU time per process, phase B, fullscreen: `sudo GPUTIME=1 bash tools/validation/appcapture.sh Maps fs3d-gpu 30`.
    It adds two timestamp packets per submission while on (b157), the megamind's call. `gputime.txt` splits Maps,
    WindowServer, `com.apple.WebKit.GPU` and the others.
-2. Per-pass GPU time in the same phase: during run 1, at about t=10 s, `touch /tmp/nvmtl-passtime-request`. The first
+2. (Done 2026-11-25; since the follow-up branch one touch arms every process once and the file is not unlinked:
+   [`2026-11-25-windowserver-composite-cost.md`](2026-11-25-windowserver-composite-cost.md) section 6.) Per-pass GPU
+   time in the same phase: during run 1, at about t=10 s, `touch /tmp/nvmtl-passtime-request`. The first
    process to see it (each polls every 250 ms while it begins render passes) times its next 400 passes and logs
    `passtime: ARMED`. Check which process took it:
    `log show --last 15s --predicate 'subsystem == "org.vermilion.nvmtl" AND eventMessage CONTAINS "passtime"'`.

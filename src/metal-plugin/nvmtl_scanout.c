@@ -511,46 +511,59 @@ static int nvmtl_scan_direct_present_locked(const void *ref, uint32_t sid, int l
               (unsigned long long)g_scan.gapBin[4]);
     return 0;
 }
-/* b161, the write gate: called by the commit path (outside the class lock) before a command buffer that writes display
-   surface `sid` through memory `mem` can be submitted. Returns once HUBP0 cannot be fetching that surface (the kext's
-   PHXN_SCANSLOT_WRITABLE: Linux's flip-complete test), so CoreDisplay never draws into the frame being scanned out.
-   0 go (direct), 1 not direct here (nothing to wait for), -1 direct ended here (copied back and released: go, the write
-   lands on the pages). Polls every 200 us without g_scan_lock held between polls, so the flip it waits for can run. */
-int nvmtl_vk_scanout_write_gate(uint32_t sid, const void *mem)
+/* b161, the write gate: called by the commit path (outside the class lock) before a command buffer that writes the
+   full-screen surfaces sid[0..n) through memories mem[0..n) can be submitted. Returns once HUBP0 cannot be fetching any
+   bound one of them (the kext's PHXN_SCANSLOT_WRITABLE: Linux's flip-complete test), so CoreDisplay never draws into the
+   frame being scanned out. The bound ones are counted as in flight (g_sd_out) in the same g_scan_lock section that saw
+   them writable, all at once: a flip of one of them after that sees the count and waits, and the command buffer's own
+   writes never hold the flip it waits for. *let: a bit per bound surface let through (nvmtl_vk_scanout_write_note(sid, -1)
+   each once the command buffer has finished, before its present). 0 go (direct), 1 none bound here, -1 direct ended here
+   (copied back and released: go, the writes land on the pages). Polls every 200 us without g_scan_lock held between. */
+int nvmtl_vk_scanout_write_gate(uint32_t n, const uint32_t *sid, const void *const *mem, uint32_t *let)
 {
-    if (!atomic_load(&g_sd_on)) return 1;
+    *let = 0;
+    if (!atomic_load(&g_sd_on) || !n) return 1;
+    if (n > 8) n = 8;
     const uint64_t t0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     int bounced = 0, waited = 0, ret = 1;
     for (;;) {
         pthread_mutex_lock(&g_scan_lock);
-        const nvmtl_scan_dsurf *d = NULL, *other = NULL;
+        const nvmtl_scan_dsurf *d[8] = { NULL };
+        int nb = 0, mine[2] = { 0, 0 };   /* bound surfaces this command buffer writes; which of the two */
         if (g_scan.direct && g_scan.state == 1)
-            for (int i = 0; i < 2; i++) if (g_scan.dsurf[i].bound && g_scan.dsurf[i].sid == sid) { d = &g_scan.dsurf[i]; other = &g_scan.dsurf[1 - i]; }
-        if (!d) { pthread_mutex_unlock(&g_scan_lock); ret = 1; break; }
-        if (mem != (const void *)d->mem) {   /* written through another texture: that write would miss the slot */
+            for (uint32_t j = 0; j < n; j++)
+                for (int i = 0; i < 2; i++) if (g_scan.dsurf[i].bound && g_scan.dsurf[i].sid == sid[j]) { d[j] = &g_scan.dsurf[i]; mine[i] = 1; nb++; }
+        if (!nb) { pthread_mutex_unlock(&g_scan_lock); ret = 1; break; }
+        int foreign = 0;
+        for (uint32_t j = 0; j < n; j++) if (d[j] && mem[j] != (const void *)d[j]->mem) foreign = 1;
+        if (foreign) {   /* written through another texture: that write would miss the slot */
             nvmtl_scan_direct_out_locked("a display surface written through another backing", 1);
             pthread_mutex_unlock(&g_scan_lock); ret = -1; break; }
         struct nvmtl_scan_status st;
         memset(&st, 0, sizeof st);
         if (g_scan.status(g_dev, &st) || !st.acquired) { nvmtl_scan_lost_locked("the plane was taken back", &st); pthread_mutex_unlock(&g_scan_lock); ret = -1; break; }
         const uint64_t us = (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - t0) / 1000;
-        const int writable = (st.slot[d->slotId].flags & NVMTL_SCANSLOT_WRITABLE) != 0;
-        const int bounceFree = g_scan.nslots >= 1 && (st.slot[g_scan.slotId[0]].flags & NVMTL_SCANSLOT_WRITABLE) != 0;
-        const int act = nvmtl_sd_gate(writable, st.pending_slot != NVMTL_SCAN_NO_SLOT, atomic_load(&g_sd_out[other->sid & 63]) != 0,
-                                      bounceFree, bounced, us);
-        if (act == NVMTL_SD_GO) {
-            atomic_fetch_add(&g_sd_out[sid & 63], 1);   /* until nvmtl_vk_scanout_write_note(sid, -1) at its finish */
+        const nvmtl_scan_dsurf *blocked = NULL;
+        for (uint32_t j = 0; j < n && !blocked; j++)
+            if (d[j] && !(st.slot[d[j]->slotId].flags & NVMTL_SCANSLOT_WRITABLE)) blocked = d[j];
+        if (!blocked) {
+            for (uint32_t j = 0; j < n; j++) if (d[j]) { atomic_fetch_add(&g_sd_out[sid[j] & 63], 1); *let |= 1u << j; }
             g_scan.dgates++;
             if (waited) { g_scan.dgateWaits++; g_scan.dgateUs += us; }
             pthread_mutex_unlock(&g_scan_lock); ret = 0; break; }
+        /* the partner's flip frees the front only if this command buffer does not write the partner itself */
+        const int bi = blocked == &g_scan.dsurf[0] ? 0 : 1;
+        const int partnerOut = !mine[1 - bi] && atomic_load(&g_sd_out[g_scan.dsurf[1 - bi].sid & 63]) != 0;
+        const int bounceFree = g_scan.nslots >= 1 && (st.slot[g_scan.slotId[0]].flags & NVMTL_SCANSLOT_WRITABLE) != 0;
+        const int act = nvmtl_sd_gate(0, st.pending_slot != NVMTL_SCAN_NO_SLOT, partnerOut, bounceFree, bounced, us);
         if (act == NVMTL_SD_FAIL) {
-            nvlog("ws gpu present: direct: surface %u (slot %u) still not writable after %llu us (flags 0x%x, front %u, pending %u)", sid, d->slotId,
-                  (unsigned long long)us, st.slot[d->slotId].flags, st.front_slot, st.pending_slot);
+            nvlog("ws gpu present: direct: surface %u (slot %u) still not writable after %llu us (flags 0x%x, front %u, pending %u)", blocked->sid,
+                  blocked->slotId, (unsigned long long)us, st.slot[blocked->slotId].flags, st.front_slot, st.pending_slot);
             nvmtl_scan_direct_out_locked("the flip-complete wait timed out", 1);
             pthread_mutex_unlock(&g_scan_lock); ret = -1; break; }
         if (act == NVMTL_SD_BOUNCE) {
             bounced = 1;
-            if (nvmtl_scan_direct_bounce_locked(d)) { nvmtl_scan_direct_out_locked("the bounce failed", 1); pthread_mutex_unlock(&g_scan_lock); ret = -1; break; }
+            if (nvmtl_scan_direct_bounce_locked(blocked)) { nvmtl_scan_direct_out_locked("the bounce failed", 1); pthread_mutex_unlock(&g_scan_lock); ret = -1; break; }
         }
         waited = 1;
         pthread_mutex_unlock(&g_scan_lock);

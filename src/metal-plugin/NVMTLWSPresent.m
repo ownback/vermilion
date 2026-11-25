@@ -194,10 +194,11 @@ static void nvmtl_ws_direct_writes(NVMTLCommandBuffer *cb, nvmtl_ws_writes *out)
 static void nvmtl_ws_direct_gate(NVMTLCommandBuffer *cb, const nvmtl_ws_writes *w) {
     if (!w->n) return;
     if (!nvmtl_vk_scanout_write_begin()) { objc_setAssociatedObject(cb, nvmtl_ws_ungated_key, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC); return; }
-    NSMutableArray *let = nil;
-    for (uint32_t i = 0; i < w->n; i++)
-        if (nvmtl_vk_scanout_write_gate(w->sid[i], w->mem[i]) == 0) { if (!let) let = [NSMutableArray new]; [let addObject:@(w->sid[i])]; }
-    if (let) objc_setAssociatedObject(cb, nvmtl_ws_out_key, let, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    uint32_t let = 0;
+    if (nvmtl_vk_scanout_write_gate(w->n, w->sid, w->mem, &let) != 0 || !let) return;
+    NSMutableArray *out = [NSMutableArray new];
+    for (uint32_t i = 0; i < w->n; i++) if (let & (1u << i)) [out addObject:@(w->sid[i])];
+    objc_setAssociatedObject(cb, nvmtl_ws_out_key, out, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 static void nvmtl_ws_note_display(NVMTLCommandBuffer *cb, BOOL waited) {
     if (!nvmtl_ws_gpu_present_on() || ![cb->_queue.label hasPrefix:@"com.apple.CoreDisplay"]) return;

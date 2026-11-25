@@ -60,16 +60,28 @@ echo "gc_11_0_0_me.bin $m $(wc -c < "$d/gc.bin" | tr -d ' ')" > "$T/fw.lock"
 check firmware 1 firmware "$d"
 : > "$T/fw.lock"
 
-edid() {  # edid <file> <serial hex, 8 digits>: one 128-byte EDID block between NUL padding
+edid() {  # edid <file> <serial hex, 8 digits> [<13 text bytes>]: one 128-byte EDID block between NUL padding; with
+          # a third argument, its first descriptor (byte 54) is a 0xFF serial-string descriptor holding that text
   local s=$2
   { printf '\000\001\002'; printf '\000\377\377\377\377\377\377\000'; printf '\036\155\001\002'
     printf "\\$(printf '%03o' 0x${s:0:2})\\$(printf '%03o' 0x${s:2:2})\\$(printf '%03o' 0x${s:4:2})\\$(printf '%03o' 0x${s:6:2})"
-    head -c 112 /dev/zero; printf '\000\000'; } > "$1"
+    if [ $# -ge 3 ]; then
+      head -c 38 /dev/zero; printf '\000\000\000\377\000%s' "$3"; head -c 56 /dev/zero
+    else
+      head -c 112 /dev/zero
+    fi; printf '\000\000'; } > "$1"
 }
 d=$(case_dir edid-serial); edid "$d/k.bin" 0a0b0c0d
 check edid_serial 1 edid-serial "$d"
 d=$(case_dir edid-clean); edid "$d/k.bin" 00000000
 check edid_no_serial 0 clean "$d"
+d=$(case_dir edid-desc-serial); edid "$d/k.bin" 00000000 'ABC123456789
+'
+check edid_descriptor_serial 1 edid-serial "$d"
+# the fallback EDIDs' shape (docs/EDID.md): an emptied serial descriptor, 0x0A and space padding
+d=$(case_dir edid-desc-empty); edid "$d/k.bin" 00000000 '
+            '
+check edid_descriptor_empty 0 clean "$d"
 
 d=$(case_dir asm); printf '// quoted: %s $0x1, %%eax\n' "movl" > "$d/a.c"
 check apple_asm 1 apple-asm "$d"

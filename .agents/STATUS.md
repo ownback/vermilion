@@ -61,10 +61,11 @@ Step (a)'s cold-boot check passed 2026-11-25 11:40 (power-off, `sOS check: C2PMS
 system volume (`/` mounts sealed, read-only).
 
 Item 3: design on #24 (finding `2026-11-25-recovery-trap-design.md`). Step 1 (daemon and `navi31_up.sh` only, no
-EFI change, #26) installed 2026-11-25 under the lock, rollback in `~/vermilion-rollback/recovery-daemon-1`; booting on a
-warm restart (the owner asked for it; a warm restart reads C2PMSG_81 = 0 like a cold boot, finding
-`2026-11-25-warm-restart-sos-cold.md`). Expected: `navi31 up:`, `SUCCESS at`, one `record: fails=0 ... (this boot:
-full)`, no `notice:` line (TODO, "Phase 2 item 3 step 1"). It closes
+EFI change, #26) installed 2026-11-25 under the lock, rollback in `~/vermilion-rollback/recovery-daemon-1`. **Live and passed**
+on the boot of 2026-11-25 16:57 (restart; C2PMSG_81 = 0 as after a cold boot, finding
+`2026-11-25-warm-restart-sos-cold.md`): `sOS check: C2PMSG_81=0x00000000 (cold)`, `navi31 up:`, `SUCCESS at
+16:59:24`, one `record: fails=0 clean=0 bfail=0 skipped=0 last=full (this boot: full)`, no `notice:` or TERM line, no
+`notice-next`, 240 Hz. The fallback paths stay unverified until a failure (TODO, "Phase 2 item 3 step 1"). It closes
 the three points above: the warm refusal records nothing, writes nothing and doesn't restart the machine; `m2_fail`
 writes the Metal allow list and `debug.phxagdc=0` only after the claim; a bring-up without `navi31 up:` claims nothing
 (the watchdog stays; after 2 failed bring-ups in a row one boot skips the bring-up). The record

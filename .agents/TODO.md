@@ -82,7 +82,8 @@ PROJECT_KNOWLEDGE.
     go on to the claim, with the watchdog armed (hw-safety-reviewer, 2026-11-24). Fixed on `ownback/recovery-daemon`
     (item 3 step 1, below).
 
-- [ ] **Phase 2 item 3 step 1: deploy the daemon recovery without the manual rm** (branch `ownback/recovery-daemon`,
+- [x] **Live and passed 2026-11-25 16:57 (#26; restart, all checks below green; fallback paths still unverified).**
+  **Phase 2 item 3 step 1: deploy the daemon recovery without the manual rm** (branch `ownback/recovery-daemon`,
   [design](findings/2026-11-25-recovery-trap-design.md) plan step 1), after the merge. Daemon and `navi31_up.sh` only:
   no EFI, kext, NVRAM or system-volume change. One boot, under the machine lock. Everything below is mock-tested only
   (unverified on hardware).

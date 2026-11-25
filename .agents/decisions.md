@@ -620,3 +620,19 @@ manual repair, and never more than 2 restarts in a row by themselves. Design:
 `findings/2026-11-25-recovery-trap-design.md`.
 **Revisit:** with plan step 3 (the kext hands the display back in the same boot) the fallback becomes a GOP boot and
 the safe desktop goes (step 4). If a failure repeats on hardware more often than the backoff allows for, raise N.
+
+## 2026-11-25: The recovery daemon's edge cases (the Fable pass of #26)
+
+**Decision:** a fallback boot counts as clean only if it ended without a failure: a safe desktop that fails, or a GOP
+boot whose NMXAccel didn't start or without PhxBringup, records `last=skip`. A TERM in the first 60 s of the bring-up
+(`PHXBOOT_UP_HANG`; it takes about 10 s) is a clean shutdown and isn't counted; a later one, such as the bring-up
+watchdog's restart at 3 min, counts as a hung bring-up. A failed bring-up uses up `~/gpu/phxboot-desktop`, as `m2_fail`
+does; the warm refusal keeps it. A restart after a failure leaves one sentence for the next boot
+(`/var/db/phxboot.notice-next`), shown after login unless that boot has its own notice. Safe Mode on a squat boot
+stays dark until VermilionBoot stops squatting with `-x` (design plan step 2); the daemon only logs it and leaves a
+notice for the next boot.
+**Why:** each of these either tried the full desktop too soon, counted a plain shutdown as a failure, repeated an
+attempt the owner armed once, or left the user without an explanation. A refusal is no attempt, and the cold boot
+after the power-off should get the desktop that was asked for. In Safe Mode nothing in the running boot can give the
+screen back without terminating the squatter, which hot-resets the GPU (hard rule 1).
+**Revisit:** the 60 s threshold if a bring-up on hardware ever takes longer than about 30 s. Safe Mode with plan step 2.

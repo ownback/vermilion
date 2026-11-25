@@ -82,8 +82,8 @@ PROJECT_KNOWLEDGE.
   [design](findings/2026-11-25-recovery-trap-design.md) plan step 1), after the merge. Daemon and `navi31_up.sh` only:
   no EFI, kext, NVRAM or system-volume change. One boot, under the machine lock. Everything below is mock-tested only
   (unverified on hardware).
-  - Before: `bash tests/mock/run.sh`, `bash tests/mock/b15test.sh`, `bash tests/mock/bringup_warm_test.sh` green on
-    main. `ls ~/gpu/phxboot-off ~/gpu/phxboot-failed ~/gpu/phxboot-safe /var/db/phxboot.*`: on 2026-11-25 none of
+  - Before: `bash tests/mock/run.sh`, `bash tests/mock/b15test.sh`, `bash tests/mock/bringup_warm_test.sh`,
+    `bash tests/mock/daemon_install_test.sh` green on main. `ls ~/gpu/phxboot-off ~/gpu/phxboot-failed ~/gpu/phxboot-safe /var/db/phxboot.*`: on 2026-11-25 none of
     them existed, `~/gpu/phxboot-nvstuck` held `stuck`. A `phxboot-failed` left then is taken over into the record by
     the first boot (`record: ... taken over`); a `phxboot-off` is the owner's switch from now on: remove it first if
     an old daemon made it.
@@ -94,13 +94,17 @@ PROJECT_KNOWLEDGE.
     ~/gpu/phxboot-navi31.sh`), owner and mode as before (`ls -l`).
   - Check, one cold boot (the owner shuts down and powers on): `/var/log/phxboot.log` has `sOS check: C2PMSG_81=0x00000000
     (cold)`, `navi31 up:`, `SUCCESS at`, and once the new line `record: fails=0 clean=0 bfail=0 skipped=0 last=full
-    (this boot: full)`; no `notice:` line; `sudo cat /var/db/phxboot.fails` the same five lines; 240 Hz as before.
+    (this boot: full)`; no `notice:` line and no `clean shutdown (TERM) ... during the bring-up` line;
+    `sudo cat /var/db/phxboot.fails` the same five lines; no `/var/db/phxboot.notice-next`; 240 Hz as before.
   - Not tested by this boot (the paths need a failure): the safe desktop's return, the notification (`launchctl asuser`
-    + `osascript` as the user, unverified), the loop guard. A later owner test can force one fallback without a GPU
+    + `osascript` as the user, unverified), the notice kept across a restart after a failure, the loop guard, a
+    shutdown during the bring-up (the TERM now reaches the trap at once), Safe Mode on the squat (still dark: it
+    should leave the "Safe Mode can't show a picture" notice for the next boot; whether the daemon runs in Safe Mode at
+    all is unverified). A later owner test can force one fallback without a GPU
     risk: `echo desktop | sudo tee /var/db/phxboot.pending` before a restart gives one safe desktop with the
     notification after login, and the boot after it the full desktop (OWNER-TESTS candidate).
   - Rollback: copy both files back from `~/vermilion-rollback/recovery-daemon-1` (the daemon by rename), `sudo rm -f
-    /var/db/phxboot.fails /var/db/phxboot.notice`, shut down fully, boot. The old daemon ignores the record; it sets
+    /var/db/phxboot.fails /var/db/phxboot.notice /var/db/phxboot.notice-next`, shut down fully, boot. The old daemon ignores the record; it sets
     `~/gpu/phxboot-off` / `phxboot-failed` again after a failure.
 
 - [x] **03: VermilionAccel with `debug.phxgl`** (not an EFI change): installed 23:05, booted 23:18 (UUID `2B25514A`),

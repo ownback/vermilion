@@ -3,9 +3,30 @@
 // its probe/start), IOAccelPhxNativeClient (the user client).
 // Part of the PhxBringup.cpp translation unit (included there, in order); not compiled on its own.
 
+// b161: Vermilion starts only on an RX 7900 XTX (PhxGpuId.h). Three PCI config reads decide; nothing else on the GPU is
+// touched before this returns true. A refusal logs one line per boot (probe and start both ask).
+static bool phxGpuAllowed(IOService *provider)
+{
+    static bool logged;
+    IOPCIDevice *pci = OSDynamicCast(IOPCIDevice, provider);
+    const phxgpu::Board b = phxgpu::classifyPci(pci);
+    if (phxgpu::supported(b)) return true;
+    if (!logged) {
+        logged = true;
+        if (pci)
+            IOLog("Vermilion: %04x:%04x rev %02x is %s, not an RX 7900 XTX (1002:744c rev c8): not starting, the GPU is left untouched\n",
+                  pci->configRead16(phxgpu::kCfgVendor), pci->configRead16(phxgpu::kCfgDevice),
+                  pci->configRead8(phxgpu::kCfgRevision), phxgpu::name(b));
+        else
+            IOLog("Vermilion: the provider is not a PCI device: not starting\n");
+    }
+    return false;
+}
+
 class PhxBringup : public IOService {
     OSDeclareDefaultStructors(PhxBringup)
 public:
+    IOService *probe(IOService *provider, SInt32 *score) override;
     bool start(IOService *provider) override;
     void stop(IOService *provider) override;
     IOReturn newUserClient(task_t owningTask, void *securityID, UInt32 type, IOUserClient **handler) override;
@@ -412,6 +433,12 @@ private:
 
 OSDefineMetaClassAndStructors(PhxBringup, IOService)
 
+IOService *PhxBringup::probe(IOService *provider, SInt32 *score)
+{
+    (void)score;   // IOService::probe's own answer: this, score unchanged (not called: no new import)
+    return phxGpuAllowed(provider) ? this : nullptr;
+}
+
 // PhxFBSquatter: holds the IOFramebuffer match category on the GPU's IOPCIDevice so IONDRVFramebuffer (score 20000)
 // never starts there, leaving PhxAMDFB (on the PhxDisplay nub) as the only framebuffer CoreDisplay can drive.
 // Only BootKC kexts probe before IONDRV, hence it lives here and not in PhxAccel. One boot per arming:
@@ -448,6 +475,8 @@ static bool takeSquatArming()
 
 IOService *PhxFBSquatter::probe(IOService *provider, SInt32 *score)
 {
+    // b161: the board check first: taking the squat arming changes NVRAM, which a refused board must not see
+    if (!phxGpuAllowed(provider)) return nullptr;
     if (PE_parse_boot_argn("-phxbringupoff", nullptr, 0) || !takeSquatArming()) return nullptr;
     if (score) *score = 30000;
     return this;
@@ -455,7 +484,7 @@ IOService *PhxFBSquatter::probe(IOService *provider, SInt32 *score)
 
 bool PhxFBSquatter::start(IOService *provider)
 {
-    if (!IOService::start(provider)) return false;
+    if (!phxGpuAllowed(provider) || !IOService::start(provider)) return false;
     IOLog("PhxFBSquatter: holding IOFramebuffer on %s\n", provider->getName());
     return true;
 }

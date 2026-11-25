@@ -99,6 +99,73 @@ expect 2 b "csrutil authenticated-root disable" "csrutil authenticated-root disa
 expect 2 b "csrutil clear" "csrutil clear"
 expect 2 a "ESP write by redirect" "echo x > /Volumes/EFI/EFI/OC/x.txt"
 
+# reads and mentions are not writes (no lock held by session c)
+expect 0 c "ls the rollback folder" "ls -la ~/vermilion-rollback/"
+expect 0 c "diff against the rollback folder" "diff -rq build/efi ~/vermilion-rollback/OC.prev"
+expect 0 c "cmp a file on the scratch ESP mount" "cmp build/x.efi /private/tmp/efi/EFI/OC/Drivers/x.efi"
+expect 0 c "cat on the ESP" "cat \"/Volumes/NO NAME/EFI/OC/config.plist\" | head -3"
+expect 0 c "stat on the ESP" "stat -f %m /Volumes/EFI/EFI/OC/OpenCore.efi"
+expect 0 c "grep on the ESP" "grep -c phx /private/tmp/efi/EFI/OC/config.plist"
+expect 0 c "codesign -d on the ESP" "codesign -dvvv /Volumes/EFI/EFI/OC/Kexts/X.kext"
+expect 0 c "echo of a restart word" "echo \"after this: sudo shutdown -r now\""
+expect 0 c "grep for a restart word" "grep -rn \"squat_reboot\\|shutdown -r\" .claude/skills"
+expect 0 c "grep for a protected rm" "grep -n \"rm ~/gpu/x\" .agents/runbooks.md"
+expect 0 c "echo of a protected rm" "echo 'cleanup: rm ~/gpu/old.sh'"
+expect 0 c "sed -n on a gpu file" "sed -n 1,5p ~/gpu/phxboot-navi31.sh"
+expect 0 c "commit message that quotes a protected rm" "git commit -m \"docs: say rm ~/gpu/x needs the lock, and /Volumes/NO NAME is the ESP\""
+expect 0 c "heredoc body that mentions a restart and the rollback folder" "cat > notes.md <<'EOF'
+Run sudo shutdown -r now, then cp ~/vermilion-rollback/OC.prev /Volumes/NO NAME/EFI/OC
+EOF"
+expect 0 c "heredoc with the commit message" "git commit -F - <<EOF
+Note: rm ~/gpu/x and /private/tmp/efi
+EOF"
+expect 0 c "read with a null redirect" "ls /private/tmp/efi/EFI/OC 2>&1 >/dev/null"
+# real writes still need the lock
+expect 2 c "rollback write" "cp build/OpenCore.efi ~/vermilion-rollback/OpenCore.efi"
+expect 2 c "rm in the rollback folder" "rm -rf ~/vermilion-rollback/old"
+expect 2 c "scratch ESP mount write" "sudo cp x.efi /private/tmp/efi/EFI/OC/Drivers/"
+expect 2 c "NO NAME write" "cp x \"/Volumes/NO NAME/EFI/OC/x\""
+expect 2 c "echo redirected into the ESP" "echo x > \"/Volumes/NO NAME/EFI/OC/x\""
+expect 2 c "cat redirected into the rollback folder" "cat a >> ~/vermilion-rollback/log"
+expect 2 c "read then write chained" "ls /private/tmp/efi && cp x /private/tmp/efi/y"
+expect 2 c "pipe into tee on the ESP" "cat x | sudo tee /Volumes/EFI/EFI/OC/x"
+expect 2 c "tee with a heredoc body" "sudo tee /private/tmp/efi/EFI/OC/x <<EOF
+data
+EOF"
+expect 2 c "rm in ~/gpu" "rm ~/gpu/old.sh"
+expect 2 c "sed -i on a gpu file" "sed -i '' s/a/b/ ~/gpu/x.sh"
+expect 2 c "find -delete in the rollback folder" "find ~/vermilion-rollback -name x -delete"
+expect 2 c "codesign signing on the ESP" "codesign -f -s - /Volumes/EFI/EFI/OC/Kexts/X.kext"
+expect 2 c "shell heredoc that writes the ESP" "sh <<EOF
+cp x /private/tmp/efi/y
+EOF"
+expect 2 c "sh -c with a quoted write" "sh -c \"cp x /private/tmp/efi/y\""
+expect 2 c "read with a command substitution write" "echo \$(cp x /private/tmp/efi/y)"
+expect 2 c "restart behind a read" "echo hi; sudo shutdown -r now"
+expect 2 c "restart behind a pipe" "echo hi | sudo shutdown -r now"
+expect 2 c "branch -D with a quoted mention" "git branch -D \"ownback/x\""
+expect 2 c "force push after a heredoc" "cat <<EOF
+x
+EOF
+git push -f fork ownback/x"
+expect 2 c "push main after a read" "ls && git push fork main"
+expect 2 c "lock chained after a read" "ls; .claude/hooks/machine-lock acquire x"
+expect_write 2 c "$HOME/vermilion-rollback/x"
+# in a protected working directory every relative path is protected
+expect_in() { # expect_in <code> <cwd> <description> <command>
+  run c Bash "$(bash_cmd "$4")" "$2"; got=$?
+  if [ "$got" = "$1" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); echo "FAIL ($got, wanted $1): $3 in $2: $4"; fi
+}
+expect_in 2 "$HOME/gpu" "relative redirect" "echo x > f"
+expect_in 2 /Volumes/EFI/EFI/OC "relative cp" "cp ../x.plist config.plist"
+expect_in 0 "$HOME/gpu" "read" "ls -la && cat phxboot-navi31.sh | head -3"
+
+# the adversarial table from the PR #32 review, and the fail-closed rows (one row per command string)
+python3 -I "$HERE/guard_cases.py" "$G" > "$T/cases.out"
+grep '^FAIL' "$T/cases.out" || true
+set -- $(sed -n 's/^guard_cases: \([0-9]*\) passed, \([0-9]*\) failed.*/\1 \2/p' "$T/cases.out")
+if [ $# = 2 ]; then pass=$((pass + $1)); fail=$((fail + $2)); else fail=$((fail + 1)); echo "FAIL: guard_cases.py"; fi
+
 # personal data
 printf '%s\n' '# test' 'C02ZZ1234567' 'aa:bb:cc:dd:ee:ff' > "$VERMILION_PRIVATE_PATTERNS"
 echo "serial C02ZZ1234567" > "$T/repo/leak.txt" && git -C "$T/repo" add leak.txt

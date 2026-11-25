@@ -178,10 +178,19 @@ mode setting).
 
 - `machine-lock` didn't parse since #18 (missing `esac`): fixed on `ownback/megamind`, `guard_test` runs it.
 - The guard blocked read-only SIP status reads: fixed on `ownback/megamind`.
-- The guard blocks a Bash command as "changes the machine" when its text only mentions the rollback folder or the
-  ESP mount path (seen 2026-11-24 in two docs edits): a false positive to fix in `guard.py`.
-- `efi/build.py build` without `--stage` builds the 256 MiB BAR stage, not the live `vermilion-trust-bar1g`: one clear
-  default needed (thread 02).
+- The guard blocked Bash commands that only mentioned the rollback folder, the ESP mount path or `shutdown` (heredoc
+  bodies, quoted text, read commands): fixed on `ownback/tooling-guard-efi`. Heredoc bodies fed to data commands and
+  quoted text given to read commands (`ls`, `cat`, `diff`, `cmp`, `grep`, `stat`, `echo`, `codesign -d` ...) and to
+  `git`/`gh` are ignored; redirects, `tee`, `cp`, `rm`, shell/interpreter heredocs and `sh -c` still need the lock.
+  The rollback folder and `/private/tmp/efi` are now protected paths for writes. The review of #32 found writes the
+  exemption let through (pipes into `sh`/`xargs`, `cd` then a relative write, variables, comments, process
+  substitution, `>|`, odd heredocs); the exemption now applies only when the guard's parser proves the whole call
+  read-only, and anything else gets the whole-text test (fail closed). It also closed old gaps: `sysctl` writes,
+  `pmset` writes, `nvram -f`, `osascript ... restart`, `efi/build.py install`, `codesign --sign/--force`, `sed` with
+  `-i` anywhere, `"$HOME"/gpu` paths, git/gh writing into protected paths, interpreter heredocs, `/etc`.
+  `tests/hooks/guard_cases.py` holds the 298 adversarial rows; `guard_test` runs them.
+- `efi/build.py build` and `install` now require `--stage` (the old silent default built the wrong EFI); the error
+  lists the stages (`ownback/tooling-guard-efi`).
 - The link gate passed a kext that can't load from OpenCore (IOGraphicsFamily is in the System KC) (thread 04).
 - `~/gpu/phxboot-navi31.sh` and `phxboot-pre.sh` belong to the desktop user but run as root (TODO 06).
 - `src/vermilion-accel/accel/re/IOGraphicsAccelerator2.h:18` quotes an instruction from Apple's binary (rule 6,

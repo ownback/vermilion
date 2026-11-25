@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: MIT -->
+<!-- local.phxpassd: a login agent that starts passd right after login, so its 30 s Secure Element lookup
+     (finding .agents/findings/2026-11-25-music-slow-load.md) runs in the background instead of under Music's first
+     launch. A mitigation, not Mac behaviour: remove it once the platform reports the missing Secure Element.
+     Install: cp to ~/Library/LaunchAgents/ and `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/local.phxpassd.plist`.
+     Remove: `launchctl bootout gui/$(id -u)/local.phxpassd` and delete the file. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>local.phxpassd</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/sh</string>
+		<string>-c</string>
+		<string>/bin/launchctl kickstart "gui/$(/usr/bin/id -u)/com.apple.passd"</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>LimitLoadToSessionType</key>
+	<string>Aqua</string>
+</dict>
+</plist>

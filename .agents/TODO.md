@@ -173,7 +173,9 @@ PROJECT_KNOWLEDGE.
   service that needs a T2. Music's account save waits for it through accountsd. First the owner test in the finding
   (cold vs warm passd). Then: find what makes `PKSecureElement registerObserver:` run on a Mac without a Secure
   Element, and report that from the platform (ryzentosh). Until then, a login agent that kickstarts passd is the
-  mitigation, unverified.
+  mitigation: `tools/phxctl/local.phxpassd.plist`, installed 2026-11-25 ~18:05 in `~/Library/LaunchAgents` (owner's
+  "go"; removal in the plist's header). Check at the next boot (unverified): `pgrep -x passd` within a minute of
+  login, Music's `MusicUI bootstrap took` ~1-2 s. Remove it once the platform fix works.
 - [ ] **Phase 2 item 2: the plugin's other `syslog()` calls** (`NVMTLX420.m`, `nvmtl_imgmem.c`, `nvmtl_pitch_align.c`,
   `NVMTLWSCapture.m`, `NVMTLHolders.m`, the ANGLE line in `NVMTLDevice.m`) still bypass `nvlog`: move them to the
   `org.vermilion.nvmtl` subsystem too.

@@ -39,12 +39,15 @@ GIT = r'\bgit(?:\s+(?:-[Cc]\s+\S+|--?[\w-]+(?:=\S+)?))*\s+'
 FORBIDDEN = [
     (r'\bnvram\s+-\w*c\b', 'Reset NVRAM is never done: it removes phxfb-squat (CLAUDE.md, hard rules).'),
     (r'\b(amdvbflash|atiflash|atiwinflash|flashrom)\b', 'Never flash or write the VBIOS (CLAUDE.md rule 1).'),
-    (GIT + r'push\b[^;&|]*(\s--force(-with-lease)?\b|\s-f\b|\s\+\S)', 'No force-push.'),
+    # -f also inside a group of short options (-uf); a +refspec also in quotes
+    (GIT + r'push\b[^;&|]*(\s--force(-with-lease|-if-includes)?\b|\s-[a-zA-Z]*f|\s["\']?\+\S)', 'No force-push.'),
     (GIT + r'push\b[^;&|]*\s(\S+:)?(refs/heads/)?(main|master)(\s|$)', 'No direct push to main: open a PR and merge it.'),
     (GIT + r'reset\b[^;&|]*--hard\b', 'No `git reset --hard`: make a WIP commit or ask the owner.'),
     (GIT + r'clean\b[^;&|]*\s-\w*f', 'No `git clean -f`.'),
     (GIT + r'(checkout|restore)\b[^;&|]*\s(--\s+)?\.(\s|$)', 'No `git checkout .` / `git restore .`.'),
-    (GIT + r'branch\b[^;&|]*\s-D\b', 'No `git branch -D`: use -d (merged branches only) or ask the owner.'),
+    # -D, or -d with -f/--force (the same thing spelled out)
+    (GIT + r'branch\b[^;&|]*\s(-[a-zA-Z]*[Df][a-zA-Z]*|--force)\b',
+     'No `git branch -D`: use -d (merged branches only) or ask the owner.'),
     (GIT + r'stash(\s+pop\b|\s*($|[;&|]))', 'The stash is shared by every worktree: use `git stash push -u -m <tag>` and `git stash apply <sha>`, or a WIP commit.'),
 ]
 
@@ -78,8 +81,9 @@ MACHINE_TOOL = re.compile(
     r'|\bbuild\.py\b[^\n;&|]*\s(install|--esp)\b'
     r'|\bsystemsetup\s+-set\w+')
 # A lock command must be the whole Bash call, so nothing can run after a release or before an acquire unchecked.
-LOCK_CMD = re.compile(r'^\s*(?:(?:sh|bash)\s+)?(?:\S*/)?machine-lock(?:\.sh)?\s+(acquire|steal|release)'
-                      r'(?:\s+("[^"]*"|\'[^\']*\'|[^;&|<>`$()\n]*))?\s*$')
+# Blanks between its words are spaces or tabs only: a newline would start a second command after the lock command.
+LOCK_CMD = re.compile(r'^[ \t]*(?:(?:sh|bash)[ \t]+)?(?:\S*/)?machine-lock(?:\.sh)?[ \t]+(acquire|steal|release)'
+                      r'(?:[ \t]+("[^"]*"|\'[^\']*\'|[^;&|<>`$()\n]*))?\s*\Z')
 LOCK_MENTION = re.compile(r'(^|[;&|(]\s*)((sh|bash)\s+)?(\S*/)?machine-lock(\.sh)?\s+(acquire|steal|release)\b', re.M)
 
 
@@ -535,7 +539,7 @@ def _target_protected(t):
 
 
 def proven_needs_lock(cmd, segs):
-    kept, heredoc_to_file, non_read = [], False, False
+    kept, read_to_file, non_read = [], False, False
     pipeline = []
     for seg in segs:
         pipeline.append(seg)
@@ -546,10 +550,11 @@ def proven_needs_lock(cmd, segs):
             if any(_target_protected(t) for t in s.targets):
                 return True
             kind, text = _classify(s)
-            if s.heredocs:
-                if kind == 'read' and _command(s.words):
-                    heredoc_to_file |= any(t.val != '/dev/null' for t in s.targets)
-                elif not (kind == 'write' and os.path.basename(_command(s.words)[0].val) in ('git', 'gh')):
+            if kind == 'read' and _command(s.words):
+                # what a read command prints (its quoted text or a heredoc body) can become a script
+                read_to_file |= any(t.val != '/dev/null' for t in s.targets)
+            if s.heredocs and not (kind == 'read' and _command(s.words)):
+                if not (kind == 'write' and os.path.basename(_command(s.words)[0].val) in ('git', 'gh')):
                     raise Unprovable('heredoc fed to ' + (' '.join(w.val for w in s.words[:1]) or 'nothing'))
             if kind == 'write':
                 if text and (PROTECTED_PATH.search(' ' + text) or PROTECTED_PATH.search(text)):
@@ -563,9 +568,9 @@ def proven_needs_lock(cmd, segs):
             # data flows down a pipe: a protected path a read command names can reach the command it feeds
             kept.extend(cmd[s.start:s.end] for s in pipeline)
         pipeline = []
-    if heredoc_to_file and non_read:
-        # a heredoc written to a file and something else that could run it
-        raise Unprovable('heredoc written to a file, then a command')
+    if read_to_file and non_read:
+        # a read command's output written to a file, and something else that could run it
+        raise Unprovable('read output written to a file, then a command')
     return needs_lock_text('\n'.join(kept))
 
 

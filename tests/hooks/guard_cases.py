@@ -35,6 +35,24 @@ CASES = [
     (2, 'git stash'),
     (2, 'cat <<EOF\nx\nEOF\ngit push fork main'),
     (2, 'cat <<EOF\nx\nEOF\n.claude/hooks/machine-lock acquire "x"\ncp a ~/gpu/b'),
+    # force spelled in a group of short options, or a quoted +refspec
+    (2, 'git push -uf fork ownback/x'),
+    (2, 'git push fork "+ownback/x"'),
+    (2, 'git push --force-if-includes fork ownback/x'),
+    (2, 'git branch -d -f ownback/x'),
+    (2, 'git branch --delete --force ownback/x'),
+    (2, 'git branch -Dq ownback/x'),
+    (0, 'git push -u --follow-tags fork ownback/x'),
+    (0, 'git branch -d ownback/x'),
+    (0, 'git branch --format="%(refname)" -a'),
+    # a newline after a lock command starts a second command
+    (2, '.claude/hooks/machine-lock release\ncp a ~/gpu/b'),
+    (2, '.claude/hooks/machine-lock acquire x\nsudo shutdown -r now'),
+    (2, 'sh .claude/hooks/machine-lock\trelease\n\ncp a ~/gpu/b'),
+    # a read command's output written to a file and then run (second review of #32)
+    (2, 'echo "cp a ~/gpu/b" > /tmp/s; chmod +x /tmp/s; /tmp/s'),
+    (2, "printf 'sudo shutdown -r now\\n' >> /tmp/s && chmod +x /tmp/s && /tmp/s"),
+    (2, 'echo "rm -rf ~/vermilion-rollback" > /tmp/s\n./run /tmp/s'),
     # --- plain machine writes
     (2, 'cp a ~/gpu/b'),
     (2, 'sudo cp -R X.kext /Volumes/EFI/EFI/OC/Kexts/'),
@@ -259,6 +277,8 @@ CASES = [
     (0, 'cat /Volumes/EFI/EFI/OC/config.plist | grep -c Kext'),
     (0, 'grep -rn "shutdown" tools/'),
     (0, 'echo "rm ~/gpu/x"'),
+    (0, 'echo "rm ~/gpu/x" > /tmp/note; cat /tmp/note'),
+    (0, 'grep -n shutdown tools/x.sh > /tmp/hits; wc -l /tmp/hits'),
     (0, 'git commit -m "guard: cp to ~/gpu needs the lock; shutdown too"'),
     (0, 'cat <<EOF\ncp a ~/gpu/b\nEOF'),
     (0, 'diff ~/gpu/a tools/phxctl/a > /dev/null 2>&1'),

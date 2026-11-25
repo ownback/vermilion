@@ -675,5 +675,11 @@ whole-text test (a protected path together with a write verb or redirect, or a m
 **Why:** the review of PR #32 showed the first version, which tried to recognise writes, let real machine writes pass
 the lock. A guard that misses a write is worse than one that asks for the lock too often.
 **Revisit:** if the false positives (inline interpreter code naming a protected path, `find <protected> -exec`, a
-heredoc written to a file and then another command) get in the way of daily work; extend the parser, never the
-exemption.
+read command's output or heredoc written to a file and then another command) get in the way of daily work; extend
+the parser, never the exemption.
+**Known limits** (an accident guard, not a sandbox; the same on main before #32): a machine tool spelled with quotes
+or escapes (`re""boot`, `\cp`) or by an unusual path; write tools the verb list doesn't know (`sort -o`, `curl -o`,
+`truncate`, `patch`, `gzip`, `unlink`, `ditto`, `cpio`); other spellings of a protected path (`~/./gpu`, `~//gpu`,
+case, globs); relative writes after `cd` or from a parent directory; a variable that builds a path; options that run a
+program (`git grep -O`, `rg --hostname-bin`); a script written in one call and run in another. A deliberate bypass is
+not the threat this guard answers: the machine lock and the review of every change are.

@@ -50,7 +50,8 @@ PROJECT_KNOWLEDGE.
       If the failure path ran, `rm -f ~/gpu/phxboot-off ~/gpu/phxboot-failed ~/gpu/phxboot-safe`. Then shut down
       fully and boot.
   - **(b) EFI change: no Reset NVRAM entry** (stage `vermilion-trust-bar1g-audio` without `ResetNvramEntry.efi`),
-    its own boot.
+    its own boot. **Change 34, live since 2026-11-25 06:56, passed** (SUCCESS, trust enforce / 0 denied, audio
+    attached; the live kexts reused via `VERMILION_KEXT_DIR`); the owner's picker check is open.
     - Build on the Mac (runbooks, "Building and installing the EFI on the Mac itself") with
       `--stage vermilion-trust-bar1g-audio`, not the default stage, using the kexts that are on the ESP now.
     - `sudo diff -rq /private/tmp/efi/EFI/OC build/efi/b650e-i-xtx-vermilion-trust-bar1g-audio/EFI/OC` may show only

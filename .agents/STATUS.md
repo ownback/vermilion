@@ -33,10 +33,11 @@ is live since 2026-11-25 06:47 and passed on a warm restart: `sOS check: C2PMSG_
 `SUCCESS at 06:50:12`, 240 Hz, the new `nvstuck:` wording. Note: that boot logged `nvstuck: still a squat boot`
 (the stuck-squat state of item 3 is live on this machine). The cold-boot check of (a) waits for the owner's next
 power-on. Step (b), EFI change 34 (stage `vermilion-trust-bar1g-audio` without `ResetNvramEntry.efi`, the live
-kexts reused, `config.plist` differs only by that driver entry), installed 2026-11-25 07:05; `EFI/OC.prev` = change
-33, copies of 33 and 32 in `~/vermilion-rollback/EFI-OC.change3{3,2}-20261125`. Expected: `squat boot ...: 1`,
-`SUCCESS`, `debug.phxtrust_stat` `mode=enforce` `denied_unlisted=0`, `debug.phxaudio_stat` attached; the picker has no
-Reset NVRAM entry (owner, by eye). Rollback: swap `EFI/OC` and `EFI/OC.prev`. Seen by the item 1 agent, not fixed: after a bring-up failure that isn't the warm refusal, the daemon
+kexts reused, `config.plist` differs only by that driver entry), live since 2026-11-25 06:56; `EFI/OC.prev` = change 33,
+copies of 33 and 32 in `~/vermilion-rollback/EFI-OC.change3{3,2}-20261125`. Passed: `squat boot ...: 1`,
+`SUCCESS at 06:58:58`, `debug.phxtrust_stat` `mode=enforce` `denied_unlisted=0`, `debug.phxaudio_stat` patched and
+matched. Open: the owner confirms by eye that the picker has no Reset NVRAM entry. Rollback: swap `EFI/OC` and
+`EFI/OC.prev`. Next: step (c), VermilionAccel without `debug.phxfb_kill_iondrv` (the owner's Allow click). Seen by the item 1 agent, not fixed: after a bring-up failure that isn't the warm refusal, the daemon
 still claims the GPU (part of item 3). Seen by the Fable pass on #22 (`8a663b0`), open (its stderr point is fixed in `71f87e9`):
 - a warm refusal on a squat boot (every boot here) goes `m2_fail` → `squat_reboot` → a second warm reboot → a stuck,
   dark squat boot; after a power-off the safe desktop until the `rm` (item 3 territory);

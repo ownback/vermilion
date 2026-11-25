@@ -649,3 +649,18 @@ hardware:
   and a shutdown.
 Fixed instead (one line): the warm-refusal notice says "restarted because acceleration failed" only when the carried
 sentence is that one (`[ "$CARRY" = "$RESTARTED" ]`), not for any carried sentence.
+
+## 2026-11-25: replaceRegion uploads without a GPU wait, by default
+
+**Decision:** `-[NVMTLTexture replaceRegion:]` submits its copy without waiting for the GPU in every process except
+WindowServer (`NVMTL_ASYNC_TEX_UPLOAD`, existing code, now on by default). Pending uploads share the async surface
+copy-in's table: at most 64 uploads and 128 MiB of staging, reaped at each new upload; a full table takes the
+synchronous path. The async copy is ordered after earlier GPU work on the image. `NVMTL_ASYNC_TEX_UPLOAD=0` or the
+file `/Library/GPUBundles/nvmtl/async-tex-upload-off` turns it off; `=1` also turns it on in WindowServer.
+**Why:** Maps' main thread spent 10 % of a fullscreen capture waiting there (finding
+`2026-11-25-maps-fullscreen-perf.md`). The copy is behind every queued frame, so each wait drains the queue. On a Mac
+`replaceRegion:` is a CPU write and never waits for the GPU. The old flag was off because nothing bounded the pending
+staging memory; the table bounds it. WindowServer stays synchronous until the path has been seen working in apps,
+because a fault there takes the session down.
+**Revisit:** WindowServer, after a week without texture faults in apps. A second upload to the same image still waits
+for the first (one handle per image); a chain of handles would remove that wait.

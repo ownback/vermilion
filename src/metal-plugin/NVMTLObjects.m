@@ -1272,6 +1272,9 @@ void nvmtl_texture_desc_swizzle(NVMTLTexture *t, MTLTextureDescriptor *d) {
     if (_resid) nvmtl_resid_texture_gone(_resid);
     if (_ownView) nvmtl_vk_image_view_destroy(_ownView);
     if (_swzView) nvmtl_vk_image_view_destroy(_swzView);
+    // A parked image is a copy of _i: a pending async upload is finished first, so the copy carries no handle and the
+    // upload table keeps no pointer into this texture (both outlive it).
+    if (!_parent) nvmtl_vk_image_upload_barrier(&_i);
     if (!_parent && _parkable && _subHeap && _i.img) nvmtl_heap_park(_subHeap, &_i, _pkey, _heapOffset, _pkLen);
     if (!_parent && _bparkable && _backBuf && _i.img) nvmtl_bpark_put(_backBuf, &_i, _pkey);
     if (!_parent) nvmtl_vk_image_destroy(&_i);

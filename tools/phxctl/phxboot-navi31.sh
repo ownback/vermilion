@@ -420,7 +420,9 @@ if [ $SAFE = 1 ]; then REC_L=safe; elif [ $DESK = 1 ]; then REC_L=full; else REC
 [ $REC_L = full ] && rm -f "$SAFEF"   # a full attempt: a hang of this one (from its bring-up on) is not the safe desktop's
 for i in $(seq 1 60); do ioreg -l | grep -q '"phx-build"' && break; sleep 1; done
 [ $SQUAT = 1 ] || wait_fb    # a squat boot has no framebuffer until PhxAMDFB starts at claim
-ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not loaded"; echo "PhxBringup not loaded"; exit 0; }
+# A GOP boot without PhxBringup, or (below) whose NMXAccel did not start, is no clean fallback boot: its plain path
+# failed, and the full desktop would fail the same way. It is no failed desktop attempt either (fails stays).
+ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not loaded"; REC_L=skip; rec_save "PhxBringup not loaded: no clean fallback boot"; echo "PhxBringup not loaded"; exit 0; }
 
 # bring-up + claim (needed for Metal either way)
 # PhxAMDFB takes the panel at start only with phxfb-boot set (it clears it at once)
@@ -732,6 +734,7 @@ for i in $(seq 1 20); do ioreg -rc NMXAccel -d0 | grep -q NMXAccel && break; sle
 if ! ioreg -rc NMXAccel -d0 | grep -q NMXAccel; then
   [ $DESK = 1 ] && m2_fail "NMXAccel did not start"
   trap - TERM; rm -f "$MARK"; sync
+  REC_L=skip; rec_save "NMXAccel did not start: no clean fallback boot"
   echo "NMXAccel did not start (apps-only this boot)"; leave
 fi
 echo "NMXAccel up"

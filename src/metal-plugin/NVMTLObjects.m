@@ -835,9 +835,8 @@ static NVMTLTexture *nvmtl_texbuf_make(NVMTLBuffer *b, MTLTextureDescriptor *d, 
     uint32_t vkf = 0, bpp = 0; int a8 = 0;
     const size_t lastRow = (!nvmtl_pixfmt_public(d.pixelFormat, &vkf, &bpp, &a8) && bpp && !a8) ? (size_t)d.width * bpp : bpr;
     if (!base || d.textureType != MTLTextureType2D || !d.height || offset + bpr * (d.height - 1) + lastRow > _b.size) {
-        nvlog("newTiledTextureWithDescriptor: %lux%lu bpr %lu off %lu: no linear view and no CPU copy (buffer %lu B) -> nil",
-              (unsigned long)d.width, (unsigned long)d.height, (unsigned long)bpr, (unsigned long)offset, (unsigned long)_b.size);
-        return nil; }
+        return nvmtl_tex_nil("buffer newTiledTextureWithDescriptor:offset:bytesPerRow:", d, "bpr %lu offset %lu: no linear view and no CPU copy (buffer %lu B)",
+                             (unsigned long)bpr, (unsigned long)offset, (unsigned long)_b.size); }
     MTLTextureDescriptor *cd = [d copy]; cd.storageMode = MTLStorageModeShared;
     id<MTLTexture> c = [[self device] newTextureWithDescriptor:cd];
     if (c) [c replaceRegion:MTLRegionMake2D(0, 0, d.width, d.height) mipmapLevel:0 withBytes:(char *)base + offset bytesPerRow:bpr];
@@ -865,18 +864,17 @@ static NVMTLTexture *nvmtl_texbuf_make(NVMTLBuffer *b, MTLTextureDescriptor *d, 
 }
 - (id<MTLTexture>)newTextureWithDescriptor:(MTLTextureDescriptor *)d offset:(NSUInteger)offset bytesPerRow:(NSUInteger)bpr {
     extern int nvmtl_pixfmt_public(MTLPixelFormat f, uint32_t *vk, uint32_t *bpp, int *a8);
-    if (!d) return nil;
-    if (d.textureType == MTLTextureTypeTextureBuffer) return nvmtl_texbuf_make(self, d, offset);
+    if (!d) return nvmtl_tex_nil("buffer newTextureWithDescriptor:offset:bytesPerRow:", d, "no descriptor");
+    if (d.textureType == MTLTextureTypeTextureBuffer) {
+        id<MTLTexture> tb = nvmtl_texbuf_make(self, d, offset);
+        return tb ? tb : nvmtl_tex_nil("buffer newTextureWithDescriptor:offset:bytesPerRow:", d, "texture buffer view at offset %lu not made", (unsigned long)offset); }
     size_t w = d.width, h = d.height;
     if (d.textureType != MTLTextureType2D || d.mipmapLevelCount > 1 || d.sampleCount > 1 || d.arrayLength > 1 || d.depth > 1
         || !w || !h || w > UINT32_MAX || h > UINT32_MAX) {
-        nvlog("buffer newTextureWithDescriptor:offset:%lu bytesPerRow:%lu: type %lu %zux%zu (mips %lu, samples %lu, array %lu, depth %lu) "
-              "is not built - only a 2D single-level linear view -> nil", (unsigned long)offset, (unsigned long)bpr, (unsigned long)d.textureType,
-              w, h, (unsigned long)d.mipmapLevelCount, (unsigned long)d.sampleCount, (unsigned long)d.arrayLength, (unsigned long)d.depth);
-        return nil; }
+        return nvmtl_tex_nil("buffer newTextureWithDescriptor:offset:bytesPerRow:", d, "offset %lu bpr %lu: not built - only a 2D single-level linear view", (unsigned long)offset, (unsigned long)bpr); }
     uint32_t vkf = 0, bpp = 0; int a8 = 0;
     if (nvmtl_pixfmt_public(d.pixelFormat, &vkf, &bpp, &a8)) {
-        nvlog("buffer newTextureWithDescriptor: pixelFormat %lu has no VkFormat -> nil", (unsigned long)d.pixelFormat); return nil; }
+        return nvmtl_tex_nil("buffer newTextureWithDescriptor:offset:bytesPerRow:", d, "pixel format has no Vulkan format"); }
     NVMTLTexture *t = [NVMTLTexture new];
     static int noRecycle = -1; if (noRecycle < 0) { noRecycle = getenv("NVMTL_NO_BUFTEX_RECYCLE") != NULL;
         nvlog("buffer texture: dres R3 recycle %s", noRecycle ? "OFF (NVMTL_NO_BUFTEX_RECYCLE)" : "ON"); }
@@ -885,9 +883,8 @@ static NVMTLTexture *nvmtl_texbuf_make(NVMTLBuffer *b, MTLTextureDescriptor *d, 
     const BOOL brec = !noRecycle && _nbpk && nvmtl_bpark_take(self, bkey, &t->_i) == 0;
     if (!brec && nvmtl_vk_image_create_buffer_alias((uint32_t)w, (uint32_t)h, vkf, bpp, a8, (d.usage & MTLTextureUsageShaderWrite) != 0,
                                            (d.usage & MTLTextureUsageRenderTarget) != 0, &_b, offset, bpr, &t->_i)) {
-        nvlog("buffer newTextureWithDescriptor:offset:%lu bytesPerRow:%lu (%zux%zu fmt %lu, buffer %lu B, storage %lu) -> nil (reason above)",
-              (unsigned long)offset, (unsigned long)bpr, w, h, (unsigned long)d.pixelFormat, (unsigned long)_b.size, (unsigned long)_storage);
-        return nil; }
+        return nvmtl_tex_nil("buffer newTextureWithDescriptor:offset:bytesPerRow:", d, "offset %lu bpr %lu (buffer %lu B, storage %lu): buffer alias image create FAILED (reason above)",
+                             (unsigned long)offset, (unsigned long)bpr, (unsigned long)_b.size, (unsigned long)_storage); }
     t->_q = nvmtl_device_queue();
     t->_fmt = d.pixelFormat; t->_mips = 1;
     t->_stex = t->_i.storage != 0;
@@ -1656,8 +1653,11 @@ static NVMTLTexture *nvmtl_texbuf_view(NVMTLTexture *t, MTLPixelFormat f) {
     return nvmtl_texbuf_make(t->_backBuf, d, t->_backOff);
 }
 - (id<MTLTexture>)nvmtlViewWithFormat:(MTLPixelFormat)f levels:(NSRange)levels {
-    if (!levels.length || levels.location >= self.mipmapLevelCount || levels.length > self.mipmapLevelCount - levels.location) return nil;
-    if ([self nvi]->mtl_type == 9) return nvmtl_texbuf_view(self, f);
+    if (!levels.length || levels.location >= self.mipmapLevelCount || levels.length > self.mipmapLevelCount - levels.location)
+        return nvmtl_tex_nil("newTextureViewWithPixelFormat:", nil, "levels %lu+%lu of %lu out of range (format %lu)", (unsigned long)levels.location, (unsigned long)levels.length,
+                             (unsigned long)self.mipmapLevelCount, (unsigned long)f);
+    if ([self nvi]->mtl_type == 9) { id<MTLTexture> tb = nvmtl_texbuf_view(self, f);
+        return tb ? tb : nvmtl_tex_nil("newTextureViewWithPixelFormat:", nil, "texture buffer view (format %lu) not made", (unsigned long)f); }
     NVMTLTexture *v = [NVMTLTexture new];
     { NVMTLTexture *vp_ = _parent ? _parent : self; __atomic_fetch_add(&vp_->_nviews, 1, __ATOMIC_ACQ_REL); }  v->_parent = _parent ? _parent : self; v->_usage = [self usage];
     v->_q = _q; v->_fmt = f; v->_surf = _surf; v->_plane = _plane;
@@ -1670,17 +1670,17 @@ static NVMTLTexture *nvmtl_texbuf_view(NVMTLTexture *t, MTLPixelFormat f) {
     extern int nvmtl_depthfmt_public(MTLPixelFormat f, uint32_t *vk, uint32_t *aspect);
     uint32_t dvk = 0, dasp = 0;
     if (nvmtl_depthfmt_public(f, &dvk, &dasp) == 0) {
-        if (nvmtl_vk_image_view_create_range_aspect([v nvi], dvk, 0, dasp, v->_baseLevel, v->_mips, v->_baseSlice, v->_viewSlices, v->_viewType, &v->_ownView)) { nvlog("newTextureView: depth/stencil view FAILED (format %lu)", (unsigned long)f); return nil; }
+        if (nvmtl_vk_image_view_create_range_aspect([v nvi], dvk, 0, dasp, v->_baseLevel, v->_mips, v->_baseSlice, v->_viewSlices, v->_viewType, &v->_ownView)) return nvmtl_tex_nil("newTextureViewWithPixelFormat:", nil, "depth/stencil view create FAILED (format %lu)", (unsigned long)f);
         v->_stex = NO;
         nvlog("newTextureView: depth/stencil view format %lu aspect %u -> %p", (unsigned long)f, dasp, (__bridge void *)v);
         return v;
     }
     uint32_t vkf = 0, bpp = 0; int a8 = 0;
-    if (nvmtl_pixfmt_public(f, &vkf, &bpp, &a8)) return nil;
-    if (vkf != [v nvi]->fmt && bpp != [v nvi]->bpp) {
-        nvlog("newTextureView: pixel format %lu is %u B per element, its texture's is %u B - nil", (unsigned long)f, bpp, [v nvi]->bpp); return nil; }
+    if (nvmtl_pixfmt_public(f, &vkf, &bpp, &a8)) return nvmtl_tex_nil("newTextureViewWithPixelFormat:", nil, "pixel format %lu has no Vulkan format", (unsigned long)f);
+    if (vkf != [v nvi]->fmt && bpp != [v nvi]->bpp)
+        return nvmtl_tex_nil("newTextureViewWithPixelFormat:", nil, "pixel format %lu is %u B per element, its texture's is %u B", (unsigned long)f, bpp, [v nvi]->bpp);
     if (nvmtl_vk_image_view_create_range([v nvi], vkf, a8, v->_baseLevel, v->_mips, v->_baseSlice, v->_viewSlices, v->_viewType, &v->_ownView)) {
-        nvlog("newTextureView: view create FAILED"); return nil;
+        return nvmtl_tex_nil("newTextureViewWithPixelFormat:", nil, "view create FAILED (format %lu)", (unsigned long)f);
     }
     v->_stex = [v nvi]->storage && !a8 && nvmtl_vk_format_is_storage(vkf);
     return v;
@@ -1700,13 +1700,17 @@ static uint32_t nvmtl_tex_attach_vkfmt(NVMTLTexture *t, int *a8) {
                                          levels:(NSRange)levels slices:(NSRange)slices {
     NSUInteger availableSlices = self.textureType == MTLTextureTypeCube ? 6 : self.textureType == MTLTextureTypeCubeArray ? self.arrayLength * 6 : self.arrayLength;
     if (!levels.length || levels.location >= self.mipmapLevelCount || levels.length > self.mipmapLevelCount - levels.location ||
-        !slices.length || slices.location >= availableSlices || slices.length > availableSlices - slices.location) return nil;
+        !slices.length || slices.location >= availableSlices || slices.length > availableSlices - slices.location)
+        return nvmtl_tex_nil("newTextureViewWithPixelFormat:textureType:levels:slices:", nil, "levels %lu+%lu of %lu or slices %lu+%lu of %lu out of range (format %lu type %lu)",
+                             (unsigned long)levels.location, (unsigned long)levels.length, (unsigned long)self.mipmapLevelCount,
+                             (unsigned long)slices.location, (unsigned long)slices.length, (unsigned long)availableSlices, (unsigned long)f, (unsigned long)tt);
     if (tt == MTLTextureType2D && !slices.location && slices.length <= 1 && [self nvi]->mtl_type == 2) return [self nvmtlViewWithFormat:f levels:levels];
     if (tt == MTLTextureType2DMultisample && !slices.location && slices.length <= 1 && [self nvi]->mtl_type == 4) return [self nvmtlViewWithFormat:f levels:levels];
-    if (tt == MTLTextureTypeTextureBuffer || [self nvi]->mtl_type == 9)
-        return tt == MTLTextureTypeTextureBuffer && [self nvi]->mtl_type == 9 ? nvmtl_texbuf_view(self, f) : nil;
+    if (tt == MTLTextureTypeTextureBuffer || [self nvi]->mtl_type == 9) {
+        id<MTLTexture> tb = tt == MTLTextureTypeTextureBuffer && [self nvi]->mtl_type == 9 ? nvmtl_texbuf_view(self, f) : nil;
+        return tb ? tb : nvmtl_tex_nil("newTextureViewWithPixelFormat:textureType:levels:slices:", nil, "texture buffer view: type %lu of a %u-typed texture, format %lu", (unsigned long)tt, [self nvi]->mtl_type, (unsigned long)f); }
     if (tt == MTLTextureType3D && [self nvi]->mtl_type == 7 && !slices.location) slices = NSMakeRange(0, 1);
-    if (((tt == MTLTextureType1D || tt == MTLTextureType1DArray) && [self nvi]->mtl_type != (uint32_t)tt) || (tt == MTLTextureType2DMultisample && ([self nvi]->mtl_type != 4 && [self nvi]->mtl_type != 8)) || (tt == MTLTextureType2DMultisampleArray && [self nvi]->mtl_type != 8) || (([self nvi]->mtl_type == 4 || [self nvi]->mtl_type == 8) && tt != MTLTextureType2DMultisample && tt != MTLTextureType2DMultisampleArray) || (tt == MTLTextureType3D && [self nvi]->mtl_type != 7)) { nvlog("newTextureView: textureType %lu of a %u-typed texture — not carried", (unsigned long)tt, [self nvi]->mtl_type); return nil; }
+    if (((tt == MTLTextureType1D || tt == MTLTextureType1DArray) && [self nvi]->mtl_type != (uint32_t)tt) || (tt == MTLTextureType2DMultisample && ([self nvi]->mtl_type != 4 && [self nvi]->mtl_type != 8)) || (tt == MTLTextureType2DMultisampleArray && [self nvi]->mtl_type != 8) || (([self nvi]->mtl_type == 4 || [self nvi]->mtl_type == 8) && tt != MTLTextureType2DMultisample && tt != MTLTextureType2DMultisampleArray) || (tt == MTLTextureType3D && [self nvi]->mtl_type != 7)) return nvmtl_tex_nil("newTextureViewWithPixelFormat:textureType:levels:slices:", nil, "type %lu of a %u-typed texture not carried (format %lu)", (unsigned long)tt, [self nvi]->mtl_type, (unsigned long)f);
     NVMTLTexture *v = [NVMTLTexture new];
     { NVMTLTexture *vp_ = _parent ? _parent : self; __atomic_fetch_add(&vp_->_nviews, 1, __ATOMIC_ACQ_REL); }  v->_parent = _parent ? _parent : self; v->_usage = [self usage];  v->_q = _q; v->_fmt = f; v->_surf = _surf; v->_plane = _plane; v->_mips = (uint32_t)levels.length;
     v->_viewParent = self; v->_relativeLevel = (uint32_t)levels.location; v->_relativeSlice = (uint32_t)slices.location;
@@ -1716,16 +1720,18 @@ static uint32_t nvmtl_tex_attach_vkfmt(NVMTLTexture *t, int *a8) {
     extern int nvmtl_depthfmt_public(MTLPixelFormat f, uint32_t *vk, uint32_t *aspect);
     uint32_t depthFormat = 0, depthAspect = 0;
     if (!nvmtl_depthfmt_public(f, &depthFormat, &depthAspect)) {
-        if (depthFormat != [v nvi]->fmt || nvmtl_vk_image_view_create_range_aspect([v nvi], depthFormat, 0, depthAspect, v->_baseLevel, v->_mips, v->_baseSlice, v->_viewSlices, (uint32_t)tt, &v->_ownView)) return nil;
+        if (depthFormat != [v nvi]->fmt || nvmtl_vk_image_view_create_range_aspect([v nvi], depthFormat, 0, depthAspect, v->_baseLevel, v->_mips, v->_baseSlice, v->_viewSlices, (uint32_t)tt, &v->_ownView))
+            return nvmtl_tex_nil("newTextureViewWithPixelFormat:textureType:levels:slices:", nil, "depth view (format %lu type %lu): format differs from the texture's or the view create FAILED", (unsigned long)f, (unsigned long)tt);
         v->_stex = NO;
         return v;
     }
     uint32_t vkf = 0, bpp = 0; int a8 = 0;
-    if (nvmtl_pixfmt_public(f, &vkf, &bpp, &a8)) return nil;
-    if (vkf != [v nvi]->fmt && bpp != [v nvi]->bpp) {
-        nvlog("newTextureView: pixel format %lu is %u B per element, its texture's is %u B - nil", (unsigned long)f, bpp, [v nvi]->bpp); return nil; }
+    if (nvmtl_pixfmt_public(f, &vkf, &bpp, &a8)) return nvmtl_tex_nil("newTextureViewWithPixelFormat:textureType:levels:slices:", nil, "pixel format %lu has no Vulkan format", (unsigned long)f);
+    if (vkf != [v nvi]->fmt && bpp != [v nvi]->bpp)
+        return nvmtl_tex_nil("newTextureViewWithPixelFormat:textureType:levels:slices:", nil, "pixel format %lu is %u B per element, its texture's is %u B", (unsigned long)f, bpp, [v nvi]->bpp);
     uint32_t nslices = (uint32_t)slices.length;
-    if (nvmtl_vk_image_view_create_range([v nvi], vkf, a8, v->_baseLevel, v->_mips, v->_baseSlice, nslices, (uint32_t)tt, &v->_ownView)) { nvlog("newTextureView: typed view FAILED"); return nil; }
+    if (nvmtl_vk_image_view_create_range([v nvi], vkf, a8, v->_baseLevel, v->_mips, v->_baseSlice, nslices, (uint32_t)tt, &v->_ownView))
+        return nvmtl_tex_nil("newTextureViewWithPixelFormat:textureType:levels:slices:", nil, "typed view create FAILED (format %lu type %lu)", (unsigned long)f, (unsigned long)tt);
     v->_stex = [v nvi]->storage && !a8 && nvmtl_vk_format_is_storage(vkf);
     return v;
 }
@@ -1734,7 +1740,7 @@ static uint32_t nvmtl_tex_attach_vkfmt(NVMTLTexture *t, int *a8) {
 // not exist. A field left at zero means "as the texture is": no pixel format keeps the texture's, an empty level or slice
 // range covers every level or slice, and an all-zero swizzle is the identity.
 - (id<MTLTexture>)newTextureViewWithDescriptor:(id)d {
-    if (!d) return nil;
+    if (!d) return nvmtl_tex_nil("newTextureViewWithDescriptor:", nil, "no descriptor");
     MTLPixelFormat f = [[d valueForKey:@"pixelFormat"] unsignedIntegerValue];
     MTLTextureType tt = (MTLTextureType)[[d valueForKey:@"textureType"] unsignedIntegerValue];
     NSRange levels = [[d valueForKey:@"levelRange"] rangeValue], slices = [[d valueForKey:@"sliceRange"] rangeValue];
@@ -1752,8 +1758,7 @@ static uint32_t nvmtl_tex_attach_vkfmt(NVMTLTexture *t, int *a8) {
                                         swizzle:(MTLTextureSwizzleChannels)sw {
     const BOOL identity = sw.red == MTLTextureSwizzleRed && sw.green == MTLTextureSwizzleGreen && sw.blue == MTLTextureSwizzleBlue && sw.alpha == MTLTextureSwizzleAlpha;
     if (!identity && [self nvi]->mtl_type == 9) {   // a Vulkan texel buffer has no component mapping
-        static int said; if (!said++) nvlog("newTextureView:swizzle: a texture buffer cannot be swizzled -> nil (said once)");
-        return nil; }
+        return nvmtl_tex_nil("newTextureViewWithPixelFormat:textureType:levels:slices:swizzle:", nil, "a texture buffer cannot be swizzled"); }
     NVMTLTexture *v = (NVMTLTexture *)[self newTextureViewWithPixelFormat:f textureType:tt levels:levels slices:slices];
     if (!v || identity) return v;
     extern int nvmtl_pixfmt_public(MTLPixelFormat f, uint32_t *vk, uint32_t *bpp, int *a8);
@@ -4106,24 +4111,24 @@ void nvmtl_heap_back(NVMTLHeap *h, NSUInteger size, int shared) {
     extern int nvmtl_pixfmt_public(MTLPixelFormat f, uint32_t *vk, uint32_t *bpp, int *a8);
     extern int nvmtl_depthfmt_public(MTLPixelFormat f, uint32_t *vk, uint32_t *aspect);
     extern nvk_queue *nvmtl_device_queue(void);
-    if (_type != MTLHeapTypePlacement) { nvlog("heap newTextureWithDescriptor:offset: on a non-placement heap"); return nil; }
-    if (!d) return nil;
+    if (_type != MTLHeapTypePlacement) return nvmtl_tex_nil("heap newTextureWithDescriptor:offset:", d, "a heap of type %ld, not a placement heap", (long)_type);
+    if (!d) return nvmtl_tex_nil("heap newTextureWithDescriptor:offset:", d, "no descriptor");
     NVMTLTexture *t = [NVMTLTexture new];
     t->_fmt = d.pixelFormat; t->_mips = (uint32_t)(d.mipmapLevelCount ? d.mipmapLevelCount : 1);
     t->_usage = d.usage;
     uint32_t dvk = 0, dasp = 0;
     if (nvmtl_depthfmt_public(d.pixelFormat, &dvk, &dasp) == 0) {
-        if (nvmtl_vk_depth_create_ex_placed((uint32_t)d.width, (uint32_t)d.height, dvk, dasp, &_hm, off, &t->_i)) { nvlog("heap depth texture FAILED (format %lu offset %lu)", (unsigned long)d.pixelFormat, (unsigned long)off); return nil; }
+        if (nvmtl_vk_depth_create_ex_placed((uint32_t)d.width, (uint32_t)d.height, dvk, dasp, &_hm, off, &t->_i)) return nvmtl_tex_nil("heap newTextureWithDescriptor:offset:", d, "depth image create FAILED at offset %lu", (unsigned long)off);
         t->_q = nvmtl_device_queue(); t->_heap = self; t->_heapOffset = off;
         nvlog("heap newTextureWithDescriptor: %lux%lu DEPTH offset:%lu -> %p", (unsigned long)d.width, (unsigned long)d.height, (unsigned long)off, (__bridge void *)t);
         return t;
     }
     uint32_t vkf = 0, bpp = 0; int a8 = 0;
-    if (nvmtl_pixfmt_public(d.pixelFormat, &vkf, &bpp, &a8)) return nil;
+    if (nvmtl_pixfmt_public(d.pixelFormat, &vkf, &bpp, &a8)) return nvmtl_tex_nil("heap newTextureWithDescriptor:offset:", d, "pixel format has no Vulkan format");
     int wantStex = (d.usage & MTLTextureUsageShaderWrite) != 0;
     if (nvmtl_vk_image_create_typed_placed((uint32_t)d.width, (uint32_t)d.height, vkf, bpp, a8, (uint32_t)d.mipmapLevelCount, wantStex,
                                             (uint32_t)d.textureType, nvmtl_vk_layers_for_desc((uint32_t)d.textureType, (uint32_t)d.arrayLength, (uint32_t)d.depth), &_hm, off, &t->_i)) {
-        nvlog("heap newTextureWithDescriptor: %lux%lu offset:%lu FAILED", (unsigned long)d.width, (unsigned long)d.height, (unsigned long)off); return nil; }
+        return nvmtl_tex_nil("heap newTextureWithDescriptor:offset:", d, "image create FAILED at offset %lu (Vulkan format %u)", (unsigned long)off, vkf); }
     t->_q = nvmtl_device_queue(); t->_stex = t->_i.storage != 0; t->_heap = self; t->_heapOffset = off;
     nvmtl_texture_desc_swizzle(t, d);
     nvlog("heap newTextureWithDescriptor: %lux%lu%s offset:%lu -> %p", (unsigned long)d.width, (unsigned long)d.height, t->_stex ? " +storage" : "", (unsigned long)off, (__bridge void *)t);
@@ -4240,7 +4245,7 @@ void nvmtl_heap_back(NVMTLHeap *h, NSUInteger size, int shared) {
     return t;
 }
 - (id<MTLTexture>)newTextureWithDescriptor:(MTLTextureDescriptor *)d {
-    if (!d) return nil;
+    if (!d) return nvmtl_tex_nil("heap newTextureWithDescriptor:", d, "no descriptor");
     MTLSizeAndAlign sa = [_dev heapTextureSizeAndAlignWithDescriptor:d];
     NSUInteger charge = sa.size;
     if (_backed && charge) { id<MTLTexture> pt = [self nvmtlPlacedTexture:d charge:charge align:sa.align]; if (pt) return pt;

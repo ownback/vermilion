@@ -14,6 +14,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <syslog.h>
+#include <os/log.h>
 #include <unistd.h>
 #include <stdint.h>
 #include <vulkan/vulkan_core.h>
@@ -97,15 +98,27 @@ const char *nvmtl_log_path(void) {
     }
     return path;
 }
-// One finished line to the logs; nvlog formats it and limits each call site.
-static void nvlog_emit(const char *t) {
+// The unified log, subsystem org.vermilion.nvmtl: it reaches every process, sandboxed apps included, where
+// /tmp/nvmtl.log is out of reach and syslog() lines did not show (Maps, finding 2026-11-25-plugin-crashes-root-cause.md).
+//   log show --last 5m --predicate 'subsystem == "org.vermilion.nvmtl"'
+static os_log_t nvmtl_os_log(void) {
+    static os_log_t l; static dispatch_once_t once;
+    dispatch_once(&once, ^{ l = os_log_create("org.vermilion.nvmtl", "nvmtl"); });
+    return l;
+}
+// One finished line to the logs; nvlog formats it and limits each call site. always: also in a release build, at
+// default level (the reason a texture creation returned nil).
+static void nvlog_emit_as(const char *t, int always) {
 #if NVMTL_RELEASE
-    if (nvmtl_log_failure(t)) syslog(LOG_ERR, "NullMoth: %s", t);
+    const int failure = nvmtl_log_failure(t);
+    if (failure || always) os_log_with_type(nvmtl_os_log(), failure ? OS_LOG_TYPE_ERROR : OS_LOG_TYPE_DEFAULT, "NVMTL: %{public}s", t);
 #else
-    syslog(LOG_NOTICE, "NVMTL: %s", t);
+    (void)always;
+    os_log_with_type(nvmtl_os_log(), OS_LOG_TYPE_DEFAULT, "NVMTL: %{public}s", t);
     FILE *f = fopen(nvmtl_log_path(), "a"); if (f) { fprintf(f, "pid %d NVMTL: %s\n", getpid(), t); fclose(f); }
 #endif
 }
+static void nvlog_emit(const char *t) { nvlog_emit_as(t, 0); }
 void nvlog(const char *fmt, ...) {
     uint64_t rep; if (nvlog_dropped(fmt, &rep)) return;
     char b[512]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
@@ -113,6 +126,40 @@ void nvlog(const char *fmt, ...) {
     if (rep) snprintf(t, sizeof t, "%s   [logged %llu times now]", b, (unsigned long long)rep);
     else     snprintf(t, sizeof t, "%s", b);
     nvlog_emit(t);
+}
+// Every nil from texture creation says why, with the descriptor, at default level in every build: VectorKit aborts on a
+// nil texture (Maps, A8) and no log said which path refused it. Each path and reason (format string) logs its first 8
+// times verbatim, then every 4096th with its count. Returns nil for the caller to return.
+#define NVMTL_TEXNIL_SITES 128
+static struct { const char *where, *why; uint64_t n; } g_texnil_sites[NVMTL_TEXNIL_SITES];
+static int nvmtl_tex_nil_dropped(const char *where, const char *why, uint64_t *rep) {
+    *rep = 0;
+    pthread_mutex_lock(&g_nvlog_lock);
+    int i = 0;
+    for (; i < NVMTL_TEXNIL_SITES; i++) {
+        if (g_texnil_sites[i].why == why && g_texnil_sites[i].where == where) break;
+        if (!g_texnil_sites[i].why) { g_texnil_sites[i].where = where; g_texnil_sites[i].why = why; break; }
+    }
+    const uint64_t n = i < NVMTL_TEXNIL_SITES ? ++g_texnil_sites[i].n : 0;
+    pthread_mutex_unlock(&g_nvlog_lock);
+    if (n <= NVLOG_VERBATIM) return 0;   // also a full table: logged, never dropped
+    if (n % NVLOG_EVERY == 0) { *rep = n; return 0; }
+    return 1;
+}
+static id nvmtl_tex_nil(const char *where, MTLTextureDescriptor *d, const char *why, ...) __attribute__((format(printf, 3, 4)));
+static id nvmtl_tex_nil(const char *where, MTLTextureDescriptor *d, const char *why, ...) {
+    uint64_t rep; if (nvmtl_tex_nil_dropped(where, why, &rep)) return nil;
+    char r[320]; va_list a; va_start(a, why); vsnprintf(r, sizeof r, why, a); va_end(a);
+    char t[640]; int n;
+    if (d) n = snprintf(t, sizeof t, "texture nil: %s in %s: %s | type %lu format %lu %lux%lux%lu mips %lu array %lu samples %lu "
+                        "usage 0x%lx storage %lu cpu cache %lu hazard %lu", where, getprogname(), r, (unsigned long)d.textureType,
+                        (unsigned long)d.pixelFormat, (unsigned long)d.width, (unsigned long)d.height, (unsigned long)d.depth,
+                        (unsigned long)d.mipmapLevelCount, (unsigned long)d.arrayLength, (unsigned long)d.sampleCount,
+                        (unsigned long)d.usage, (unsigned long)d.storageMode, (unsigned long)d.cpuCacheMode, (unsigned long)d.hazardTrackingMode);
+    else n = snprintf(t, sizeof t, "texture nil: %s in %s: %s | no descriptor", where, getprogname(), r);
+    if (rep && n > 0 && (size_t)n < sizeof t) snprintf(t + n, sizeof t - (size_t)n, "   [logged %llu times now]", (unsigned long long)rep);
+    nvlog_emit_as(t, 1);
+    return nil;
 }
 
 #define NVMTL_OOM_STREAK      32
@@ -881,16 +928,20 @@ static BOOL nvmtl_desc_fbo(MTLTextureDescriptor *d) {
     return d && [d respondsToSelector:s] && ((BOOL (*)(id, SEL))objc_msgSend)(d, s);
 }
 - (id<MTLTexture>)newTextureWithDescriptor:(MTLTextureDescriptor *)d {
-    if (nvmtl_vk_init()) return nil;
+    if (nvmtl_vk_init()) return nvmtl_tex_nil("newTextureWithDescriptor:", d, "the Vulkan backend is down");
     if (d.textureType == MTLTextureTypeTextureBuffer) {
         extern int nvmtl_pixfmt_public(MTLPixelFormat f, uint32_t *vk, uint32_t *bpp, int *a8);
         uint32_t vkf = 0, bpp = 0; int a8 = 0;
         if (!nvmtl_vk_texel_on() || !d.width || nvmtl_pixfmt_public(d.pixelFormat, &vkf, &bpp, &a8) || !bpp) {
-            nvlog("newTextureWithDescriptor: texture buffer %lu x fmt %lu not carried -> nil", (unsigned long)d.width, (unsigned long)d.pixelFormat); return nil; }
+            return nvmtl_tex_nil("newTextureWithDescriptor:", d, "texture buffer not carried (texel buffers %s, Vulkan format %u, %u B per texel)",
+                                 nvmtl_vk_texel_on() ? "on" : "off", vkf, bpp); }
         id<MTLBuffer> b = [self newBufferWithLength:(NSUInteger)d.width * bpp options:d.resourceOptions];
-        return b ? [b newTextureWithDescriptor:d offset:0 bytesPerRow:(NSUInteger)d.width * bpp] : nil;
+        if (!b) return nvmtl_tex_nil("newTextureWithDescriptor:", d, "texture buffer: its %lu B buffer could not be made", (unsigned long)d.width * bpp);
+        return [b newTextureWithDescriptor:d offset:0 bytesPerRow:(NSUInteger)d.width * bpp];
     }
-    if (nvmtl_alloc_blocked()) return nil;
+    if (nvmtl_alloc_blocked())
+        return nvmtl_tex_nil("newTextureWithDescriptor:", d, "allocations failing: after %d failed in a row every texture and buffer is refused for %llu ms",
+                             NVMTL_OOM_STREAK, (unsigned long long)(NVMTL_OOM_COOLDOWN_NS / 1000000ull));
     NVMTLTexture *t = [NVMTLTexture new];
     t->_ropt = (MTLResourceOptions)d.cpuCacheMode | ((MTLResourceOptions)d.hazardTrackingMode << MTLResourceHazardTrackingModeShift)
              | ((MTLResourceOptions)d.storageMode << MTLResourceStorageModeShift);
@@ -901,21 +952,22 @@ static BOOL nvmtl_desc_fbo(MTLTextureDescriptor *d) {
         t->_q = nvmtl_device_queue();
         const uint32_t dtt = (uint32_t)d.textureType, dms = (d.textureType == MTLTextureType2DMultisample || dtt == 8) ? (uint32_t)d.sampleCount : 1u;
         if (nvmtl_vk_depth_create_full((uint32_t)d.width, (uint32_t)d.height, dvk, dasp, dms, dtt,
-                                       nvmtl_vk_layers_for_desc(dtt, (uint32_t)d.arrayLength, 1u), (uint32_t)(d.mipmapLevelCount ? d.mipmapLevelCount : 1), &t->_i)) { nvlog("depth texture FAILED (format %lu)", (unsigned long)d.pixelFormat); return nil; }
+                                       nvmtl_vk_layers_for_desc(dtt, (uint32_t)d.arrayLength, 1u), (uint32_t)(d.mipmapLevelCount ? d.mipmapLevelCount : 1), &t->_i))
+            return nvmtl_tex_nil("newTextureWithDescriptor:", d, "depth image create FAILED (Vulkan format %u)", dvk);
         t->_usage = d.usage;
         nvlog("newTextureWithDescriptor: %lux%lu DEPTH32F type %lu layers %u mips %u -> %p", (unsigned long)d.width, (unsigned long)d.height, (unsigned long)d.textureType, t->_i.layers, t->_i.mips, (__bridge void *)t);
         return t;
     }
     uint32_t vkf = 0, bpp = 0; int a8 = 0;
-    if (nvmtl_pixfmt(d.pixelFormat, &vkf, &bpp, &a8)) return nil;
+    if (nvmtl_pixfmt(d.pixelFormat, &vkf, &bpp, &a8)) return nvmtl_tex_nil("newTextureWithDescriptor:", d, "pixel format has no Vulkan format");
     int wantStex = (d.usage & MTLTextureUsageShaderWrite) != 0;
     if (d.textureType == MTLTextureType2DMultisample || d.textureType == MTLTextureType2DMultisampleArray) {
-        if (d.mipmapLevelCount != 1 || d.depth != 1) { nvlog("newTextureWithDescriptor: invalid multisample color descriptor"); return nil; }
+        if (d.mipmapLevelCount != 1 || d.depth != 1) return nvmtl_tex_nil("newTextureWithDescriptor:", d, "invalid multisample color descriptor (mips or depth not 1)");
         if (wantStex) { static _Atomic unsigned long msw; const unsigned long k = atomic_fetch_add(&msw, 1) + 1;
             if (!(k & (k - 1))) nvlog("newTextureWithDescriptor: %lu multisample texture(s) asked for ShaderWrite - created like Apple (M1/D300 create them); no storage view", k); }
-        if (nvmtl_vk_image_create_ms_full((uint32_t)d.width, (uint32_t)d.height, vkf, bpp, (uint32_t)d.sampleCount, (uint32_t)d.textureType, (uint32_t)d.arrayLength, &t->_i)) { nvmtl_alloc_failed("newTextureWithDescriptor"); nvlog("newTextureWithDescriptor: FAILED (multisample)"); return nil; }
+        if (nvmtl_vk_image_create_ms_full((uint32_t)d.width, (uint32_t)d.height, vkf, bpp, (uint32_t)d.sampleCount, (uint32_t)d.textureType, (uint32_t)d.arrayLength, &t->_i)) { nvmtl_alloc_failed("newTextureWithDescriptor"); return nvmtl_tex_nil("newTextureWithDescriptor:", d, "multisample image create FAILED (Vulkan format %u)", vkf); }
     } else
-    if (nvmtl_vk_image_create_typed((uint32_t)d.width, (uint32_t)d.height, vkf, bpp, a8, (uint32_t)d.mipmapLevelCount, wantStex, (uint32_t)d.textureType, nvmtl_vk_layers_for_desc((uint32_t)d.textureType, (uint32_t)d.arrayLength, (uint32_t)d.depth), &t->_i)) { nvmtl_alloc_failed("newTextureWithDescriptor"); nvlog("newTextureWithDescriptor: FAILED"); return nil; }
+    if (nvmtl_vk_image_create_typed((uint32_t)d.width, (uint32_t)d.height, vkf, bpp, a8, (uint32_t)d.mipmapLevelCount, wantStex, (uint32_t)d.textureType, nvmtl_vk_layers_for_desc((uint32_t)d.textureType, (uint32_t)d.arrayLength, (uint32_t)d.depth), &t->_i)) { nvmtl_alloc_failed("newTextureWithDescriptor"); return nvmtl_tex_nil("newTextureWithDescriptor:", d, "image create FAILED (Vulkan format %u, storage %d)", vkf, wantStex); }
     nvmtl_alloc_ok();
     t->_q = nvmtl_device_queue();
     t->_stex = t->_i.storage != 0;
@@ -1243,16 +1295,17 @@ static void nvmtl_surface_keep(id dev, NSData *key, NVMTLTexture *t) {
     }
 }
 - (id<MTLTexture>)nvmtlNewSurfaceTexture:(MTLTextureDescriptor *)d surface:(IOSurfaceRef)surf plane:(NSUInteger)plane cache:(NSMapTable *)cache {
-    if (nvmtl_vk_init()) return nil;
+    if (nvmtl_vk_init()) return nvmtl_tex_nil("newTextureWithDescriptor:iosurface:plane:", d, "the Vulkan backend is down");
     size_t w = d.width, h = d.height;
-    if (!w || !h || w > UINT32_MAX || h > UINT32_MAX) return nil;
-    if (surf && plane >= MAX((size_t)1, IOSurfaceGetPlaneCount(surf))) return nil;
+    if (!w || !h || w > UINT32_MAX || h > UINT32_MAX) return nvmtl_tex_nil("newTextureWithDescriptor:iosurface:plane:", d, "width or height 0 or above 2^32");
+    if (surf && plane >= MAX((size_t)1, IOSurfaceGetPlaneCount(surf)))
+        return nvmtl_tex_nil("newTextureWithDescriptor:iosurface:plane:", d, "plane %lu, the surface has %zu", (unsigned long)plane, IOSurfaceGetPlaneCount(surf));
     NVMTLTexture *t = [NVMTLTexture new];
     t->_ropt = (MTLResourceOptions)d.cpuCacheMode | ((MTLResourceOptions)d.hazardTrackingMode << MTLResourceHazardTrackingModeShift)
              | ((MTLResourceOptions)d.storageMode << MTLResourceStorageModeShift);
     t->_fbo = nvmtl_desc_fbo(d);
     uint32_t vkf = 0, bpp = 0; int a8 = 0;
-    if (nvmtl_pixfmt(d.pixelFormat, &vkf, &bpp, &a8)) return nil;
+    if (nvmtl_pixfmt(d.pixelFormat, &vkf, &bpp, &a8)) return nvmtl_tex_nil("newTextureWithDescriptor:iosurface:plane:", d, "pixel format has no Vulkan format");
     int wantStex = nvmtl_surface_want_storage(d.usage, a8, nvmtl_vk_format_is_storage(vkf));
     // The key is the 7 values as bytes: -[NSArray hash] is only the element count, so every 7-element array key
     // collided and each lookup in the cache and the keep table was a linear scan (the same hitch).
@@ -1276,7 +1329,9 @@ static void nvmtl_surface_keep(id dev, NSData *key, NVMTLTexture *t) {
         }
     }
     if (nvmtl_surface_image_create(t, surf, plane, (uint32_t)w, (uint32_t)h, vkf, bpp, a8, wantStex)) {
-        nvmtl_x420_imgfail(surf); nvlog("newTextureWithDescriptor:iosurface:plane: image create FAILED (%zux%zu)", w, h); return nil; }
+        nvmtl_x420_imgfail(surf);
+        return nvmtl_tex_nil("newTextureWithDescriptor:iosurface:plane:", d, "image create FAILED (surface %u, %zux%zu, Vulkan format %u)",
+                             surf ? (unsigned)IOSurfaceGetID(surf) : 0u, w, h, vkf); }
     t->_q = nvmtl_device_queue();
     t->_surf = surf; if (surf) { CFRetain(surf); t->_surfOwned = YES; t->_clientWritten = nvmtl_busy_foreign(surf, plane) != 0; }
     t->_plane = plane;
@@ -2083,7 +2138,8 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
     id<MTLTexture> t = [super newSharedTextureWithHandle:h];
     BOOL ours = [(id)t isKindOfClass:[NVMTLTexture class]];
     if (ours) ((NVMTLTexture *)t)->_shareable = YES;
-    nvlog("newSharedTextureWithHandle: %p -> %p%s", (__bridge void *)h, (__bridge void *)t, !t ? " (nil)" : ours ? " shareable" : " NOT ours - left as it is");
+    if (!t) return nvmtl_tex_nil("newSharedTextureWithHandle:", nil, "the system's shared texture path returned nil for handle %p", (__bridge void *)h);
+    nvlog("newSharedTextureWithHandle: %p -> %p%s", (__bridge void *)h, (__bridge void *)t, ours ? " shareable" : " NOT ours - left as it is");
     return t;
 }
 - (id<MTLSharedEvent>)newSharedEventWithHandle:(MTLSharedEventHandle *)h {

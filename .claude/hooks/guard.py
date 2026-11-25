@@ -7,8 +7,9 @@ Exit 0 lets the call run; exit 2 blocks it and the message on stderr goes back t
 1. Never allowed: Reset NVRAM (`nvram -c`), VBIOS flash tools, force-push, push to main/master, `reset --hard`,
    `clean -f`, `checkout .` / `restore .`, `branch -D`, bare `git stash` / `git stash pop` (the stash is shared by
    all worktrees).
-2. Machine lock: writes to the EFI partition, the system volume, /Library/Extensions, /Library/GPUBundles,
-   /Library/LaunchDaemons and ~/gpu, and restarts, kmutil/bless/nvram writes and the like need the machine lock.
+2. Machine lock: writes to the EFI partition (also its scratch mount /private/tmp/efi), the system volume,
+   /Library/Extensions, /Library/GPUBundles, /Library/LaunchDaemons, ~/gpu and ~/vermilion-rollback, and restarts,
+   kmutil/bless/nvram writes and the like need the machine lock.
    One session holds it at a time (`.claude/hooks/machine-lock acquire "<reason>"`), so only one agent changes the
    machine (the one-EFI-change-per-boot rule needs a single owner). Text that only mentions those paths or tools
    (data heredoc bodies, quoted text given to read commands, commit messages) is not a change; see needs_lock.
@@ -204,6 +205,8 @@ def split_segments(cmd):
 
 
 def command_word(text):
+    """The command a segment runs, as (basename, the text after it): leading `(`, `{`, `!` and the WRAPPERS
+    (assignments, sudo, env, time ...) are skipped."""
     t = text.strip().lstrip('({!').strip()
     while True:
         m = WRAPPERS.match(t)
@@ -231,6 +234,8 @@ def needs_lock(cmd):
 
 
 def needs_lock_text(cmd):
+    """The text test on what needs_lock kept: a machine tool, or a protected path together with a write verb or a
+    redirect anywhere in the text."""
     if MACHINE_TOOL.search(cmd):
         return True
     return bool(PROTECTED_PATH.search(cmd) and WRITE_VERB.search(HARMLESS_REDIRECT.sub(' ', cmd)))

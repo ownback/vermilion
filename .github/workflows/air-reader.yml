@@ -1,13 +1,13 @@
 # SPDX-License-Identifier: MIT
 # The AIR bitcode reader (libLLVM.dylib + libzstd.1.dylib) built from LLVM's source by scripts/build/llvm.sh, with the
-# licence notices the bundle ships. Runs on a tag push and by hand; uploads the result as an artefact.
+# licence notices the bundle ships. Runs by hand and as a job of release.yml (workflow_call, so a release tag builds it
+# once); uploads the result as the artefact `air-runtime`. Every action is pinned by commit SHA.
 # The result depends only on scripts/build/llvm.sh (versions and SHA-256s are pinned in it), so a finished build is
 # cached by the hash of that script and its helper, and a rerun without a change to them does no compiling.
 name: air-reader
 
 on:
-  push:
-    tags: ['v*']
+  workflow_call:
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,7 @@ jobs:
     runs-on: macos-15-intel
     timeout-minutes: 240
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Tools
         run: |
@@ -32,14 +32,14 @@ jobs:
 
       - name: Cache the finished build
         id: done
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: build/air-runtime
           key: air-reader-${{ runner.os }}-x86_64-${{ hashFiles('scripts/build/llvm.sh', 'scripts/build/lib.sh') }}
 
       - name: Cache the compiler output
         if: steps.done.outputs.cache-hit != 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ~/Library/Caches/ccache
           key: air-reader-ccache-${{ hashFiles('scripts/build/llvm.sh') }}
@@ -62,7 +62,7 @@ jobs:
           ls LICENSES
           shasum -a 256 libLLVM.dylib libzstd.1.dylib | tee ../air-runtime.SHA256SUMS
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: air-runtime
           path: |

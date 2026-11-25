@@ -1,0 +1,14 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# vermilion-firmware [--from <linux-firmware checkout or amdgpu directory>]: fetch AMD's Navi 31 firmware into the
+# installed user's ~/gpu/fw/navi31 and check every file against fw.lock (md5 and SHA-256). Run it as root.
+# The package ships no firmware; this is the step its post-install script runs.
+PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH
+R=${VERMILION_ROOT:-}
+LIBEXEC=$R/usr/local/libexec/vermilion
+U=$(awk '$1 == "user" { print $2 }' "$R/Library/Application Support/Vermilion/installed" 2>/dev/null)
+[ -n "$U" ] || { echo "vermilion-firmware: Vermilion's package is not installed" >&2; exit 1; }
+UH=${VERMILION_UHOME:-$(dscl . -read "/Users/$U" NFSHomeDirectory | awk '{ print $2 }')}
+DEST=$R$UH/gpu/fw/navi31
+sh "$LIBEXEC/firmware/fetch_firmware.sh" "$@" "$DEST" || exit 1
+[ "${VERMILION_NOCHOWN:-0}" = 1 ] || chown -R "$(id -u "$U"):$(id -g "$U")" "$R$UH/gpu/fw"

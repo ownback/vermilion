@@ -218,6 +218,9 @@ int nvmtl_vk_pre_fill(nvk_buffer *b, size_t offset, size_t size, uint32_t word);
 void nvmtl_vk_pre_hold(void *retained);
 extern void (*nvmtl_pre_release_hook)(void *);
 extern void (*nvmtl_pre_submit_hook)(void);
+// 0, -1 (not read back), or NVMTL_READ_DST_GONE: dst was unmapped or lost write access before or during the copy
+// (nothing faults; the rows before the failure may have landed).
+#define NVMTL_READ_DST_GONE (-3)
 int  nvmtl_vk_image_read(nvk_queue *q, nvk_image *img, void *dst, size_t row_bytes);
 int  nvmtl_vk_image_write(nvk_queue *q, nvk_image *img, const void *src, size_t row_bytes);
 int  nvmtl_vk_copy_buffer(nvk_queue *q, nvk_buffer *src, size_t srcOff, nvk_buffer *dst, size_t dstOff, size_t size);

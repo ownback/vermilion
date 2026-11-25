@@ -1440,8 +1440,19 @@ static void nvmtl_surface_remark_later(NVMTLTexture *r, uint32_t seed) {
     if (IOSurfaceLock(r->_surf, lockopt, NULL) != kIOReturnSuccess) { nvlog("G13 surface-out: IOSurfaceLock FAILED"); return NO; }
     void *base = IOSurfaceGetBaseAddressOfPlane(r->_surf, (uint32_t)r->_plane);
     size_t row = IOSurfaceGetBytesPerRowOfPlane(r->_surf, (uint32_t)r->_plane);
-    if (base && row && !nvmtl_plane_mapped(r, base, row, VM_PROT_WRITE)) { IOSurfaceUnlock(r->_surf, lockopt, NULL); return NO; }
+    // A plane that is gone (not mapped, or not writable) before the copy or during it is published and dropped: the
+    // command buffer completes normally, as on a Mac, where the GPU writes the surface's own pages and no CPU step can
+    // fail. The texture keeps the pixels; the surface's memory is no longer there to take them.
+    if (base && row && !nvmtl_plane_mapped(r, base, row, VM_PROT_WRITE)) { IOSurfaceUnlock(r->_surf, lockopt, NULL); return YES; }
     int rc = (base && row) ? nvmtl_vk_image_read(r->_q, &r->_i, base, row) : -1;
+    if (rc == NVMTL_READ_DST_GONE) {
+        IOSurfaceUnlock(r->_surf, lockopt, NULL);
+        static _Atomic unsigned said;
+        if (atomic_fetch_add(&said, 1) < 8)
+            nvlog("G13 surface %u plane %lu: readback dropped, its plane went away during the readback (%ux%u)",
+                  (unsigned)IOSurfaceGetID(r->_surf), (unsigned long)r->_plane, r->_i.w, r->_i.h);
+        return YES;
+    }
     if (!rc && r->_i.bpp == 4) { char tag[24]; snprintf(tag, sizeof tag, "out%u-", (unsigned)IOSurfaceGetID(r->_surf)); nvmtl_frame_dump(tag, base, row, r->_i.w, r->_i.h); }
     uint32_t seed = 0; IOReturn unlocked = IOSurfaceUnlock(r->_surf, lockopt, &seed); if (lockopt) seed = IOSurfaceGetSeed(r->_surf);
     if (rc || unlocked != kIOReturnSuccess) { nvlog("G13 surface-out: readback FAILED (%ux%u)", r->_i.w, r->_i.h); return NO; }

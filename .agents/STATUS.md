@@ -81,6 +81,9 @@ is very slow (owner: "choppy"); agent on `ownback/maps-fullscreen-perf`. Capture
 (`~/vermilion-captures/2026-11-25-appcap/`): window 70-125 frames/s with the GPU at 94-98 % and ~200 W; fullscreen
 mean 135 frames/s (60-190 per second), GPU 50-95 %; fullscreen with Maps in `debug.phxbo_vram_proc` (VRAM placement
 confirmed) mean 144: system memory is not the main cause. Uneven frame pacing and a near-saturated GPU are the leads.
+The owner also sees tiles appear late, patch by patch ("like Minecraft chunks"). Lead: the ~255/s VideoToolbox tile
+conversions, each a GPU readback with a fence wait on the plugin's single serial worker that also hands frames to
+WindowServer (first agent's counters).
 passd: the owner chose the honest "SSE not supported" `AppleSSE` kext (finding on #30); new private repo
 ownback/ryzentosh-sse with its own thread; it hands the kext to the megamind for an EFI change.
 Logs in `~/vermilion-captures/2026-11-25-maps/` (outside git). In zsh `log` is a builtin: use `/usr/bin/log`.

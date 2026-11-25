@@ -37,7 +37,11 @@ kexts reused, `config.plist` differs only by that driver entry), live since 2026
 copies of 33 and 32 in `~/vermilion-rollback/EFI-OC.change3{3,2}-20261125`. Passed: `squat boot ...: 1`,
 `SUCCESS at 06:58:58`, `debug.phxtrust_stat` `mode=enforce` `denied_unlisted=0`, `debug.phxaudio_stat` patched and
 matched. Open: the owner confirms by eye that the picker has no Reset NVRAM entry. Rollback: swap `EFI/OC` and
-`EFI/OC.prev`. Next: step (c), VermilionAccel without `debug.phxfb_kill_iondrv` (the owner's Allow click). Seen by the item 1 agent, not fixed: after a bring-up failure that isn't the warm refusal, the daemon
+`EFI/OC.prev`. Step (c): VermilionAccel from main (`03c1e47d`, UUID `6FDD9916`, no `phxfb_kill_iondrv`) staged in
+`/Library/Extensions` 2026-11-25 07:00, waiting for the owner's Allow click; rollback copy (`2578b185`) in
+`~/vermilion-rollback/VermilionAccel.kext.pre-killiondrv`. Expected after the restart: `sysctl debug.phxfb_kill_iondrv`
+unknown oid, `debug.phxgl` answers, `kmutil showloaded` shows UUID `6FDD9916`, `NMXAccel up`, `PhxAMDFB on panel`,
+`SUCCESS`. Rollback: the copy back, Allow, restart. Seen by the item 1 agent, not fixed: after a bring-up failure that isn't the warm refusal, the daemon
 still claims the GPU (part of item 3). Seen by the Fable pass on #22 (`8a663b0`), open (its stderr point is fixed in `71f87e9`):
 - a warm refusal on a squat boot (every boot here) goes `m2_fail` → `squat_reboot` → a second warm reboot → a stuck,
   dark squat boot; after a power-off the safe desktop until the `rm` (item 3 territory);

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: MIT
 //
 // VermilionAudio.kext: a Lilu plugin that lets Apple's AppleGFXHDA (the DP / HDMI audio driver real Macs use for AMD
-// GPUs) accept the RX 7900 XT / XTX's audio function, PCI 1002:ab30.
+// GPUs) accept the RX 7900 XTX's audio function, PCI 1002:ab30.
 //
 // AppleGFXHDAController::probe reads the controller's vendor and device ID from PCI config space and looks them up in
 // a table of 12 supported controllers (0x2c bytes each: vendor, device, quirks). Navi 31's ab30 is not in it, so the
 // probe returns nothing even when a personality matches. When AppleGFXHDA loads, this plugin rewrites the device ID of
 // one entry, 1002:ab20, to ab30, keeping that entry's quirks (the same as Navi 21's ab28, which Apple supports on the
-// Mac Pro). It patches only when the machine has a 1002:ab30 function and no 1002:ab20 one.
+// Mac Pro). It patches only when the machine has a 1002:ab30 function, no 1002:ab20 one, and its GPU (1002:744c) is an RX 7900 XTX
+// (PCI revision 0xc8, PhxGpuId.h); on any other board AppleGFXHDA stays as Apple ships it.
 //
 // Then, with the ATI codec 1002:aa01, AppleGFXHDAFunctionGroupFactory::createAppleHDAFunctionGroup and
 // AppleGFXHDAWidgetFactory::createAppleHDAWidget pick their classes by the controller's device ID: for ab20-ab38 a bit
@@ -80,6 +81,8 @@
 #include <IOKit/IOWorkLoop.h>
 #include <libkern/libkern.h>
 #include <sys/sysctl.h>
+
+#include "../vermilion-boot/PhxGpuId.h"   // the board gate: only an RX 7900 XTX (1002:744c rev c8)
 
 namespace {
 
@@ -187,6 +190,18 @@ bool havePci(uint32_t vendor, uint32_t device) {
 	return e != nullptr;
 }
 
+// True when the registered 1002:744c function is an RX 7900 XTX: its "revision-id" registry property (4 bytes, little
+// endian, from the PCI config read at enumeration) is 0xc8. A missing property, another revision or no 744c refuses.
+bool haveXtx() {
+	IORegistryEntry *e = findPci(phxgpu::kVendorAmd, phxgpu::kDeviceNavi31);
+	if (!e) return false;
+	uint32_t rev = ~0u;
+	if (auto *r = OSDynamicCast(OSData, e->getProperty("revision-id")))
+		if (r->getLength() >= 1) rev = static_cast<const uint8_t *>(r->getBytesNoCopy())[0];
+	e->release();
+	return phxgpu::supported(phxgpu::classify(phxgpu::kVendorAmd, phxgpu::kDeviceNavi31, rev));
+}
+
 // cmpq disp32(%rdi), %rcx: 48 3b 8f <disp32>, in AppleGFXHDAEGController::gfxMatchedHandler (550.1: 0x1c48, at +0x32).
 void findRedelivery(KernelPatcher &kp, size_t index) {
 	gGfxMatched = reinterpret_cast<GfxMatched>(
@@ -213,6 +228,7 @@ void onGfxHdaLoad(void *, KernelPatcher &kp, size_t index, mach_vm_address_t, si
 	}
 	if (index != kGfxHda.loadIndex) return;
 	if (!havePci(kVendorAmd, kDevNavi31Audio)) { setStat("skipped: no 1002:ab30 audio function\n"); return; }
+	if (!haveXtx()) { setStat("skipped: the GPU is not an RX 7900 XTX (1002:744c rev c8); AppleGFXHDA left as Apple ships it\n"); return; }
 	if (havePci(kVendorAmd, kDevTableEntry)) { setStat("skipped: a 1002:ab20 audio function needs its own table entry\n"); return; }
 	const KernelPatcher::LookupPatch table {&kGfxHda, kFind, kReplace, sizeof(kFind), 1};
 	const KernelPatcher::LookupPatch masks {&kGfxHda, kFindMask, kReplaceMask, sizeof(kFindMask), 2};

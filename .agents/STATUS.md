@@ -90,7 +90,7 @@ ownback/ryzentosh-sse with its own thread; it hands the kext to the megamind for
 `~/vermilion-rollback/NVMTLDriver.pre-asyncup-20261125`, `327a082e`, trusted as `-previous`); **EFI change 37**:
 VermilionTrust 1.0.4 with 17 cdhashes, `diff -rq` only the VermilionTrust binary, `OC.prev` = change 36 (also
 `~/vermilion-rollback/EFI-OC.change36-20261125`). Expected: `list=17 denied_unlisted=0`, `62f86c5d` listed, `SUCCESS`,
-240 Hz; Maps' log `vk: async texture upload ON`, WindowServer's OFF. GPU-time captures before it (19:49-19:52,
+240 Hz; Maps' log `vk: async texture upload ON`, WindowServer's OFF. **Live and passed** on the boot of 2026-11-25 19:58 (`SUCCESS at 20:00:18`, `list=17 denied_unlisted=0`, `62f86c5d` listed, Maps ON / WindowServer OFF, 240 Hz). Owner: Maps feels the same (expected: WindowServer's composite is the larger GPU cost); Music opens fast (the `local.phxpassd` agent started passd). DP audio appears only at the daemon's `audio:` step (~2.5 min after boot, 20:00:20 this boot): not standard, in the parity plan. GPU-time captures before it (19:49-19:52,
 `fs3d-gpu`, `run2-gpu`): WindowServer 37-42 % of GPU wall, Maps 17-24 %; agent on `ownback/ws-composite-cost`.
 Logs in `~/vermilion-captures/2026-11-25-maps/` (outside git). In zsh `log` is a builtin: use `/usr/bin/log`.
 Music after #25: no crash, but a slow first launch (`MusicUI bootstrap took: 32.374500 seconds`). The cause isn't in the

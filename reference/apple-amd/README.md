@@ -71,3 +71,16 @@ All read-only. Scripts in [tools/](tools/) (MIT, ours).
 
 The decompiled output, the extracted binaries and the firmware blobs inside HWLibs stay outside git (hard rule 4:
 no AMD firmware in the repo).
+
+## Not covered yet
+
+- The Metal and GL drivers were read by symbols and imports only (not decompiled): the Metal feature answers of
+  `AMDMTLGFX10Device` (A3 / N5), MPS / Tensile tables, the counter plug-in `AMDRawCounterPlugin`.
+- DC itself (unnamed C in the framebuffer kext) was identified by its source paths, not walked function by function:
+  link-training policy, DSC, PSR and MST details are taken to be AMD's public DC behaviour [I].
+- The unnamed TTL suspend/resume entries and the exact SWIP stage meanings (stages 2-8).
+- `AMDRadeonX6000HWLibs` (the default `Load6000` plug-in a PC card would get) and X6810HWLibs (Navi 23) were not
+  decompiled; only X6800 (Navi 21).
+- Pre-Navi `AMD10000Controller` / `AMDFramebuffer` / `AMDSupport` display code (Vega and older), the HDCP stacks,
+  `AMDRadeonServiceManager` internals, `AMDShared` / `AMDRadeonX6000Shared` (compiler runtime).
+- Anything at run time: there is no RDNA 2 GPU here.

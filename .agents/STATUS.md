@@ -86,6 +86,12 @@ conversions, each a GPU readback with a fence wait on the plugin's single serial
 WindowServer (first agent's counters).
 passd: the owner chose the honest "SSE not supported" `AppleSSE` kext (finding on #30); new private repo
 ownback/ryzentosh-sse with its own thread; it hands the kext to the megamind for an EFI change.
+#31 (async `replaceRegion:` uploads, review fixes) merged; deploy 2026-11-25 ~20:00: NVMTLDriver `62f86c5d` (rollback
+`~/vermilion-rollback/NVMTLDriver.pre-asyncup-20261125`, `327a082e`, trusted as `-previous`); **EFI change 37**:
+VermilionTrust 1.0.4 with 17 cdhashes, `diff -rq` only the VermilionTrust binary, `OC.prev` = change 36 (also
+`~/vermilion-rollback/EFI-OC.change36-20261125`). Expected: `list=17 denied_unlisted=0`, `62f86c5d` listed, `SUCCESS`,
+240 Hz; Maps' log `vk: async texture upload ON`, WindowServer's OFF. GPU-time captures before it (19:49-19:52,
+`fs3d-gpu`, `run2-gpu`): WindowServer 37-42 % of GPU wall, Maps 17-24 %; agent on `ownback/ws-composite-cost`.
 Logs in `~/vermilion-captures/2026-11-25-maps/` (outside git). In zsh `log` is a builtin: use `/usr/bin/log`.
 Music after #25: no crash, but a slow first launch (`MusicUI bootstrap took: 32.374500 seconds`). The cause isn't in the
 plugin: Music's main thread waits 30.36 s on accountsd, which waits on a freshly started passd. passd retries the
@@ -145,7 +151,7 @@ mode setting).
 | WebGPU in Safari | broken (20 of 43 samples; render bundles crash the GPU process) | Phase 2 item 10 | A15 |
 | Vulkan for apps | works (opt-in loader) | Phase 4 | A18 |
 | Games | slow (Horizon 292 vs 4370 fps on Linux) | Phase 4 | A17 |
-| Music, Maps | broken (plugin crashes) | Phase 2 item 2 | A7, A8 |
+| Music, Maps | works, slow (crashes fixed by #25, #29; Maps choppy, tiles late: #31 live, WindowServer composite cost open; Music's 30 s first launch: passd, login agent + ryzentosh-sse) | Phase 2 item 2 | A7, A8 |
 | GPU hang or lost GPU | missing recovery | Phase 2 item 7 | A6 |
 | GPU name, VRAM size, Activity Monitor GPU history | broken / missing | Phase 2 item 8 | A2-A4 |
 | Metal feature answers vs a real AMD Mac | not standard (untested claims, some wrong answers) | Conformance pass | A16 |

@@ -1107,12 +1107,12 @@ sc_bringup_hang() {     world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot
 # the mark is set before the bring-up (with its stage), and cleared by a clean shutdown before the desktop attempt
 sc_mark_early() {       world; printf '#!/bin/bash\ncat "$SIM_MARK" >"$SIM_STATE/mark_at_up" 2>/dev/null\necho "sOS check: C2PMSG_81=0x00000000 (cold)"\necho "navi31 up: compute + gfx queues ready"\n' >"$FR/gpu/phxctl/navi31_up.sh"
                         expect_cmd '[ "$(cat "$ST/mark_at_up")" = bringup ]'; expect_log 'SUCCESS'; X_NOMARK=1; go mark_early; }
-# the TERM between the bring-up and the desktop attempt on a desktop boot (here in the NMXAccel wait) takes phxfb-boot
-# back: before the claim PhxAMDFB hasn't consumed it, and it would take the panel at a later boot's claim
-sc_term_claim_desk(){ world; SIM_NMXACCEL=0; SIM_TERM_LATE=1; SIM_SLEEP_REST=0.1; expect_log 'clean shutdown \(TERM\) at .* before the desktop attempt'
-                        expect_nvram '-d phxfb-boot'; X_NOMARK=1; expect_no_reboot; go term_claim_desk; }
 sc_term_bringup() {     world; DESK=0; SIM_NMXACCEL=0; SIM_TERM_LATE=1; SIM_SLEEP_REST=0.1; expect_log 'clean shutdown \(TERM\) at .* before the desktop attempt: in-progress mark cleared'
                         expect_nolog 'NMXAccel did not start'; X_NOMARK=1; expect_no_reboot; go term_bringup; }
+# the TERM between the bring-up and the desktop attempt on a desktop boot (here in the NMXAccel wait) takes phxfb-boot
+# back: before the claim PhxAMDFB hasn't consumed it, and it would take the panel at a later boot's claim
+sc_term_claim_desk() {  world; SIM_NMXACCEL=0; SIM_TERM_LATE=1; SIM_SLEEP_REST=0.1; expect_log 'clean shutdown \(TERM\) at .* before the desktop attempt'
+                        expect_nvram '-d phxfb-boot'; X_NOMARK=1; expect_no_reboot; go term_claim_desk; }
 # launchd's shutdown TERM while navi31_up.sh still runs (it takes about 10 s; launchd SIGKILLs after its exit timeout).
 # term_up_stub <launchd's exit timeout s> <the bring-up's remaining s>: the stub sends the TERM to the daemon itself (the
 # topmost process with the daemon's argv: a $(...) subshell has the same argv), a mock launchd SIGKILLs the daemon after

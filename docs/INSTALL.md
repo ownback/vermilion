@@ -448,11 +448,12 @@ firmware, and loading it again into a running SMU is something the Linux driver 
    `VermilionBoot`'s `PhxFBSquatter` takes the IOFramebuffer category, so the firmware console never starts and the
    screen stays dark until the daemon arms the display. Otherwise the firmware framebuffer (GOP) drives the screen.
 2. Stops if the kill switch `~/gpu/phxboot-off` exists (a squat boot first reboots onto the firmware framebuffer).
-   Only the owner sets the kill switch. In Safe Mode (`kern.safeboot` 1) it stops right after step 1's check and
-   touches nothing. A squat boot in Safe Mode has no picture: `VermilionBoot` loads and squats in Safe Mode too, and
-   Safe Mode doesn't load `VermilionAccel`. That stays so until `VermilionBoot` doesn't squat with `-x` (plan step 2
-   of the recovery design). Hold the power button and start up normally; that boot says why after login (unverified
-   on hardware).
+   Only the owner sets the kill switch. In Safe Mode (`kern.safeboot` 1) it stops right after step 1's check: no
+   bring-up, no kext load, nothing armed, the failure record left as it is. A squat boot in Safe Mode has no picture:
+   `VermilionBoot` loads and squats in Safe Mode too, and Safe Mode doesn't load `VermilionAccel`. That stays so until
+   `VermilionBoot` doesn't squat with `-x` (plan step 2 of the recovery design). Hold the power button and start up
+   normally; that boot says why after login (the Safe Mode boot leaves the sentence in `/var/db/phxboot.notice-next`;
+   unverified on hardware).
 3. Stops if the in-progress mark `/var/db/phxboot.pending` exists, i.e. the previous attempt never finished: it counts
    it in the failure record `/var/db/phxboot.fails`, clears the one-shots and stays on the firmware framebuffer
    (rebooting first on a squat boot). After two failed bring-ups in a row one boot skips the bring-up (no GPU access),

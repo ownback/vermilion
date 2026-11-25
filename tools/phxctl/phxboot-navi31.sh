@@ -188,7 +188,7 @@ notice(){ NOTICED=1; printf '%s\n' "$1" >"$NOTICE"; sync; echo "notice: $1"
   if [ "${PHXBOOT_NOTICE_FG:-0}" = 1 ]; then notice_show; else notice_show & NOTICEPID=$!; fi; }
 notice_join(){ [ -n "$NOTICEPID" ] && wait "$NOTICEPID" 2>/dev/null; NOTICEPID=""; return 0; }
 notice_next(){ printf '%s\n' "$1" >"$NOTICE_NEXT"; sync; echo "notice for the next boot: $1"; }   # right before a restart
-notice_carry(){ [ -n "$CARRY" ] && [ "$NOTICED" = 0 ] && notice "$CARRY"; CARRY=""; return 0; }   # the last boot's, if none
+notice_carry(){ [ -n "$CARRY" ] && [ "$NOTICED" = 0 ] && notice "$CARRY"; CARRY=""; return 0; }   # the last boot's notice, if this boot has none
 bye(){ notice_carry; notice_join; exit 0; }   # an exit before or instead of the desktop: the notice shown
 leave(){ release; bye; }                      # the same, with the hold off
 CLAIMED=0   # 1 once mesboot claim ran: PhxAMDFB and NMXAccel may be up, Metal may be on the GPU
@@ -470,7 +470,8 @@ echo bringup >"$MARK"; sync
 # sooner than before, and exits without a claim.
 # A clean shutdown before the claim also takes phxfb-boot back (set above for PhxAMDFB's start at the claim; no
 # PhxAMDFB consumed it): with the mark cleared, the next boot's oneshots_off doesn't run (hw-safety review 2026-11-25).
-# The output file comes from mktemp: root writes it in /tmp, where a fixed name could be a planted link.
+# The output file comes from mktemp: root writes it in /tmp, where a fixed name could be a planted link. If mktemp
+# fails, the file has a fixed name in /var/db, which only root writes.
 UPF=$(mktemp "$WSPTMP/phxboot-up.XXXXXX" 2>/dev/null) || UPF=/var/db/phxboot-up.log; UPT0=$(date +%s); UPTERM=0
 up_term(){ local s; [ $UPTERM = 1 ] && return 0; UPTERM=1; s=$(( $(date +%s) - UPT0 ))
   if [ $s -lt "${PHXBOOT_UP_HANG:-60}" ]; then rm -f "$MARK"; [ $DESK = 1 ] && nvram -d phxfb-boot; sync

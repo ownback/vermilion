@@ -64,8 +64,13 @@ VermilionTrust 1.0.4 with 15 cdhashes (the new plugin + the live 14; the list wa
 because this checkout had no `phxtrust_list.inc` to keep); `diff -rq` showed only the VermilionTrust binary;
 `OC.prev` = change 34, also in `~/vermilion-rollback/EFI-OC.change34-20261125`. **Live and passed** on the boot of
 2026-11-25 17:04: `mode=enforce list=15 denied_unlisted=0`, NVMTLDriver `15204728` listed with overrides (first
-WindowServer), `SUCCESS at 17:06:44`, 240 Hz; #26's record unchanged (`fails=0 ... last=full`). Next: the owner
-tests Music and Maps, then `log show --predicate 'subsystem == "org.vermilion.nvmtl"'` and the readback cost.
+WindowServer), `SUCCESS at 17:06:44`, 240 Hz; #26's record unchanged (`fails=0 ... last=full`). Owner test 17:12:
+Music no longer crashes but loads very slowly; Maps still crashes (17:14), now with plugin logs (os_log reaches the
+sandbox). Maps: ~7630 live buffers, tiny private buffers "REFUSED VRAM (RM refused it) -> -2" with 6144 MB free, RADV
+`bo create failed ... -12`, then a 256x256 texture nil ("VRAM full and no system-memory type takes it") and VectorKit
+aborts ("Metal returned null texture"): an allocation count limit, not VRAM size. Logs in
+`~/vermilion-captures/2026-11-25-maps/` (outside git). Agents: Maps allocation limit (`ownback/maps-alloc-limit`),
+Music slow load (`ownback/music-slow-load`). Note: in zsh `log` is a builtin, use `/usr/bin/log`.
 
 Item 3: design on #24 (finding `2026-11-25-recovery-trap-design.md`). Step 1 (daemon and `navi31_up.sh` only, no
 EFI change, #26) installed 2026-11-25 under the lock, rollback in `~/vermilion-rollback/recovery-daemon-1`. **Live and passed**

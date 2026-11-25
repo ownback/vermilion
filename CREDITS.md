@@ -20,5 +20,5 @@ or company named here. Please do not ask them for support with Vermilion.
 | **Mesa RADV** | https://gitlab.freedesktop.org/mesa/mesa | The Vulkan driver the plugin runs on (base f5cb8ee0 + `patches/mesa`); MIT. |
 | **FFmpeg** | https://ffmpeg.org | The HEVC/AV1 decode libraries `src/video-decoder` links (n7.1 + `patches/ffmpeg`); LGPL-2.1-or-later. |
 | **linux-firmware** (AMD microcode) | https://gitlab.com/kernel-firmware/linux-firmware | The GPU firmware the bring-up loads; downloaded by `tools/firmware/fetch_firmware.sh`, never shipped. |
-| **Acidanthera** | https://github.com/acidanthera | MacKernelSDK (build-time headers) and OpenCore, which boots the machine. Lilu is not used. |
+| **Acidanthera** | https://github.com/acidanthera | MacKernelSDK (build-time headers) and OpenCore, which boots the machine. Lilu: `VermilionAudio.kext` is a Lilu plugin, built against Lilu's SDK (BSD-3-Clause). |
 | The AMD-OSX / Hackintosh community | | Years of shared knowledge about running macOS on PC hardware. |

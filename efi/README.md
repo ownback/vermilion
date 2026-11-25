@@ -74,8 +74,8 @@ sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --label OpenCore --loader 
 ```
 
 From macOS on the same machine the EFI partition is `disk0s1` (`sudo diskutil mount disk0s1`, it mounts at
-`/Volumes/NO NAME`), then `sudo efi/build.py install --esp "/Volumes/NO NAME" --stage <stage>`. The macOS build steps (iasl, the
-machine config, `build/VermilionBoot.kext`, `build/VermilionTrust.kext`) are in
+`/Volumes/NO NAME`), then `sudo efi/build.py install --esp "/Volumes/NO NAME" --stage <stage>`. The macOS build steps
+(iasl, the machine config, `build/VermilionBoot.kext`, `build/VermilionTrust.kext`) are in
 [`.agents/runbooks.md`](../.agents/runbooks.md#building-and-installing-the-efi-on-the-mac-itself-2026-11-19-works).
 Before installing, compare the build with the live EFI (`diff -rq`): only the intended files may differ.
 

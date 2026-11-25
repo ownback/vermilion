@@ -223,7 +223,8 @@ that directory, so it runs once and never again at a later boot. Read the log af
 ## OpenCore EFI install from Linux (2026-11-18, first install)
 
 Superseded for everyday changes by "Building and installing the EFI on the Mac itself" below. From Linux, the
-`efi/build.py install --esp /boot --stage <stage>` step does step 1. The EFI partition is shared with Limine (`/boot` on Linux). Steps:
+`efi/build.py install --esp /boot --stage <stage>` step does step 1. The EFI partition is shared with Limine (`/boot`
+on Linux). Steps:
 
 1. Copy the EFI to `/boot/EFI/OC`. Never touch `EFI/BOOT/BOOTX64.EFI` (Limine's fallback) or `EFI/limine`.
 2. Add a firmware boot entry, without changing the boot order:

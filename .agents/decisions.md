@@ -679,7 +679,7 @@ read command's output or heredoc written to a file and then another command) get
 the parser, never the exemption.
 **Known limits** (an accident guard, not a sandbox; the same on main before #32): a machine tool spelled with quotes
 or escapes (`re""boot`, `\cp`) or by an unusual path; write tools the verb list doesn't know (`sort -o`, `curl -o`,
-`truncate`, `patch`, `gzip`, `unlink`, `ditto`, `cpio`); other spellings of a protected path (`~/./gpu`, `~//gpu`,
+`truncate`, `patch`, `gzip`, `unlink`, `cpio`); other spellings of a protected path (`~/./gpu`, `~//gpu`,
 case, globs); relative writes after `cd` or from a parent directory; a variable that builds a path; options that run a
 program (`git grep -O`, `rg --hostname-bin`); a script written in one call and run in another. A deliberate bypass is
 not the threat this guard answers: the machine lock and the review of every change are.

@@ -162,7 +162,7 @@ expect_in 0 "$HOME/gpu" "read" "ls -la && cat phxboot-navi31.sh | head -3"
 
 # the adversarial table from the PR #32 review, and the fail-closed rows (one row per command string)
 python3 -I "$HERE/guard_cases.py" "$G" > "$T/cases.out"
-cat "$T/cases.out" | grep '^FAIL' || true
+grep '^FAIL' "$T/cases.out" || true
 set -- $(sed -n 's/^guard_cases: \([0-9]*\) passed, \([0-9]*\) failed.*/\1 \2/p' "$T/cases.out")
 if [ $# = 2 ]; then pass=$((pass + $1)); fail=$((fail + $2)); else fail=$((fail + 1)); echo "FAIL: guard_cases.py"; fi
 

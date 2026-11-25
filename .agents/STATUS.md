@@ -188,7 +188,7 @@ mode setting).
   read-only, and anything else gets the whole-text test (fail closed). It also closed old gaps: `sysctl` writes,
   `pmset` writes, `nvram -f`, `osascript ... restart`, `efi/build.py install`, `codesign --sign/--force`, `sed` with
   `-i` anywhere, `"$HOME"/gpu` paths, git/gh writing into protected paths, interpreter heredocs, `/etc`.
-  `tests/hooks/guard_cases.py` holds the 281 adversarial rows; `guard_test` runs them.
+  `tests/hooks/guard_cases.py` holds the 298 adversarial rows; `guard_test` runs them.
 - `efi/build.py build` and `install` now require `--stage` (the old silent default built the wrong EFI); the error
   lists the stages (`ownback/tooling-guard-efi`).
 - The link gate passed a kext that can't load from OpenCore (IOGraphicsFamily is in the System KC) (thread 04).

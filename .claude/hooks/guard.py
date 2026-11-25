@@ -109,6 +109,8 @@ def write_lock(data):
 
 
 def handle_lock_cmd(cmd, session):
+    """Run `machine-lock acquire|steal|release` for this session. A lock under STALE_S old that another session holds
+    blocks acquire and steal; release removes only this session's lock."""
     m = LOCK_CMD.match(cmd)
     if not m:
         block('run `machine-lock acquire|steal|release` as a Bash call of its own, with nothing before or after it.')
@@ -135,11 +137,12 @@ def handle_lock_cmd(cmd, session):
 # The rule is fail closed: needs_lock() exempts a mention of a protected path or a machine tool only when it can prove
 # the whole call is read-only. parse() models a small part of the shell (words, quotes, redirects, data heredocs,
 # ; & | && || and newlines); anything else (substitutions, variables in targets, cd, functions, comments, escapes,
-# shells and interpreters, unusual redirects or heredocs) raises Unprovable, and the call gets the old whole-text test.
+# shells and interpreters, unusual redirects or heredocs) raises Unprovable, and the call gets the whole-text test
+# (fallback_needs_lock).
 
 
 class Unprovable(Exception):
-    pass
+    """The call can't be proven read-only; the argument names the reason (for debugging, never shown)."""
 
 
 # Commands that only read. A mention of a protected path or of `shutdown` in their arguments (quoted or not) is not a
@@ -175,6 +178,8 @@ PATH_PIECE = re.compile(r'/gpu\b|\bgpu/|vermilion-rollback|tmp/efi|/Volumes/|/EF
 
 
 def _opts_then_positionals(args, with_value=()):
+    """The positional arguments of args: options are dropped, with their value when listed in with_value;
+    everything after `--` is positional."""
     pos, i = [], 0
     while i < len(args):
         a = args[i]
@@ -213,6 +218,7 @@ def _sed_writes(args):
 
 
 def _plutil_writes(args):
+    """plutil reads unless it edits or creates a plist, or converts or extracts to anything but stdout (`-o -`)."""
     if {'-replace', '-insert', '-remove', '-create'} & set(args):
         return True
     if '-o' in args:
@@ -238,6 +244,9 @@ READ_WRITES = {
 
 
 class _Word:
+    """One shell word: chars (its text without the quotes), quoted (any part was quoted), expands (it holds a
+    variable other than $HOME)."""
+
     def __init__(self):
         self.chars, self.quoted, self.expands = [], False, False
 
@@ -262,6 +271,8 @@ def _dollar(cmd, i, word):
 
 
 class _Seg:
+    """One simple command; parse() describes the fields."""
+
     def __init__(self, start):
         self.start, self.end = start, start
         self.words, self.targets, self.heredocs, self.pipe = [], [], [], False
@@ -493,7 +504,7 @@ def _git_words(base, words):
 
 def _classify(seg):
     """('read', None): nothing it does writes. ('write', text): it writes or runs something; the lock is needed if
-    text names a protected path. ('keep', text): another command, for the text test."""
+    text names a protected path. ('keep', None): another command; its raw text goes to the text test."""
     words = _command(seg.words)
     raw = ' '.join(w.val for w in seg.words)
     if not words:
@@ -512,6 +523,7 @@ def _classify(seg):
         raise Unprovable('variable in the arguments of ' + base)
     from_path = '/' in name.val
     if from_path and os.path.dirname(name.val) not in TRUSTED_DIRS:
+        # a path outside the trusted directories can be any program, whatever its name
         return ('write', raw) if base in READ_CMDS | {'git', 'gh'} else ('keep', None)
     if base in ('git', 'gh'):
         sub, keep = _git_words(base, words)
@@ -532,6 +544,7 @@ def _classify(seg):
 
 
 def _target_protected(t):
+    """Is the redirect target t a protected path? Raises when an expansion or a glob could make it one."""
     v = t.val
     if t.expands or re.search(r'[*?\[\]{}]', v) or re.match(r'~[^/]|=', v):
         raise Unprovable('redirect target with an expansion')
@@ -539,6 +552,10 @@ def _target_protected(t):
 
 
 def proven_needs_lock(cmd, segs):
+    """The parsed call, one pipeline at a time: True for a redirect to a protected path or a write command that
+    names one; then the text test on what isn't a proven read (git/gh without their message text). Raises
+    Unprovable for a heredoc fed to anything but a read command or git/gh, and for a read command's output written
+    to a file next to a command that could run it."""
     kept, read_to_file, non_read = [], False, False
     pipeline = []
     for seg in segs:
@@ -591,6 +608,7 @@ def _rough_segments(cmd):
     return out
 
 
+# What can stand before a command name: wrappers, their options and durations, assignments, ( { and !.
 PRECMD = re.compile(r'\s*(?:(?:sudo|env|nice|nohup|time|command|exec|caffeinate|timeout|gtimeout|noglob|builtin)\s+'
                     r'|-\S*\s+|\d+[smhd]?\s+|\w+=\S*\s+|[({!]\s*)*')
 

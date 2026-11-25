@@ -124,7 +124,7 @@ constexpr uint8_t kReplace[] {
 };
 static_assert(sizeof(kFind) == 0x2c && sizeof(kReplace) == 0x2c, "one table entry is 0x2c bytes");
 
-// In both factories: leal -0xab20(%rax),%ecx; cmpl $0x18,%ecx; ja +10; movl $0x01000101,%edx; btl %ecx,%edx
+// In both factories: the test "device ID - 0xab20 <= 0x18 and its bit set in 0x01000101", as compiled code bytes
 // (twice in AppleGFXHDA 550.1, nowhere else), and the same with the mask 0x01010101.
 constexpr uint8_t kFindMask[] {
 	0x8d, 0x88, 0xe0, 0x54, 0xff, 0xff, 0x83, 0xf9, 0x18, 0x77, 0x0a, 0xba, 0x01, 0x01, 0x00, 0x01, 0x0f, 0xa3, 0xca,

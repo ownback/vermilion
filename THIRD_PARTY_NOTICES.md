@@ -104,6 +104,23 @@ checks them against `tools/firmware/fw.lock`; `tools/firmware/c3_image.py` build
 - MacKernelSDK (acidanthera, https://github.com/acidanthera/MacKernelSDK): Apple kernel headers, APSL 2.0. Not
   redistributed.
 - Vulkan-Headers (Khronos, Apache-2.0 / MIT): headers for the plugin and phxdec. Not redistributed.
+- Lilu SDK (acidanthera, https://github.com/acidanthera/Lilu, BSD-3-Clause), pinned in `scripts/build/audio.sh`:
+  headers and the plugin start code compiled into `VermilionAudio.kext`. A binary release of that kext must carry
+  Lilu's BSD-3-Clause notice. Lilu itself is not redistributed.
+
+## Runtime parts a binary release would carry (not in this repository)
+
+Listed for the release packages ([`docs/RELEASE.md`](docs/RELEASE.md)); each needs its notice in the package.
+
+- `spirv-val` (KhronosGroup SPIRV-Tools, Apache-2.0): the translator validates its output with it;
+  `tools/phxctl/recovery_install.sh` installs `build/spirv-val`.
+- The AIR bitcode reader `air-runtime/libLLVM.dylib` (LLVM, Apache-2.0 with LLVM exceptions) and `libzstd.1.dylib`
+  (zstd, BSD-3-Clause): today taken from NullMoth's bundle by `tools/phxctl/air_runtime_install.sh`; to be built by
+  this project from source before a release.
+- The FFmpeg libraries `libavcodec_phx` / `libavutil_phx` (LGPL-2.1-or-later): a release must offer their
+  corresponding source (FFmpeg n7.1 + `patches/ffmpeg` + `scripts/build/ffmpeg.sh`).
+- `libvulkan_radeon.dylib` (Mesa, MIT) and `libnvmtl_translate.dylib` (LGPL-3.0-or-later, with the Rust crate
+  notices above).
 
 ## Not included
 

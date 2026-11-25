@@ -511,6 +511,8 @@ static int nvmtl_skip_empty_on(void) {
             [nvmtl_quarantined_parts addObject:p];
         }
     }
+    if (objc_getAssociatedObject(self, nvmtl_ws_ungated_key)) {   // b161: every part has finished above (or failed): before any present
+        nvmtl_vk_scanout_write_end_ungated(); objc_setAssociatedObject(self, nvmtl_ws_ungated_key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
     if (!error && _presentations.count) {
         // Present on a serial queue of its own, in order, not on the execution queue: -[CAMetalDrawable present] takes the
         // layer's lock, which -[CAMetalLayer nextDrawable] holds on the app's thread, and a hook inside nextDrawable (the
@@ -526,6 +528,7 @@ static int nvmtl_skip_empty_on(void) {
     }
     [_presentations removeAllObjects]; _present = nil;
     if (nvmtl_e0_on() && objc_getAssociatedObject(self, nvmtl_e0_key)) nvmtl_e0("F cb %p%s", (__bridge void *)self, error ? " ERROR" : "");
+    NSNumber *wsOut = objc_getAssociatedObject(self, nvmtl_ws_out_key);   // b161: counted until after its present below
     if (!error && objc_getAssociatedObject(self, nvmtl_ws_shown_key) && nvmtl_ws_gpu_async_on()) {
         static long coalesceUs = -1;
         if (coalesceUs < 0) { const char *e = getenv("NVMTL_WS_COALESCE_US"); coalesceUs = e ? atol(e) : 0;
@@ -572,6 +575,7 @@ static int nvmtl_skip_empty_on(void) {
             });
         } else nvmtl_ws_gpu_present(self);
     }
+    if (wsOut) { nvmtl_vk_scanout_write_note(wsOut.unsignedIntValue, -1); objc_setAssociatedObject(self, nvmtl_ws_out_key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
     double deviceStart = 0, deviceEnd = 0;
     if (!error && _gpuTimingSeen && !_gpuTimingInvalid)
         (void)nvmtl_vk_interval_seconds(&_gpuTiming, &deviceStart, &deviceEnd);
@@ -836,6 +840,7 @@ static void nvmtl_gsub_ahead_pass1(void) {
     return YES;
 }
 - (void)nvmtlSubmitWithEvents {
+    nvmtl_ws_writes wsWrites = { 0 };   // b161: what the direct scan-out write gate checks, once the class lock is let go
     @synchronized ([NVMTLCommandBuffer class]) {
         if (_committed) return;
         [self nvmtlReserveQueue];
@@ -846,7 +851,11 @@ static void nvmtl_gsub_ahead_pass1(void) {
         if (nvmtl_ws_cdcopy_on()) nvmtl_ws_note_display(self, nvmtl_probe_waitcommit);
         else if (nvmtl_probe_waitcommit) nvmtl_ws_note_shown(self);
         nvmtl_e0_commit(self, nvmtl_probe_waitcommit);
+        if (nvmtl_ws_cdcopy_on()) nvmtl_ws_direct_writes(self, &wsWrites);
     }
+    // b161: nothing writes a display surface HUBP0 may be fetching. Here the command buffer is committed and holds its queue
+    // reservation, but nothing can submit it yet (_commitMarking, below); the flips the gate waits for run on the worker.
+    nvmtl_ws_direct_gate(self, &wsWrites);
     // the commit's kernel marks can wait for the accelerator lock, so they go in outside the class lock (see
     // nvmtl_ws_mark_pending). This command buffer is committed and holds its queue reservation, but nothing submits it
     // (_commitMarking stops the submit-ahead pass) or completes it (it is not pending yet) before its marks are in.

@@ -328,6 +328,21 @@ void nvmtl_e0_write(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t w, uint32_t h, uint32_t pitch, int l10r);
 void nvmtl_vk_scanout_stop(const char *why);
 int nvmtl_vk_scanout_on(void);
+/* b161 direct scan-out (nvmtl_scanout.c, nvmtl_scan_direct.h): the display surfaces drawn in VRAM slots and scanned out
+   with no copy. _wanted: the ws-direct switch is on; _on: a pair is bound now (the write gate applies); _note: a display
+   surface CoreDisplay wrote and the host import (buf, mem) its texture `owner` is drawn through; _write_note: +1 at the
+   commit of a display write, -1 when it finished; _write_gate: before a command buffer writing display surface `sid`
+   through `mem` is submitted (0 go, 1 not bound, -1 direct ended: go). */
+int nvmtl_vk_scanout_direct_wanted(void);
+int nvmtl_vk_scanout_direct_on(void);
+void nvmtl_vk_scanout_direct_note(const void *ref, const void *owner, uint32_t sid, void *base, uint32_t w, uint32_t h, uint32_t pitch,
+                                  int l10r, void *buf, void *mem);
+void nvmtl_vk_scanout_write_note(uint32_t sid, int delta);
+int nvmtl_vk_scanout_write_gate(uint32_t sid, const void *mem);
+/* b161: a full-screen write's commit: 1 gated (run the gate), 0 ungated (call _write_end_ungated when its command buffer
+   has finished on the GPU, before its present) */
+int nvmtl_vk_scanout_write_begin(void);
+void nvmtl_vk_scanout_write_end_ungated(void);
 void nvmtl_vk_image_destroy(nvk_image *i);
 // Finish any in-flight asynchronous texture upload to this image (NVMTL_ASYNC_TEX_UPLOAD) before its memory
 // is read back, migrated or freed. A no-op when none is pending, which is always the case with the flag off.

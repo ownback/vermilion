@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 /* Our code (Vermilion, RX 7900 XT), included by NVMTLEventSync.m at this exact place (one translation unit with the
-   plugin; definitions keep their order): WindowServer present policy: screen-write wait, swap no-wait, E0 commit trace, GPU present (CDCOPY display surfaces, cdhold, async), the call into nvmtl_vk_scanout_present. */
+   plugin; definitions keep their order): WindowServer present policy: screen-write wait, swap no-wait, E0 commit trace, GPU present (CDCOPY display surfaces, cdhold, async), the call into nvmtl_vk_scanout_present, direct scan-out's notes and write gate (b161). */
 #include "nvmtl_headmap_gate.c"
 // WindowServer screen-write wait (A/B switch, no restart): while /Library/GPUBundles/nvmtl/ws-screen-wait exists, a
 // WindowServer command buffer that writes a full-screen surface is not returned from commit until the GPU has finished
@@ -148,6 +148,53 @@ static BOOL nvmtl_ws_cdcopy_on(void) {
         if (on) nvlog("ws gpu present: presenting CoreDisplay's display surfaces, not SkyLight's composite targets (NVMTL_WS_PRESENT_CDCOPY)"); }
     return on == 1;
 }
+// b161 direct scan-out (nvmtl_scanout.c): the display surface id of a commit counted in nvmtl_vk_scanout_write_note (+1 at
+// commit, -1 when the command buffer has finished): a write to the other surface still to come means its flip will come.
+static const void *const nvmtl_ws_out_key = &nvmtl_ws_out_key;
+// b161: the backing CoreDisplay draws display surface `shown` through, for direct scan-out, when it is the surface's own
+// pages as one linear image (a plain host import, nvmtl_surface_image_create): that import is what gets bound to a slot.
+// Every other backing (VRAM copy, tiled, private image, planes) is not offered: the copy path stays for it.
+static void nvmtl_ws_direct_note(NVMTLCommandBuffer *cb, IOSurfaceRef shown) {
+    for (NVMTLSubmissionPart *part in cb->_parts) {
+        if (![part isKindOfClass:[NVMTLSubmissionPart class]]) continue;
+        for (NVMTLTexture *t in part->surfaces) {
+            if (t->_surf != shown) continue;
+            const size_t w = IOSurfaceGetWidth(shown), h = IOSurfaceGetHeight(shown);
+            if (t->_hostOn && t->_hostBuf.buf && t->_hostBuf.mem && !t->_scanOn && !t->_scanTiled && !t->_drawTiled && !t->_planeHostOn &&
+                !t->_planeHostRef && !t->_vramOn && t->_plane == 0 && IOSurfaceGetPlaneCount(shown) <= 1 && t->_i.w == w && t->_i.h == h)
+                nvmtl_vk_scanout_direct_note(shown, (__bridge const void *)t, IOSurfaceGetID(shown), IOSurfaceGetBaseAddress(shown), (uint32_t)w,
+                                             (uint32_t)h, (uint32_t)IOSurfaceGetBytesPerRow(shown), IOSurfaceGetPixelFormat(shown) == 0x6C313072u,
+                                             t->_hostBuf.buf, t->_hostBuf.mem);
+            else { static unsigned said; if (said++ < 4) nvlog("ws gpu present: display surface %u is not drawn on its own pages as one image: no direct scan-out for it", IOSurfaceGetID(shown)); }
+            return;
+        }
+    }
+}
+// b161: the full-screen surfaces a command buffer writes and the memory each is written through (NULL: not its pages), for
+// the write gate. Called under the class lock at commit; the gate itself runs after it (nvmtl_ws_direct_gate).
+typedef struct { uint32_t n, sid[4]; const void *mem[4]; } nvmtl_ws_writes;
+// b161: a command buffer whose full-screen writes skipped the gate (direct was off at its commit), until it has finished
+static const void *const nvmtl_ws_ungated_key = &nvmtl_ws_ungated_key;
+static void nvmtl_ws_direct_writes(NVMTLCommandBuffer *cb, nvmtl_ws_writes *out) {
+    out->n = 0;
+    for (NVMTLSubmissionPart *part in cb->_parts) {
+        if (![part isKindOfClass:[NVMTLSubmissionPart class]]) continue;
+        for (NVMTLTexture *t in part->surfaces) {
+            IOSurfaceRef sf = t->_surf;
+            if (!sf || IOSurfaceGetWidth(sf) < 1920 || IOSurfaceGetHeight(sf) < 1080 || out->n >= 4) continue;
+            out->sid[out->n] = IOSurfaceGetID(sf);
+            out->mem[out->n] = t->_hostOn ? (const void *)t->_hostBuf.mem : NULL;
+            out->n++;
+        }
+    }
+}
+// After the class lock: gated, the gate runs; ungated, the command buffer is counted until it finishes (no direct flip
+// meanwhile, nvmtl_scanout.c). Called for WindowServer with CDCOPY only.
+static void nvmtl_ws_direct_gate(NVMTLCommandBuffer *cb, const nvmtl_ws_writes *w) {
+    if (!w->n) return;
+    if (!nvmtl_vk_scanout_write_begin()) { objc_setAssociatedObject(cb, nvmtl_ws_ungated_key, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC); return; }
+    for (uint32_t i = 0; i < w->n; i++) (void)nvmtl_vk_scanout_write_gate(w->sid[i], w->mem[i]);
+}
 static void nvmtl_ws_note_display(NVMTLCommandBuffer *cb, BOOL waited) {
     if (!nvmtl_ws_gpu_present_on() || ![cb->_queue.label hasPrefix:@"com.apple.CoreDisplay"]) return;
     static nvmtl_ws_set display;
@@ -167,6 +214,11 @@ static void nvmtl_ws_note_display(NVMTLCommandBuffer *cb, BOOL waited) {
         if (waited) return;   // a waited CoreDisplay commit on a surface outside the set prepares a SkyLight target
         nvmtl_ws_set_add(&display, sid);   // over the oldest member once full (nvmtl_headmap.h)
         nvlog("ws gpu present: surface %u is a display surface (written by an unwaited CoreDisplay commit)", sid);
+    }
+    if (!waited && nvmtl_vk_scanout_direct_wanted()) nvmtl_ws_direct_note(cb, shown);   // b161
+    if (!objc_getAssociatedObject(cb, nvmtl_ws_out_key)) {
+        nvmtl_vk_scanout_write_note(sid, 1);
+        objc_setAssociatedObject(cb, nvmtl_ws_out_key, @(sid), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
     objc_setAssociatedObject(cb, nvmtl_ws_shown_key, (__bridge id)shown, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     const uint64_t g = atomic_fetch_add(&nvmtl_ws_gen[sid & 63], 1) + 1;

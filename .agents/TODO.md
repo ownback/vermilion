@@ -494,7 +494,18 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
       `smumetrics.py`, `metalbench`, `apiprobe` installed by the installer
 - [ ] `recovery_install.sh` / `esp_stage.sh`: the air-runtime reader; pick the APFS Data role in Recovery (3
       candidates found)
-- [ ] GitHub Releases and CI (mock tests on a Linux runner, a macOS runner building kexts, plugin, translator)
+- [ ] GitHub Releases and CI (mock tests on a Linux runner, a macOS runner building kexts, plugin, translator).
+      #41 (AIR reader workflow) and #42 (`release.yml`, pkg, OpenCore zip, uninstaller) are merged; neither has run
+      on a runner yet, and `release.yml` stops at release-scan until F1 lands (the C3 slice in VermilionBoot)
+- [ ] Package fixes from #42's clean-up review (2026-11-26):
+  - the uninstaller misses the AIR reader (not in the receipt; only the rollback MANIFEST removes it), leaves empty
+    `~/gpu`, `~/gpu/phxctl`, `~/gpu/fw`, deletes a `/usr/local/libexec/vermilion` it had just restored, and skips the
+    login-window restore when `lib.sh` is missing (`user_home` undefined);
+  - the shipped scripts honour the test hooks `VERMILION_TEST`, `VERMILION_ROOT` and `VERMILION_NOCHOWN`: strip them
+    from the package build (whether Installer passes the caller's environment is unverified);
+  - `distribution.xml` has no check of its own: the GPU and macOS gate is `preinstall` only;
+  - `fetch_firmware.sh --from` reports only the md5 on a SHA-256 mismatch; the `--rebuild-kc` text says
+    `uninstall --rebuild-kc`; the test payload puts `spirv-val` in `sbin`, the real one in `bin`
 - [ ] `INSTALL.md` rewritten for the one-kext release (it is upstream's manual XT guide); recovery and troubleshooting:
       black screen after a failed switch, the squat loop, booting `OC.prev`
 

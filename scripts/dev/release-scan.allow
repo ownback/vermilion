@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: MIT
+# Documented exceptions for release-scan.sh: "<kind> <ERE on the reported location>". Each one says why.
+# Third-party copyright notices name their authors.
+email (^|/)LICENSES/
+email (^|/)src/translator/translator/Cargo\.toml:
+# NullMoth's LLVM test fixtures carry its build session ids in debug metadata (no Vermilion machine data).
+uuid (^|/)src/translator/translator/(tests/fixtures|src/testdata)/
+# Not addresses: sysctl names after a "\n" in a printf, LLVM globals after a "\n" in a format string.
+email (^|/)tests/mock/phxctl_serve_test\.sh:20$
+email (^|/)src/translator/translator/src/linked_functions\.rs:1446$

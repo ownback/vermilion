@@ -8,14 +8,15 @@
 # machine (ifconfig, or ip on Linux), the git author e-mail and name, the host name and the login name. Values already
 # in the file are kept (a changed git identity must stay protected). Public identities are left out: a GitHub noreply
 # address and its login (`<id>+<login>@users.noreply.github.com`), which appear in every branch name and remote URL.
-# No value is printed: only their count and the file's path.
+# No value is printed: only their count and the file's path. VERMILION_CONFIG picks another config directory,
+# VERMILION_PRIVATE_PATTERNS another output file.
 set -eu
 CONF=${VERMILION_CONFIG:-$HOME/.config/vermilion}
 OUT=${VERMILION_PRIVATE_PATTERNS:-$CONF/private-patterns.txt}
 mkdir -p "$CONF" && chmod 700 "$CONF"
 umask 077
 tmp=$(mktemp)
-# the GitHub login in a noreply address is public
+# The GitHub login in a noreply address is public.
 public=$(git config --global user.email 2>/dev/null | sed -n 's/^[0-9]*+\{0,1\}\([^@]*\)@users\.noreply\.github\.com$/\1/p' |
   tr 'A-Z' 'a-z')
 {

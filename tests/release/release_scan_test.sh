@@ -78,7 +78,7 @@ check edid_no_serial 0 clean "$d"
 d=$(case_dir edid-desc-serial); edid "$d/k.bin" 00000000 'ABC123456789
 '
 check edid_descriptor_serial 1 edid-serial "$d"
-# the fallback EDIDs' shape (docs/EDID.md): an emptied serial descriptor, 0x0A and space padding
+# The fallback EDIDs' shape (docs/EDID.md): an emptied serial descriptor, 0x0A and space padding.
 d=$(case_dir edid-desc-empty); edid "$d/k.bin" 00000000 '
             '
 check edid_descriptor_empty 0 clean "$d"

@@ -1,5 +1,8 @@
 # Installing Vermilion
 
+> **Users start at [`../INSTALL.md`](../INSTALL.md)**: requirements, install, update, uninstall and recovery. This
+> page is the expert reference for each piece.
+
 > **Expert, manual.** This is upstream's hand install for the RX 7900 XT reference machine, kept as the detailed
 > reference for each piece. On the XTX machine the same pieces run with a few differences: the
 > [`vermilion-trust`](../efi/README.md#stages) EFI stage instead of `amfi=0x80`, the XTX notes in [XTX.md](XTX.md), and

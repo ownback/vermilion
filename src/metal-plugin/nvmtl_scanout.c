@@ -92,7 +92,7 @@ static nvmtl_sd_table g_sd;
 static nvmtl_sd_cand g_sd_dead[16];
 static unsigned g_sd_ndead;
 static _Atomic int g_sd_on;                 /* = g_scan.direct, for the write gate's lock-free first test */
-static _Atomic uint32_t g_sd_out[64];       /* committed, unfinished display writes per surface id & 63 */
+static _Atomic uint32_t g_sd_out[64];       /* writes the gate let through to a bound surface (id & 63), until they finished */
 static _Atomic uint32_t g_sd_ungated;       /* full-screen writes committed without the gate (direct was off) and not finished */
 static unsigned g_sd_fails, g_sd_flaps; static int g_sd_off; static uint64_t g_sd_until, g_sd_wait0, g_sd_flap0;
 /* /Library/GPUBundles/nvmtl/ws-direct (re-read every second): the switch. Absent: the copy path (a bound pair is copied
@@ -184,12 +184,23 @@ static int nvmtl_scan_copy_wait_locked(VkBuffer src, VkBuffer dst, VkDeviceSize 
     pthread_mutex_unlock(&nvmtl_submit_mutex);
     return sr == VK_SUCCESS && pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, 1000000000ull) == VK_SUCCESS ? 0 : -1;
 }
+/* Every submission this process made to its queue (the plugin's only one) has finished: an empty submit's fence, which
+   signals once all work submitted before it has completed. 1 s at most (not vkDeviceWaitIdle: no limit). */
+static int nvmtl_scan_drain_locked(void)
+{
+    if (g_state != 1 || !g_scan.fence) return -1;
+    pvkResetFences(g_dev, 1, &g_scan.fence);
+    pthread_mutex_lock(&nvmtl_submit_mutex);
+    const VkResult r = pvkQueueSubmit(g_queue, 0, NULL, g_scan.fence);
+    pthread_mutex_unlock(&nvmtl_submit_mutex);
+    return r == VK_SUCCESS && pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, 1000000000ull) == VK_SUCCESS ? 0 : -1;
+}
 /* Before the release: the GPU idle (nothing in flight writes a bound surface) and each bound surface copied from its
    slot back onto its pages, so the CPU copy, every reader of the pages and the copy path see the last frame. Called with
    the submit lock held, which the caller keeps until the release has rebound the BOs onto their pages. */
 static void nvmtl_scan_direct_copyback_locked(void)
 {
-    const int idle = g_state == 1 && pvkDeviceWaitIdle(g_dev) == VK_SUCCESS;
+    const int idle = !nvmtl_scan_drain_locked();
     int copied = 0;
     for (int i = 0; i < 2; i++) {
         nvmtl_scan_dsurf *d = &g_scan.dsurf[i];
@@ -292,7 +303,7 @@ static int nvmtl_scan_direct_bind_locked(const nvmtl_sd_cand *c0, const nvmtl_sd
     const nvmtl_sd_cand *c[2] = { c0, c1 };
     const VkDeviceSize bytes = (VkDeviceSize)pitch * h;
     pthread_mutex_lock(&nvmtl_submit_mutex);
-    int ok = g_state == 1 && pvkDeviceWaitIdle(g_dev) == VK_SUCCESS;
+    int ok = !nvmtl_scan_drain_locked();
     for (int i = 0; i < 2 && ok; i++) {
         nvmtl_scan_dsurf *d = &g_scan.dsurf[i];
         d->ref = c[i]->ref; CFRetain(d->ref); d->owner = c[i]->owner; CFRetain(d->owner);
@@ -469,14 +480,18 @@ static int nvmtl_scan_direct_present_locked(const void *ref, uint32_t sid, int l
     memset(&st, 0, sizeof st);
     if (g_scan.status(g_dev, &st) || !st.acquired) { nvmtl_scan_lost_locked("the plane was taken back", &st); return -1; }
     if (((st.flags & NVMTL_SCANST_FMT10) != 0) != (d->l10r != 0)) { nvmtl_scan_direct_out_locked("the scan-out format changed", 0); return -1; }
-    /* a write committed before the binding (it skipped the gate) may still run: no flip until it has finished, or it
-       could draw into the surface on screen. Only the first frames after a start; HUBP0 stays where it is meanwhile. */
-    { static uint64_t heldSince;   /* a count that never comes down (a lost command buffer) must not freeze the panel */
-      if (atomic_load(&g_sd_ungated)) {
+    /* No flip while a write may still draw into this surface: one committed before the binding (it skipped the gate:
+       only the first frames after a start), or a newer one the gate let through (its own present shows the frame;
+       hw-safety review of b161, item 4). HUBP0 stays where it is meanwhile. A hold that lasts (a count that never comes
+       down) must not freeze the panel: the copy path after NVMTL_SD_GATE_MAX_US. */
+    { static uint64_t heldSince;
+      const int ungated = atomic_load(&g_sd_ungated) != 0, newer = atomic_load(&g_sd_out[sid & 63]) != 0;
+      if (ungated || newer) {
           const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
           if (!heldSince) heldSince = now;
-          if (now - heldSince > NVMTL_SD_GATE_MAX_US * 1000ull) { heldSince = 0; nvmtl_scan_direct_out_locked("a write that skipped the gate never finished", 1); return -1; }
-          g_scan.drops++; nvmtl_e0("D sid %u held: an ungated write in flight", sid); return 1; }
+          if (now - heldSince > NVMTL_SD_GATE_MAX_US * 1000ull) { heldSince = 0;
+              nvmtl_scan_direct_out_locked(ungated ? "a write that skipped the gate never finished" : "a surface's writes never settled", 1); return -1; }
+          g_scan.drops++; nvmtl_e0("D sid %u held: %s", sid, ungated ? "an ungated write in flight" : "a newer write in flight"); return 1; }
       heldSince = 0; }
     const uint64_t t0 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     uint64_t o[3];
@@ -524,6 +539,7 @@ int nvmtl_vk_scanout_write_gate(uint32_t sid, const void *mem)
         const int act = nvmtl_sd_gate(writable, st.pending_slot != NVMTL_SCAN_NO_SLOT, atomic_load(&g_sd_out[other->sid & 63]) != 0,
                                       bounceFree, bounced, us);
         if (act == NVMTL_SD_GO) {
+            atomic_fetch_add(&g_sd_out[sid & 63], 1);   /* until nvmtl_vk_scanout_write_note(sid, -1) at its finish */
             g_scan.dgates++;
             if (waited) { g_scan.dgateWaits++; g_scan.dgateUs += us; }
             pthread_mutex_unlock(&g_scan_lock); ret = 0; break; }

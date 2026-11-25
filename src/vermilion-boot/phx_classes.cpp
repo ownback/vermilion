@@ -125,6 +125,11 @@ private:
     IOLock *scanLock{nullptr};
     thread_call_t scanWatch{nullptr};
     uint64_t scanEarliest() const { return (static_cast<uint64_t>(rreg(kHubpreq0EarliestInuseHigh) & 0xffff) << 32) | rreg(kHubpreq0EarliestInuse); }
+    // b161: HUBP1's, which scans the right half of the same surface under ODM 2:1 (gP0OdmActive)
+    uint64_t scanEarliest1() const;
+    // b161: TMZ / DCC (SURFACE_CONTROL) and VMID of every HUBP scanning the plane, ORed: HUBP0, and HUBP1 under ODM 2:1
+    uint32_t scanSurfCtlAll() const;
+    uint32_t scanVmidAll() const;
     uint64_t scanPlane() const { return (static_cast<uint64_t>(rreg(kHubpreq0PrimaryAddrHigh) & 0xffff) << 32) | rreg(kHubpreq0PrimaryAddr); }
     uint64_t scanFrameLocked();
     void scanPollLocked();

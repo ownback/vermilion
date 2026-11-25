@@ -802,7 +802,8 @@ IOReturn IOAccelPhxNativeClient::doBoImportHost(IOExternalMethodArguments *a) {
     }
     // b161: never a page of the GPU's own BARs (a CPU-visible VRAM BO's mapping, b159, or the framebuffer aperture): the
     // GPU would reach its VRAM through a system-memory PTE pointing back at its BAR. VRAM is reached through local-VRAM
-    // PTEs only (vmMapVram); Linux's userptr refuses such mappings (amdgpu_ttm_tt_get_user_pages: VM_IO / VM_PFNMAP).
+    // PTEs only (vmMapVram); Linux's userptr refuses such mappings (amdgpu_ttm_tt_get_user_pages -> hmm_range_fault:
+    // hmm_vma_walk_test, mm/hmm.c, refuses VM_IO / VM_PFNMAP).
     for (IOByteCount off = 0; off < size;) {
         IOByteCount segLen = 0;
         const addr64_t pa = md->getPhysicalSegment(off, &segLen, kIOMemoryMapperNone);

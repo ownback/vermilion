@@ -148,8 +148,9 @@ static BOOL nvmtl_ws_cdcopy_on(void) {
         if (on) nvlog("ws gpu present: presenting CoreDisplay's display surfaces, not SkyLight's composite targets (NVMTL_WS_PRESENT_CDCOPY)"); }
     return on == 1;
 }
-// b161 direct scan-out (nvmtl_scanout.c): the display surface id of a commit counted in nvmtl_vk_scanout_write_note (+1 at
-// commit, -1 when the command buffer has finished): a write to the other surface still to come means its flip will come.
+// b161 direct scan-out (nvmtl_scanout.c): the bound surfaces whose writes the gate let through for a command buffer, in
+// flight until it has finished (nvmtl_vk_scanout_write_note(sid, -1), before its present): no flip of a surface while a
+// newer write to it runs, and a write to the other surface in flight means its flip will come.
 static const void *const nvmtl_ws_out_key = &nvmtl_ws_out_key;
 // b161: the backing CoreDisplay draws display surface `shown` through, for direct scan-out, when it is the surface's own
 // pages as one linear image (a plain host import, nvmtl_surface_image_create): that import is what gets bound to a slot.
@@ -193,7 +194,10 @@ static void nvmtl_ws_direct_writes(NVMTLCommandBuffer *cb, nvmtl_ws_writes *out)
 static void nvmtl_ws_direct_gate(NVMTLCommandBuffer *cb, const nvmtl_ws_writes *w) {
     if (!w->n) return;
     if (!nvmtl_vk_scanout_write_begin()) { objc_setAssociatedObject(cb, nvmtl_ws_ungated_key, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC); return; }
-    for (uint32_t i = 0; i < w->n; i++) (void)nvmtl_vk_scanout_write_gate(w->sid[i], w->mem[i]);
+    NSMutableArray *let = nil;
+    for (uint32_t i = 0; i < w->n; i++)
+        if (nvmtl_vk_scanout_write_gate(w->sid[i], w->mem[i]) == 0) { if (!let) let = [NSMutableArray new]; [let addObject:@(w->sid[i])]; }
+    if (let) objc_setAssociatedObject(cb, nvmtl_ws_out_key, let, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 static void nvmtl_ws_note_display(NVMTLCommandBuffer *cb, BOOL waited) {
     if (!nvmtl_ws_gpu_present_on() || ![cb->_queue.label hasPrefix:@"com.apple.CoreDisplay"]) return;
@@ -216,10 +220,6 @@ static void nvmtl_ws_note_display(NVMTLCommandBuffer *cb, BOOL waited) {
         nvlog("ws gpu present: surface %u is a display surface (written by an unwaited CoreDisplay commit)", sid);
     }
     if (!waited && nvmtl_vk_scanout_direct_wanted()) nvmtl_ws_direct_note(cb, shown);   // b161
-    if (!objc_getAssociatedObject(cb, nvmtl_ws_out_key)) {
-        nvmtl_vk_scanout_write_note(sid, 1);
-        objc_setAssociatedObject(cb, nvmtl_ws_out_key, @(sid), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-    }
     objc_setAssociatedObject(cb, nvmtl_ws_shown_key, (__bridge id)shown, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     const uint64_t g = atomic_fetch_add(&nvmtl_ws_gen[sid & 63], 1) + 1;
     objc_setAssociatedObject(cb, nvmtl_ws_gen_key, @(g), OBJC_ASSOCIATION_RETAIN_NONATOMIC);

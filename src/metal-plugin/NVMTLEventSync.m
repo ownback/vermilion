@@ -513,6 +513,8 @@ static int nvmtl_skip_empty_on(void) {
     }
     if (objc_getAssociatedObject(self, nvmtl_ws_ungated_key)) {   // b161: every part has finished above (or failed): before any present
         nvmtl_vk_scanout_write_end_ungated(); objc_setAssociatedObject(self, nvmtl_ws_ungated_key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+    for (NSNumber *sid in (NSArray *)objc_getAssociatedObject(self, nvmtl_ws_out_key)) nvmtl_vk_scanout_write_note(sid.unsignedIntValue, -1);
+    objc_setAssociatedObject(self, nvmtl_ws_out_key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     if (!error && _presentations.count) {
         // Present on a serial queue of its own, in order, not on the execution queue: -[CAMetalDrawable present] takes the
         // layer's lock, which -[CAMetalLayer nextDrawable] holds on the app's thread, and a hook inside nextDrawable (the
@@ -528,7 +530,6 @@ static int nvmtl_skip_empty_on(void) {
     }
     [_presentations removeAllObjects]; _present = nil;
     if (nvmtl_e0_on() && objc_getAssociatedObject(self, nvmtl_e0_key)) nvmtl_e0("F cb %p%s", (__bridge void *)self, error ? " ERROR" : "");
-    NSNumber *wsOut = objc_getAssociatedObject(self, nvmtl_ws_out_key);   // b161: counted until after its present below
     if (!error && objc_getAssociatedObject(self, nvmtl_ws_shown_key) && nvmtl_ws_gpu_async_on()) {
         static long coalesceUs = -1;
         if (coalesceUs < 0) { const char *e = getenv("NVMTL_WS_COALESCE_US"); coalesceUs = e ? atol(e) : 0;
@@ -575,7 +576,6 @@ static int nvmtl_skip_empty_on(void) {
             });
         } else nvmtl_ws_gpu_present(self);
     }
-    if (wsOut) { nvmtl_vk_scanout_write_note(wsOut.unsignedIntValue, -1); objc_setAssociatedObject(self, nvmtl_ws_out_key, nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
     double deviceStart = 0, deviceEnd = 0;
     if (!error && _gpuTimingSeen && !_gpuTimingInvalid)
         (void)nvmtl_vk_interval_seconds(&_gpuTiming, &deviceStart, &deviceEnd);

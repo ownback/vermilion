@@ -23,6 +23,9 @@ static constexpr uint32_t kHubpreq0SurfaceInuse         = 0x3ae0;   // HUBPREQ0_
 static constexpr uint32_t kHubpreq0SurfaceInuseHigh     = 0x3ae1;   // HUBPREQ0_DCSURF_SURFACE_INUSE_HIGH
 static constexpr uint32_t kHubpreq0EarliestInuse        = 0x3ae4;   // HUBPREQ0_DCSURF_SURFACE_EARLIEST_INUSE
 static constexpr uint32_t kHubpreq0EarliestInuseHigh    = 0x3ae5;   // HUBPREQ0_DCSURF_SURFACE_EARLIEST_INUSE_HIGH
+// HUBPREQ1 = HUBPREQ0 + 0xDC (dcn_3_2_0_offset.h: VMID_SETTINGS_0 0x6e5, SURFACE_CONTROL 0x6f6, FLIP_CONTROL 0x6f7,
+// EARLIEST_INUSE 0x700 / 0x701 against HUBPREQ0's 0x609 / 0x61a / 0x61b / 0x624 / 0x625): HUBP1 under ODM 2:1 (b131)
+static constexpr uint32_t kHubpreq1Delta                = 0xDC;
 static constexpr uint32_t kOdm0OptcInputGlobalControl   = 0x4f8a;   // ODM0_OPTC_INPUT_GLOBAL_CONTROL (underflow occurred 10, clear 12)
 static constexpr uint32_t kOtg0HTotal                   = 0x4fea;   // OTG0_OTG_H_TOTAL
 static constexpr uint32_t kOtg0VTotal                   = 0x4fef;   // OTG0_OTG_V_TOTAL

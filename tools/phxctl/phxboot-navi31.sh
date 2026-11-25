@@ -126,8 +126,11 @@ all_apps(){ { printf '# phxboot: Metal for every app%s\n' "$1"; for d in $DENY; 
 # revert to a safe GOP boot: drop the panel/arm, consume the one-shots, reboot.
 # The clean-shutdown TERM trap is dropped first: the TERM of the reboot below must not run it (it would log a clean
 # shutdown and re-arm phxfb-squat after a failure).
+# the one-shots of a desktop attempt off: PhxAMDFB's panel take-over, the squat for the next boot, the in-progress mark,
+# the desktop arm file
+oneshots_off(){ nvram -d phxfb-boot; nvram -d phxfb-squat; rm -f "$MARK" "$DESKTOP"; sync; }
 m2_fail(){ trap - TERM; echo "FAIL ($1): reverting to GOP"; b21_on "FAIL: the next boot is GOP"; touch "$FAILF"; apps_only; sysctl -w debug.phxagdc=0 >/dev/null 2>&1
-           nvram -d phxfb-boot; nvram -d phxfb-squat; rm -f "$MARK" "$DESKTOP"; sync
+           oneshots_off
            # a stuck squat (below) would come straight back here: stay up instead; the next boot runs the safe desktop
            [ "${SQUAT:-0}" = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" || { echo "stuck squat: no reboot after the failure (it would come back to the squat)"; release; exit 0; }; }
            shutdown -r now; exit 0; }
@@ -295,7 +298,7 @@ if [ -e "$OFF" ]; then
   SAFE=1
 elif [ $HUNG = 1 ]; then
   echo "previous attempt did not finish -> GOP (kill switch on, one-shots cleared)"; touch "$OFF"
-  rm -f "$MARK" "$DESKTOP"; nvram -d phxfb-boot; nvram -d phxfb-squat; sync
+  oneshots_off
   [ $SQUAT = 1 ] || exit 0
   squat_reboot "squat boot: rebooting onto IONDRV"
   SAFE=1
@@ -322,6 +325,7 @@ ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not l
 kmutil showloaded 2>/dev/null | grep -q org.vermilion.accel || kmutil load -p "$ACCEL" 2>&1 | tail -2
 echo "== bring-up + claim =="
 UPOUT=$(bash "$G/phxctl/navi31_up.sh" 2>&1); echo "$UPOUT" | tail -4
+UPOK=0; echo "$UPOUT" | grep -q "navi31 up:" && UPOK=1   # the GPU came up: navi31_up.sh's last line
 echo "$UPOUT" | grep -m1 '^sOS check:'   # C2PMSG_81 before the power-up, at every boot (is a warm restart cold?)
 # A warm GPU (PSP sOS already running): bringup_navi31.sh wrote nothing and refused. No claim, no Metal on it: a desktop
 # boot reverts to GOP (m2_fail), any other boot stays on the firmware display. Only a full power-off makes it cold again.
@@ -526,7 +530,7 @@ sdma_boot(){
   [ -e "$G/phxboot-sdma" ] || return 0
   [ -e "$G/sdma_idle.sh" ] || { echo "sdma: $G/sdma_idle.sh missing"; return 0; }
   echo "sdma: $(PHXCTL=$G/phxctl.bin sh "$G/sdma_idle.sh" 2>&1 | tail -1 | cut -c1-100)"; }
-if echo "$UPOUT" | grep -q "navi31 up:"; then   # only on a GPU that came up (gfx_cg.sh polls the RLC)
+if [ $UPOK = 1 ]; then   # only on a GPU that came up (gfx_cg.sh polls the RLC)
   [ "${PHXBOOT_NO_SDMA:-0}" = 1 ] || sdma_boot
   [ "${PHXBOOT_NO_CG:-0}" = 1 ] || cg_boot
   [ "${PHXBOOT_NO_UCLK:-0}" = 1 ] || uclk_boot
@@ -839,7 +843,7 @@ watch_hangs(){ local base n now first=0 wsp p c silent=0 it=0
     n=$((n+base)); [ $n -gt $base ] || continue
     now=$(date +%s); [ $first = 0 ] && first=$now
     if [ $((n-base)) -ge 2 ]; then
-      echo "$(date '+%F %T') WindowServer hung $((n-base))x on GPU: reverting to GOP"; b21_on "revert to GOP after the hangs"; gpu_dump "WindowServer hung $((n-base))x"; touch "$FAILF"; nvram -d phxfb-boot; nvram -d phxfb-squat; rm -f "$DESKTOP"; sync
+      echo "$(date '+%F %T') WindowServer hung $((n-base))x on GPU: reverting to GOP"; b21_on "revert to GOP after the hangs"; gpu_dump "WindowServer hung $((n-base))x"; touch "$FAILF"; oneshots_off   # the mark is already gone (SUCCESS)
       [ $SQUAT = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" || { echo "stuck squat: staying up after the hangs (no reboot can leave the squat)"; return; }; }
       shutdown -r now; return
     fi

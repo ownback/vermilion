@@ -15,7 +15,7 @@ Ranked by what a Mac user notices, safety first. Each item is a branch and a PR.
 
 | # | Item | Why now | Size | Refs |
 |---|---|---|---|---|
-| 1 | **Safety fixes.** Remove `debug.phxfb_kill_iondrv` (terminates a driver on the GPU's PCI function); `bringup_navi31.sh` refuses a warm GPU (PSP sOS alive) instead of loading SMU firmware; no "Reset NVRAM" advice in the daemon log and `docs/XTX.md`, the picker entry hidden; OWNER-TESTS 04 sleep test marked blocked; read the 00:05 replug logs for an ab30 detach before any replug test | Hard rule 1 | S | D risks 1-4, M risks |
+| 1 | **Safety fixes. Done 2026-11-25** (#22, deploy steps a-c live; open: the cold-boot check of (a), the owner's picker check). Remove `debug.phxfb_kill_iondrv` (terminates a driver on the GPU's PCI function); `bringup_navi31.sh` refuses a warm GPU (PSP sOS alive) instead of loading SMU firmware; no "Reset NVRAM" advice in the daemon log and `docs/XTX.md`, the picker entry hidden; OWNER-TESTS 04 sleep test marked blocked; read the 00:05 replug logs for an ab30 detach before any replug test | Hard rule 1 | S | D risks 1-4, M risks |
 | 2 | **App crashes in the plugin.** Music's readback (`nvmtl_vk_image_read`, twice today with the guard in place); Maps' null texture; never hand WindowServer a nil command buffer | Apps crash daily | S-M | A7, A8, A6 |
 | 3 | **The recovery trap and the GOP fallback.** After a freeze every boot is a safe desktop until an `rm`; the GOP revert can't run because `phxfb-squat` can't be cleared (`DisableVariableWrite`). The kext decides the squat itself; the daemon returns to the full desktop after clean boots and tells the user | One freeze costs a degraded machine; hard rule 1 (keep the fallbacks) | M | D7, D30, D risk 3 |
 | 4 | **HDR back on.** The plugin's widen path shows stale frames when WindowServer composites BGRA | HDR is off on an HDR OLED | M | D16, M |
@@ -37,16 +37,14 @@ kexts reused, `config.plist` differs only by that driver entry), live since 2026
 copies of 33 and 32 in `~/vermilion-rollback/EFI-OC.change3{3,2}-20261125`. Passed: `squat boot ...: 1`,
 `SUCCESS at 06:58:58`, `debug.phxtrust_stat` `mode=enforce` `denied_unlisted=0`, `debug.phxaudio_stat` patched and
 matched. Open: the owner confirms by eye that the picker has no Reset NVRAM entry. Rollback: swap `EFI/OC` and
-`EFI/OC.prev`. Step (c): VermilionAccel from main (`03c1e47d`, UUID `6FDD9916`, no `phxfb_kill_iondrv`) staged in
-`/Library/Extensions` 2026-11-25 07:00, waiting for the owner's Allow click; rollback copy (`2578b185`) in
-`~/vermilion-rollback/VermilionAccel.kext.pre-killiondrv`. Expected after the restart: `sysctl debug.phxfb_kill_iondrv`
-unknown oid, `debug.phxgl` answers, `kmutil showloaded` shows UUID `6FDD9916`, `NMXAccel up`, `PhxAMDFB on panel`,
-`SUCCESS`. Rollback: the copy back, Allow, restart. Seen by the item 1 agent, not fixed: after a bring-up failure that isn't the warm refusal, the daemon
+`EFI/OC.prev`. Step (c): VermilionAccel from main (`03c1e47d`, UUID `6FDD9916`) live since 2026-11-25 07:01 and passed:
+`debug.phxfb_kill_iondrv` unknown oid, `debug.phxgl` answers, the loaded UUID matches, `NMXAccel up`, `PhxAMDFB on panel`,
+`SUCCESS at 07:03:57`. Rollback copy (`2578b185`) in `~/vermilion-rollback/VermilionAccel.kext.pre-killiondrv`. Seen by the item 1 agent, not fixed: after a bring-up failure that isn't the warm refusal, the daemon
 still claims the GPU (part of item 3). Seen by the Fable pass on #22 (`8a663b0`), open (its stderr point is fixed in `71f87e9`):
 - a warm refusal on a squat boot (every boot here) goes `m2_fail` → `squat_reboot` → a second warm reboot → a stuck,
   dark squat boot; after a power-off the safe desktop until the `rm` (item 3 territory);
 - `m2_fail` after a refusal still runs `debug.phxagdc=0` and `apps_only` on the untouched GPU: unreviewed;
-- STATUS row 1 and the audit finding call `debug.phxfb_kill_iondrv` live until deploy step (c).
+- the audit finding (`2026-11-24-audit-display.md`) still calls `debug.phxfb_kill_iondrv` live; it is gone since 07:01.
 
 System sleep, HDMI, a second monitor and the release shape need the phase 3 work first (bring-up in the kernel, own
 mode setting).

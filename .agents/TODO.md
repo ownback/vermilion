@@ -67,6 +67,7 @@ PROJECT_KNOWLEDGE.
     - Any later rebuild of this stage (item 2's trust list, for example) carries this change too, so boot (b)
       first.
   - **(c) VermilionAccel without `debug.phxfb_kill_iondrv`** (AuxKC, the owner's Allow click), its own boot.
+    **Live since 2026-11-25 07:01, passed** (unknown oid, UUID `6FDD9916` loaded, SUCCESS).
     - Build: `MKSDK=<MacKernelSDK> sh scripts/build/accel.sh`. The branch build's binary is sha256 `03c1e47d`
       (2026-11-24, no link gate). `fork/main` at `f8432a4` rebuilds the installed `2578b185` byte for byte, so this
       part changes only the removed sysctl.

@@ -2,7 +2,7 @@
 // phx_scan_client.cpp: scanout selectors (9..14, b162 22), user-client side.
 // Part of the PhxBringup.cpp translation unit (included there, in order); not compiled on its own.
 
-// ---- scanout selectors (9..14), see PhxBringup::scanAcquire ----------------------------------------------------
+// ---- scanout selectors (9..14, 22), see PhxBringup::scanAcquire ------------------------------------------------
 void IOAccelPhxNativeClient::scanUnbind() {
     for (uint32_t h = 1; h < PHXN_MAX_BOS; h++) {
         if (!bos[h].scanSlot) continue;

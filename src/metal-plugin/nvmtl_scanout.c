@@ -430,15 +430,15 @@ static int nvmtl_scan_start_locked(uint32_t sid, uint32_t w, uint32_t h, uint32_
     for (int k = 0; k < g_scan.nslots; k++) {
         VkBufferCreateInfo bci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, NULL, 0, size, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                                    VK_SHARING_MODE_EXCLUSIVE, 0, NULL };
-        if (pvkCreateBuffer(g_dev, &bci, NULL, &g_scan.slot[k]) != VK_SUCCESS) { { if (g_scan.direct) nvmtl_scan_direct_out_locked("the bounce slot: slot vkCreateBuffer failed", 1); else nvmtl_scan_off_locked("slot vkCreateBuffer failed"); return -1; } }
+        if (pvkCreateBuffer(g_dev, &bci, NULL, &g_scan.slot[k]) != VK_SUCCESS) { if (g_scan.direct) nvmtl_scan_direct_out_locked("the bounce slot: slot vkCreateBuffer failed", 1); else nvmtl_scan_off_locked("slot vkCreateBuffer failed"); return -1; }
         VkMemoryRequirements mr; pvkGetBufferMemoryRequirements(g_dev, g_scan.slot[k], &mr);
         const int mt = memtype(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
         VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, NULL, mr.size, (uint32_t)(mt < 0 ? 0 : mt) };
         if (mt < 0 || pvkAllocateMemory(g_dev, &mai, NULL, &g_scan.slotMem[k]) != VK_SUCCESS || pvkBindBufferMemory(g_dev, g_scan.slot[k], g_scan.slotMem[k], 0) != VK_SUCCESS) {
-            { if (g_scan.direct) nvmtl_scan_direct_out_locked("the bounce slot: slot memory failed", 1); else nvmtl_scan_off_locked("slot memory failed"); return -1; } }
+            if (g_scan.direct) nvmtl_scan_direct_out_locked("the bounce slot: slot memory failed", 1); else nvmtl_scan_off_locked("slot memory failed"); return -1; }
         uint64_t mc = 0;
         if ((r = g_scan.reg(g_dev, g_scan.slotMem[k], 0, pitch, w, h, &g_scan.slotId[k], &mc))) { nvlog("ws gpu present: register %d -> %d", k, r);
-            { if (g_scan.direct) nvmtl_scan_direct_out_locked("the bounce slot: slot register failed", 1); else nvmtl_scan_off_locked("slot register failed"); return -1; } }
+            if (g_scan.direct) nvmtl_scan_direct_out_locked("the bounce slot: slot register failed", 1); else nvmtl_scan_off_locked("slot register failed"); return -1; }
     }
     g_scan.keepalive = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
     if (g_scan.keepalive) { dispatch_source_set_timer(g_scan.keepalive, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC), NSEC_PER_SEC, NSEC_PER_SEC / 10);
@@ -460,8 +460,8 @@ static int nvmtl_scan_direct_bounce_locked(const nvmtl_scan_dsurf *d)
     nvmtl_e0("B sid %u bounced to slot %u", d->sid, g_scan.slotId[0]);
     return 0;
 }
-/* b162: a present in direct scan-out: the flip to the surface's own slot. 0 presented, -1 out of direct (the next
-   present starts again: the copy path or a new pair). */
+/* b162: a present in direct scan-out: the flip to the surface's own slot. 0 presented, 1 held (a write to the surface
+   is still in flight: counted as a drop), -1 out of direct (the next present starts again: the copy path or a new pair). */
 static int nvmtl_scan_direct_present_locked(const void *ref, uint32_t sid, int l10r)
 {
     const nvmtl_scan_dsurf *d = NULL;

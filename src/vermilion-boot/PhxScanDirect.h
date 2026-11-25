@@ -27,6 +27,7 @@ namespace phxscandirect {
 constexpr uint64_t kMiB = 1ull << 20;
 constexpr uint32_t kSlots = 2;                       // condition 1: slots 0 and 1 of the large layout
 constexpr uint64_t kSlotsEnd = 352 * kMiB;           // PhxScanLayout.h kLargeEnd: the large slots end here
+constexpr int kLayLarge = 1;                         // PhxScanLayout.h phxscanlay::kLarge (not included: Live.layKind)
 constexpr uint32_t kFmtArgb8888 = 8, kFmtArgb2101010 = 10;   // PHXN_SCAN_FMT_*
 // HUBPREQ0_DCSURF_SURFACE_CONTROL (dcn_3_2_0_sh_mask.h): bit 0 PRIMARY_SURFACE_TMZ, bit 1 PRIMARY_SURFACE_DCC_EN
 constexpr uint32_t kSurfCtlTmz = 1u << 0, kSurfCtlDcc = 1u << 1;
@@ -66,7 +67,7 @@ constexpr bool barCoversSlots(uint64_t barBytes, uint64_t aperBytes) { return ba
 inline int bindCheck(const Req &r, const Bo &b, const Live &l) {
     if (!l.on) return kErrOff;
     if (!l.owner) return kErrNotOwner;
-    if (l.layKind != 1) return kErrLayout;   // phxscanlay::kLarge
+    if (l.layKind != kLayLarge) return kErrLayout;
     if (!barCoversSlots(l.barBytes, l.aperBytes)) return kErrBar;
     if (r.slot >= kSlots) return kErrSlot;
     if (l.slotUsed[r.slot]) return kErrSlotUsed;

@@ -130,3 +130,13 @@ installed binary exactly (cdhash `15204728`), so the branch's build is reproduci
   with unretained references, for Private memory only.
 - (unverified) Everything in section 4 on hardware: Maps on the new plugin, the GPU test, the BO count in
   `debug.phxvm` during Maps.
+- From the clean-up pass (2026-11-25). Fixed: a submission got its number only after `vkQueueSubmit` returned, and
+  `pool_buffer_release` reads the number without the submit mutex. A release in that window let the range be reused
+  under queued work. Now the number is taken before the submit. Accepted, not fixed:
+  - The hold covers work already submitted, not work encoded but not yet committed. That was the kext's old guarantee.
+  - Held ranges settle only on the next Private create or release, not when a submission completes. A process that
+    stops making Private buffers keeps those blocks allocated (bounded by what it released).
+  - `g_ppool_leaked` (a range lost to a failed list push) is counted, never logged.
+  - The zero fill of a pooled Private buffer covers `size & ~3`, so the last 1-3 bytes may hold bytes of an earlier
+    buffer of the same process.
+  - Releasing the top range doesn't absorb a freed range that now ends there: fragments stay until the block empties.

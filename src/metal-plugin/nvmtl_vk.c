@@ -6102,8 +6102,12 @@ int nvmtl_vk_submit_begin_at(nvk_cmdbuf *c, nvmtl_inflight *f, const char *who)
     nvmtl_wit_control(wseq);
     const uint64_t sE = nvmtl_perf_now();
     if (pt[0]) { pt[1] = pt[0] + (sA - pt[0]) + (sD - sC); pt[2] = pt[1] + (sB - sA) + (sE - sD); pt[3] = pt[2] + (sC - sB); }
+    // Numbered before the submit: a pooled range released from here on waits for this submission
+    // (pool_buffer_release reads g_gpu_sub_seq without this mutex). A failed submit disables the backend,
+    // so its number never completes and ranges released after it stay held, like the other in-flight resources.
+    const uint64_t seq = atomic_fetch_add(&g_gpu_sub_seq, 1) + 1;
     result = g_state == 1 ? pvkQueueSubmit(g_queue, 1, &si, fence) : VK_ERROR_DEVICE_LOST;
-    if (result == VK_SUCCESS) f->seq = atomic_fetch_add(&g_gpu_sub_seq, 1) + 1;
+    if (result == VK_SUCCESS) f->seq = seq;
     pthread_mutex_unlock(&nvmtl_submit_mutex);
     pt[4] = nvmtl_perf_now();
     g_cmd_submitted++;

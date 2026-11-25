@@ -79,7 +79,82 @@ PROJECT_KNOWLEDGE.
       `/var/log/phxboot.log`: `NMXAccel up`, `PhxAMDFB on panel`, `SUCCESS`.
     - Rollback: the copy back the same way (Allow, restart).
   - Open, not in this branch: after a bring-up failure that isn't a warm refusal, `navi31_up.sh` and the daemon still
-    go on to the claim, with the watchdog armed (hw-safety-reviewer, 2026-11-24).
+    go on to the claim, with the watchdog armed (hw-safety-reviewer, 2026-11-24). Fixed on `ownback/recovery-daemon`
+    (item 3 step 1, below).
+
+- [ ] **Phase 2 item 3 step 1: deploy the daemon recovery without the manual rm** (branch `ownback/recovery-daemon`,
+  [design](findings/2026-11-25-recovery-trap-design.md) plan step 1), after the merge. Daemon and `navi31_up.sh` only:
+  no EFI, kext, NVRAM or system-volume change. One boot, under the machine lock. Everything below is mock-tested only
+  (unverified on hardware).
+  - Before: `bash tests/mock/run.sh`, `bash tests/mock/b15test.sh`, `bash tests/mock/bringup_warm_test.sh`,
+    `bash tests/mock/daemon_install_test.sh` green on main. `ls ~/gpu/phxboot-off ~/gpu/phxboot-failed
+    ~/gpu/phxboot-safe /var/db/phxboot.*`: on 2026-11-25 none of them existed, `~/gpu/phxboot-nvstuck` held `stuck`.
+    A `phxboot-failed` left then is taken over into the record by the first boot (`record: ... taken over`); a
+    `phxboot-off` is the owner's switch from now on: remove it first if an old daemon made it.
+  - Rollback copies: `mkdir -p ~/vermilion-rollback/recovery-daemon-1` and `cp -p ~/gpu/phxboot-navi31.sh
+    ~/gpu/phxctl/navi31_up.sh` into it.
+  - Install: `install -m 755 tools/phxctl/navi31_up.sh ~/gpu/phxctl/`; the daemon by rename (`cp
+    tools/phxctl/phxboot-navi31.sh ~/gpu/phxboot-navi31.sh.new && mv ~/gpu/phxboot-navi31.sh.new
+    ~/gpu/phxboot-navi31.sh`), owner and mode as before (`ls -l`).
+  - Check, one cold boot (the owner shuts down and powers on): `/var/log/phxboot.log` has `sOS check: C2PMSG_81=0x00000000
+    (cold)`, `navi31 up:`, `SUCCESS at`, and once the new line `record: fails=0 clean=0 bfail=0 skipped=0 last=full
+    (this boot: full)`; no `notice:` line and no `clean shutdown (TERM) ... during the bring-up` line;
+    `sudo cat /var/db/phxboot.fails` the same five lines; no `/var/db/phxboot.notice-next`; 240 Hz as before.
+  - Not tested by this boot (the paths need a failure): the safe desktop's return, the notification (`launchctl asuser`
+    + `osascript` as the user, unverified), the notice kept across a restart after a failure, the loop guard, a
+    shutdown during the bring-up (the TERM now reaches the trap at once), Safe Mode on the squat (still dark: it
+    should leave the "Safe Mode can't show a picture" notice for the next boot; whether the daemon runs in Safe Mode at
+    all is unverified). A later owner test can force one fallback without a GPU risk: `echo desktop | sudo tee
+    /var/db/phxboot.pending` before a restart gives one safe desktop with the notification after login, and the boot
+    after it the full desktop (OWNER-TESTS candidate).
+  - Rollback: copy both files back from `~/vermilion-rollback/recovery-daemon-1` (the daemon by rename), `sudo rm -f
+    /var/db/phxboot.fails /var/db/phxboot.notice /var/db/phxboot.notice-next`, shut down fully, boot. The old daemon
+    ignores the record; it sets `~/gpu/phxboot-off` / `phxboot-failed` again after a failure.
+
+- [ ] **Phase 2 item 2: deploy the plugin crash fixes** (branch `ownback/plugin-crash-fixes`, after the merge;
+  [finding](findings/2026-11-25-plugin-crashes-root-cause.md)). A new `NVMTLDriver`, so also a VermilionTrust + EFI
+  change (runbooks, "Deploying a plugin, translator or RADV build"). One EFI change, its own boot, under the machine
+  lock, after item 1 (b) has booted (the EFI rebuild carries it). Everything below is (unverified) until that boot.
+  - Before: on main, `VULKAN_HEADERS=<Vulkan-Headers>/include sh scripts/build/plugin.sh`, then the four host tests in
+    `tests/plugin/` green (`test_copy_compat.c`, `test_safe_copy.c` as in their headers; `test_dead_cmdbuf.m` and
+    `test_texture_nil_log.m` against `build/NVMTLDriver`). Note the new binary's cdhash (`codesign -dvvv
+    build/NVMTLDriver 2>&1 | grep CDHash`).
+  - Rollback copy: `mkdir -p ~/vermilion-rollback/NVMTLDriver.pre-crashfixes-<date> && cp -p
+    /Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/NVMTLDriver` into it. The installed build is UUID `B42521DC`
+    (cdhash `344c621f`, 2026-11-25); check that it still is before copying.
+  - Install: the binary as `.new` next to the old one, then `mv` (a running WindowServer keeps the file it mapped).
+    The path resolves through the `/Library/GPUBundles` symlink into `CoreTypes.bundle/Contents/Library/PhxGPU`, a
+    firmlink into the Data volume: not a system-volume change. Then `PHXTRUST_KEEP=1 sh scripts/build/trust.sh` (the
+    old cdhash stays as `-previous`) and rebuild the EFI on the Mac; `diff -rq` against the ESP shows only
+    `Kexts/VermilionTrust.kext`. Install with `EFI/OC.prev` = the current EFI. Delete `build/efi/` afterwards.
+  - Check after the boot:
+    - `sysctl debug.phxtrust_stat`: `mode=enforce`, `denied_unlisted=0`; `sysctl debug.phxtrust_files` lists the new
+      `NVMTLDriver` cdhash; accelerated desktop at 240 Hz; `/var/log/phxboot.log` ends in `SUCCESS`.
+    - The plugin reaches the unified log: `log show --last 5m --predicate 'subsystem == "org.vermilion.nvmtl"' | head`
+      shows `NVMTL:` lines from WindowServer.
+    - Music (the owner, normal use): "Drake - Jaded" and a scroll through the album grid. No new `Music-*.ips`. Any
+      `readback dropped` or `went away during the GPU wait` line in the log is the old crash, now caught.
+    - Maps reproduction (the owner's OK first; a GPU load as large as normal Maps use): open Maps, pan and zoom over a
+      city in Explore, switch to Satellite and 3D, stop at the crash or after 2 min. Then
+      `log show --last 5m --predicate 'subsystem == "org.vermilion.nvmtl"' > ~/maps-nvmtl-log.txt`, note any new
+      `Maps-*.ips`, and look for `texture nil:` lines: they name the path, the reason and the descriptor. The fix for
+      that path is the item below ("Maps: the path the reproduction names").
+  - Rollback: the old binary back from the rollback copy as `.new` + `mv` (the new trust list keeps it as
+    `-previous`), restart; or `EFI/OC.prev` (the old list doesn't trust the new binary: restore the old binary first).
+    If the desktop has no acceleration after the boot (WindowServer refused the plugin), restore the old binary over
+    ssh and restart.
+- [ ] **Phase 2 item 2, step 2: Music write-back as Apple does** (M; finding section 1, fix 2). No CPU copy through
+  the app's address: import the IOSurface's pages when the texture is made (or let the kext take them by IOSurface
+  ID), and write the private image back with a GPU copy (`vkCmdCopyImageToBuffer`, `bufferRowLength` 600) at the end
+  of the command buffer that wrote it. This extends the multi-plane `_planeHost` path to single-plane surfaces with an
+  unaligned pitch (2400 B), both ways. Step 1 (the fault-safe copy) is on `ownback/plugin-crash-fixes`.
+- [ ] **Phase 2 item 2: Maps: the path the reproduction names** (finding section 2, fix 2): the Metal contract is nil
+  only for an invalid descriptor. If it is the 250 ms allocation block (`allocations failing` in the log): evict,
+  fall back to system memory or wait, never fail a whole window. Ties in with sizing the pools from the hardware
+  (row A3, item 8).
+- [ ] **Phase 2 item 2: the plugin's other `syslog()` calls** (`NVMTLX420.m`, `nvmtl_imgmem.c`, `nvmtl_pitch_align.c`,
+  `NVMTLWSCapture.m`, `NVMTLHolders.m`, the ANGLE line in `NVMTLDevice.m`) still bypass `nvlog`: move them to the
+  `org.vermilion.nvmtl` subsystem too.
 
 - [x] **03: VermilionAccel with `debug.phxgl`** (not an EFI change): installed 23:05, booted 23:18 (UUID `2B25514A`),
   OpenGL over Metal verified 23:25 (finding section 8). Rollback:
@@ -196,8 +271,9 @@ PROJECT_KNOWLEDGE.
       standby. Linux's DPMS sequence captured; the fix moved to **05 Sleep and wake** (coordination thread, owner's OK)
 - [ ] b138 freeze at 1280x1024 (low priority): leading guess is GPU present restarting on the small slot layout
       ([finding](findings/2026-11-20-b138-freeze-and-squat-loop.md)); then GPU present at every size
-- [ ] Music's skipped readbacks: the `nvmtl_plane_mapped` guard stops the crash, but those pixels never reach the
-      surface. A GPU mapping of the IOSurface pages, as a real driver does
+- [ ] Music's skipped readbacks: the `nvmtl_plane_mapped` guard and the fault-safe readback copy (phase 2 item 2)
+      stop the crash, but those pixels never reach the surface. A GPU mapping of the IOSurface pages, as a real
+      driver does: "Phase 2 item 2, step 2" under Staged now
 - [ ] b150's underflow fix was checked at 144 Hz only (4 vs 0 underflows); check at 240 with ODM + DSC
 - [ ] `bringup_navi31.sh` says "this card is rev 0xcc" and "non-kicker firmware": name both revisions; find out
       whether the XTX needs kicker firmware ([docs/XTX.md](../docs/XTX.md) #6)

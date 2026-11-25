@@ -602,3 +602,50 @@ the same register, then a Mode1 reset (an SMU message and PCI config writes; hw-
 Refusing is the part of that we can do without adding a message.
 **Revisit:** if a warm macOS restart turns out to leave the sOS running (the daemon logs `sOS check:` at every boot).
 Then the warm restart needs Linux's Mode1 reset path, with its own hw-safety review.
+
+## 2026-11-25: The daemon returns to the full desktop by itself (phase 2 item 3 step 1)
+
+**Decision:** the boot daemon keeps its failure record in `/var/db/phxboot.fails` (root-owned, written only by it) and
+no longer creates the kill switch or `~/gpu/phxboot-failed`. After a failed or unfinished attempt the next boots are
+fallback boots (the safe desktop on a stuck squat, GOP elsewhere) until N of them finished, then the full desktop is
+tried again. N = 1, and 3 once 3 attempts in a row failed. A fallback boot counts as clean at the next boot's start
+when it left no in-progress mark, not at its TERM: a dark boot the owner powers off would never count, and the
+daemon of a failed stuck-squat boot exits early. The warm refusal is not a failure. A bring-up without `navi31 up:`
+claims nothing; after 2 failed bring-ups in a row one boot skips the bring-up (no watchdog, no restart), the next
+tries again. One notification after login says why the desktop is in basic mode.
+**Why:** one freeze cost a degraded machine until a manual `rm` (STATUS D7). One clean boot shows that the machine and
+the plain path work, and the failures seen so far (the 2026-11-24 freeze, the HDR freeze) did not repeat on the next
+attempt. A failure that repeats costs every second boot, after 3 in a row every fourth: never every boot, never a
+manual repair, and never more than 2 restarts in a row by themselves. Design:
+`findings/2026-11-25-recovery-trap-design.md`.
+**Revisit:** with plan step 3 (the kext hands the display back in the same boot) the fallback becomes a GOP boot and
+the safe desktop goes (step 4). If a failure repeats on hardware more often than the backoff allows for, raise N.
+
+## 2026-11-25: The recovery daemon's edge cases (the Fable pass of #26)
+
+**Decision:** a fallback boot counts as clean only if it ended without a failure: a safe desktop that fails, or a GOP
+boot whose NMXAccel didn't start or without PhxBringup, records `last=skip`. A TERM in the first 60 s of the bring-up
+(`PHXBOOT_UP_HANG`; it takes about 10 s) is a clean shutdown and isn't counted; a later one, such as the bring-up
+watchdog's restart at 3 min, counts as a hung bring-up. A failed bring-up uses up `~/gpu/phxboot-desktop`, as `m2_fail`
+does; the warm refusal keeps it. A restart after a failure leaves one sentence for the next boot
+(`/var/db/phxboot.notice-next`), shown after login unless that boot has its own notice. Safe Mode on a squat boot
+stays dark until VermilionBoot stops squatting with `-x` (design plan step 2); the daemon only logs it and leaves a
+notice for the next boot.
+**Why:** each of these either tried the full desktop too soon, counted a plain shutdown as a failure, repeated an
+attempt the owner armed once, or left the user without an explanation. A refusal is no attempt, and the cold boot
+after the power-off should get the desktop that was asked for. In Safe Mode nothing in the running boot can give the
+screen back without terminating the squatter, which hot-resets the GPU (hard rule 1).
+**Revisit:** the 60 s threshold if a bring-up on hardware ever takes longer than about 30 s. Safe Mode with plan step 2.
+
+**Known limits, accepted (Megamind 2, 2026-11-25; from the second Fable pass on #26, code reading, unverified):** the
+daemon is replaced by the bring-up in the kernel in phase 3, so these stay as they are unless one shows up on
+hardware:
+- a fallback boot stopped during the bring-up still counts as a clean fallback (`last` is saved before it): the next
+  boot tries the full desktop one boot early;
+- a carried notice is lost when a boot exits through a squat reboot without a sentence, `headless`, a TERM trap or
+  the dark-display restart: the user misses one explanation;
+- a bring-up that takes over 60 s and succeeds, then a shutdown, counts as a hang: one boot falls back;
+- the 60 s test uses the wall clock (`date +%s`): a clock step of over a minute during the bring-up can swap a hang
+  and a shutdown.
+Fixed instead (one line): the warm-refusal notice says "restarted because acceleration failed" only when the carried
+sentence is that one (`[ "$CARRY" = "$RESTARTED" ]`), not for any carried sentence.

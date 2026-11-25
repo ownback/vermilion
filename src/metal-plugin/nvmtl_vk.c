@@ -24,6 +24,7 @@
 #include "nvmtl_tex_upload.h"
 #include "nvmtl_cmd_refusal.h"
 #include "nvmtl_copy_compat.h"
+#include "nvmtl_safe_copy.h"
 #include "nvmtl_sampler_state.h"
 static int g_sampler_anisotropy, g_sampler_mirror_clamp;
 static int g_scalar_layout;
@@ -734,6 +735,9 @@ static int nvmtl_vk_initialize(void)
 {
     if (g_state) return g_state == 1 ? 0 : -1;
     g_state = -1;
+    // NVMTL_TEST_BACKEND_DOWN=1 (test only): the backend does not start, as in a process whose GPU is gone, before
+    // anything opens a GPU or loads RADV. tests/plugin/test_dead_cmdbuf.m runs the dead command buffer path with it.
+    if (getenv("NVMTL_TEST_BACKEND_DOWN")) { nvlog("vk: NVMTL_TEST_BACKEND_DOWN set - the backend stays down in %s", getprogname()); return -1; }
     // Vermilion (thread 02): the two variables set here are for this process only. loginwindow runs as root with
     // this plugin, and the apps it reopens at login inherited both (with root's cache folder: no Mesa disk cache for
     // them, "Permission denied" on stderr, 2026-11-23). They are taken out again once RADV is up (g_state = 1).
@@ -4974,7 +4978,8 @@ static int nvmtl_vk_cmd_begin_once(nvk_queue *q, nvk_cmdbuf *out)
 // CoreDisplay asserts on nil ("Failed to get a MTLCommandBuffer", the 2026-10-26 login crashes). The plugin's own
 // uploads, blits and restarts begin command buffers here too, and a failure there drops that work silently. So a
 // refusal that can pass (pool, allocation or begin failing while other threads free theirs) is retried for about
-// 0.8 s before any caller sees it; a backend that is down fails at once.
+// 0.8 s before any caller sees it; a backend that is down fails at once. -[NVMTLCommandQueue commandBuffer] turns a
+// failure from here into a dead command buffer (NVMTLDeadEncoder.m), never nil.
 int nvmtl_vk_cmd_begin(nvk_queue *q, nvk_cmdbuf *out)
 {
     int tries = 0;
@@ -6600,8 +6605,23 @@ int nvmtl_vk_image_read(nvk_queue *q, nvk_image *img, void *dst, size_t row_byte
     VkBufferImageCopy bic = { 0, 0, 0, { nvmtl_copy_aspect(img), 0, 0, 1 }, { 0, 0, 0 }, { img->w, img->h, 1 } };
     pvkCmdCopyImageToBuffer(c.cb, img->img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, stage.buf, 1, &bic);
     if (nvmtl_vk_submit_wait(&c)) return -1;
-    const uint8_t *src = (const uint8_t *)stage.map;
-    for (uint32_t y = 0; y < rows; y++) memcpy((uint8_t *)dst + y * row_bytes, src + (size_t)y * cols * bpp, (size_t)cols * bpp);
+    // The destination can be an IOSurface's plane in the app, made around another framework's memory, which that
+    // framework frees whenever it likes: during the GPU wait above, or during the copy. Music's album art did both
+    // (finding 2026-11-25-plugin-crashes-root-cause.md: memmove faulted on row 0 after the caller's check had passed).
+    // So it is checked again now and written through the kernel, which returns an error instead of faulting.
+    const size_t tight = (size_t)cols * bpp;
+    mach_vm_address_t bad = 0; int unmapped = 0;
+    if (!nvmtl_span_mapped(dst, row_bytes, rows, tight, VM_PROT_WRITE, &bad, &unmapped)) {
+        nvlog("image_read: destination %p (%u rows of %zu B, %zu B apart) went away during the GPU wait: 0x%llx is %s - not copied",
+              dst, rows, tight, row_bytes, (unsigned long long)bad, unmapped ? "not mapped" : "mapped without write access");
+        return NVMTL_READ_DST_GONE;
+    }
+    const kern_return_t kr = nvmtl_copy_to_foreign(dst, row_bytes, stage.map, tight, rows);
+    if (kr != KERN_SUCCESS) {
+        nvlog("image_read: destination %p (%u rows of %zu B, %zu B apart) went away during the copy (kern_return %d) - not copied",
+              dst, rows, tight, row_bytes, kr);
+        return NVMTL_READ_DST_GONE;
+    }
     return 0;
 }
 

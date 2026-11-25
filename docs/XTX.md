@@ -120,16 +120,19 @@ The squat is the intended state: `phxfb-squat` is set from Linux, and every Open
 **Never Reset NVRAM** (hard rule 1). It deletes `phxfb-squat`, macOS can't set it again, and every later boot runs on
 the firmware display with a phantom display. For that reason the EFI builder leaves the picker's Reset NVRAM entry out
 of the live stage (`vermilion-trust-bar1g-audio`; not booted yet, unverified). Recovery after a failed boot instead:
-- **Safe desktop after a failure:** `rm ~/gpu/phxboot-off ~/gpu/phxboot-failed` gives the full desktop back at the next
-  boot.
+- **Safe desktop after a failure:** nothing to do. The daemon keeps the failure record in `/var/db/phxboot.fails` and
+  tries the full desktop again after one clean safe-desktop boot (after 3 failures in a row, after 3), and says why in
+  one notification after login (since 2026-11-25, phase 2 item 3 step 1; mock-tested, unverified on hardware).
 - **Dark screen** (the safe desktop didn't finish the boot before): ssh still reaches the machine. Restart once and the
   next boot tries the safe desktop again.
 - **A bad change:** boot-arg `-phxbringupoff` for one boot, the kill switch (`touch ~/gpu/phxboot-off`, or from Linux
   `touch /boot/vermilion/flags/phxboot-off`), or the previous EFI (`EFI/OC.prev`,
   [runbooks](../.agents/runbooks.md)).
 - **Linux to macOS:** always a full power-off. If the boot log says `warm GPU: bring-up refused`, shut down, power on
-  and boot macOS again. A refusal on a desktop boot counts as a failed attempt (`~/gpu/phxboot-failed`), so the full
-  desktop comes back with the `rm` of the first point (from the daemon's code; unverified on hardware).
+  and boot macOS again. The refusal writes nothing to the GPU and doesn't count as a failed attempt: the daemon doesn't
+  restart the machine, and the next cold boot runs the full desktop. On a squat boot (every boot here) the screen stays
+  dark until the power-off: the kext can't hand the display back yet (plan step 3). From the daemon's code and the
+  mocks; unverified on hardware.
 
 ## First boot on the XTX
 

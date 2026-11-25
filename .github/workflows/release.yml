@@ -1,0 +1,200 @@
+# SPDX-License-Identifier: MIT
+# The release build of docs/RELEASE.md. On a `v*` tag (or by hand, which builds and keeps the files as a workflow
+# artefact but publishes nothing):
+#   1. air-reader (a call of air-reader.yml): LLVM's AIR reader built from source;
+#   2. build, on a macOS Intel runner: every component, the hardware-free tests, VermilionTrust last (from the cdhashes
+#      of the files the package installs), the OpenCore zip, the package, the source archive, SHA256SUMS, and
+#      scripts/dev/release-scan.sh over the unpacked artefacts. A scan finding fails the job;
+#   3. publish: a DRAFT pre-release on GitHub with the files and the AIR reader. The owner reads it and publishes it
+#      (docs/RELEASE.md, "Publish (owner only)").
+# Not done here (docs/RELEASE.md, open points): a signature over SHA256SUMS, the previous release's cdhashes in
+# VermilionTrust (PHXTRUST_KEEP), the kext link gate (it needs Apple's kernel collections), the video decoder (not in
+# the 0.1.0-preview package).
+# Known to stop the job until plan item F1 lands: kext.sh embeds a slice of AMD's dcn_3_2_0_dmcub.bin into
+# VermilionBoot, and the release scan refuses a binary that holds it. This is the intended gate (rule 4).
+# Every action is pinned by commit SHA. Nothing in this file has run on a GitHub runner yet (unverified).
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without the v (a dry run: nothing is published)'
+        required: true
+        default: '0.0.0-dryrun'
+
+permissions:
+  contents: read
+
+jobs:
+  air-reader:
+    uses: ./.github/workflows/air-reader.yml
+
+  build:
+    needs: air-reader
+    runs-on: macos-15-intel
+    timeout-minutes: 240
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    env:
+      # Pinned build inputs (docs/BUILD.md)
+      MKSDK_REV: 3f750085caa17ec3a7880f11c11bf4f48cd6a164        # acidanthera/MacKernelSDK
+      VKH_REV: d277a0a3cda9c682708c93279f0c72cd6b0ae3f3          # KhronosGroup/Vulkan-Headers v1.4.369
+      MESA_REV: f5cb8ee032adabef599ae892ec4e42d796b84da9         # Mesa, the base of patches/mesa
+      VERMILION_OUT: ${{ github.workspace }}/build
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+
+      - name: Version
+        id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -eu
+          if [ "$GITHUB_REF_TYPE" = tag ]; then V=${GITHUB_REF_NAME#v}; else V=$INPUT_VERSION; fi
+          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$' || { echo "version '$V' is not <major>.<minor>.<patch>[-suffix]"; exit 1; }
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Xcode with the macOS 26 SDK
+        run: |
+          set -eu
+          uname -m
+          x=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1 || true)
+          [ -z "$x" ] || sudo xcode-select -s "$x"
+          sdk=$(xcrun --show-sdk-version); echo "SDK $sdk"
+          case $sdk in 26*) ;; *) echo "the plugin needs the macOS 26 SDK (Xcode 26); this runner has $sdk"; exit 1 ;; esac
+
+      - name: Tools
+        run: |
+          set -eu
+          for p in cmake ninja meson glslang; do brew list "$p" >/dev/null 2>&1 || brew install "$p"; done
+          python3 -m venv "$RUNNER_TEMP/venv"
+          "$RUNNER_TEMP/venv/bin/pip" install --quiet mako pyyaml markupsafe packaging
+          echo "$RUNNER_TEMP/venv/bin" >> "$GITHUB_PATH"
+          rustup target add x86_64-apple-darwin
+          git config --global user.name "release-ci"
+          git config --global user.email "release-ci@users.noreply.github.com"
+
+      - name: Build inputs (pinned commits)
+        run: |
+          set -eu
+          fetch() {   # fetch <url> <dir> <commit>
+            mkdir -p "$2"; git -C "$2" init -q; git -C "$2" remote add origin "$1"
+            git -C "$2" fetch -q --depth 1 origin "$3"; git -C "$2" checkout -q --detach "$3"
+            [ "$(git -C "$2" rev-parse HEAD)" = "$3" ]
+          }
+          fetch https://github.com/acidanthera/MacKernelSDK.git deps/MacKernelSDK "$MKSDK_REV"
+          fetch https://github.com/KhronosGroup/Vulkan-Headers.git deps/Vulkan-Headers "$VKH_REV"
+          git clone -q --filter=blob:none https://gitlab.freedesktop.org/mesa/mesa.git deps/mesa
+          git -C deps/mesa checkout -q --detach "$MESA_REV"
+          [ "$(git -C deps/mesa rev-parse HEAD)" = "$MESA_REV" ]
+          # the firmware VermilionBoot's C3 slice is generated from (F1: this goes away; the release scan gates it)
+          sh tools/firmware/fetch_firmware.sh "$RUNNER_TEMP/fw"
+
+      - name: AIR reader (from the air-reader job)
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: air-runtime
+          path: build
+
+      - name: Build the components
+        env:
+          MKSDK: ${{ github.workspace }}/deps/MacKernelSDK
+          VULKAN_HEADERS: ${{ github.workspace }}/deps/Vulkan-Headers/include
+          MESA_DIR: ${{ github.workspace }}/deps/mesa
+        run: |
+          set -eu
+          PHX_FW="$RUNNER_TEMP/fw" sh scripts/build/kext.sh
+          sh scripts/build/accel.sh
+          sh scripts/build/audio.sh
+          sh scripts/build/plugin.sh
+          sh scripts/build/translator.sh
+          sh scripts/build/radv.sh apply
+          sh scripts/build/radv.sh
+          sh scripts/build/tools.sh
+          sh scripts/build/metaltest.sh
+          sh scripts/build/spirv-val.sh
+          ls -l build; ls build/air-runtime
+
+      - name: VermilionTrust, last, from the cdhashes of the files the package installs
+        env:
+          MKSDK: ${{ github.workspace }}/deps/MacKernelSDK
+        run: |
+          set -eu
+          sh scripts/build/trust.sh build/NVMTLDriver build/libnvmtl_translate.dylib \
+            build/air-runtime/libLLVM.dylib build/air-runtime/libzstd.1.dylib build/libvulkan_radeon.dylib
+
+      - name: Hardware-free tests
+        run: |
+          set -eu
+          bash tests/mock/run.sh
+          bash tests/mock/b15test.sh
+          sh tests/hooks/guard_test.sh
+          c++ -std=c++17 -Wall -Wextra -Werror -I src/vermilion-boot -o "$RUNNER_TEMP/gpu_id_test" tests/kext/gpu_id_test.cpp
+          "$RUNNER_TEMP/gpu_id_test"
+          bash tests/release/run.sh
+
+      - name: Artefacts
+        run: |
+          set -eu
+          V=${{ steps.v.outputs.version }}
+          mkdir -p dist
+          sh scripts/release/make-oc-zip.sh --version "$V" --kexts build --out dist
+          sh scripts/release/make-pkg.sh --version "$V" --build build --air-runtime build/air-runtime --out dist
+          git archive --format=tar.gz --prefix="vermilion-xtx-$V/" -o "dist/Vermilion-$V-source.tar.gz" HEAD
+          tar -czf "dist/Vermilion-$V-air-runtime.tar.gz" -C build air-runtime
+          sh scripts/release/make-sums.sh dist "Vermilion-$V-OpenCore.zip" "Vermilion-$V.pkg" "Vermilion-$V-source.tar.gz" "Vermilion-$V-air-runtime.tar.gz"
+          cat dist/SHA256SUMS
+
+      - name: Release scan of the unpacked artefacts
+        run: |
+          set -eu
+          V=${{ steps.v.outputs.version }}
+          bash scripts/dev/release-scan.sh "dist/Vermilion-$V-OpenCore.zip" "dist/Vermilion-$V.pkg" \
+            "dist/Vermilion-$V-source.tar.gz" "dist/Vermilion-$V-air-runtime.tar.gz"
+          prev=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
+          if [ -n "$prev" ]; then bash scripts/dev/release-scan.sh --commits "$prev..HEAD"; else echo "no earlier release tag: the commit scan is the owner's checklist item"; fi
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-files
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    # A tag only. The release is a draft pre-release: the owner reads it and presses Publish.
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-files
+          path: dist
+      - name: Draft pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          V: ${{ needs.build.outputs.version }}
+        run: |
+          set -eu
+          cat > notes.md <<EOF
+          > [!CAUTION]
+          > **Experimental preview for one PC.** macOS Tahoe 26.7.1 (25G241) and the AMD Radeon RX 7900 XTX only. Read
+          > INSTALL.md first, keep a second way to boot, and check every file against SHA256SUMS. The package is not
+          > signed with an Apple Developer ID.
+
+          Files: \`Vermilion-$V-OpenCore.zip\` (the kexts and the config snippet), \`Vermilion-$V.pkg\` (the Metal driver,
+          VermilionAccel and the boot daemon; it downloads AMD's firmware while it installs), \`Vermilion-$V-source.tar.gz\`
+          (the corresponding source), \`Vermilion-$V-air-runtime.tar.gz\` (the AIR reader the package installs),
+          \`SHA256SUMS\`.
+          EOF
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --prerelease --title "Vermilion $V" --notes-file notes.md \
+            dist/SHA256SUMS "dist/Vermilion-$V-OpenCore.zip" "dist/Vermilion-$V.pkg" "dist/Vermilion-$V-source.tar.gz" "dist/Vermilion-$V-air-runtime.tar.gz"

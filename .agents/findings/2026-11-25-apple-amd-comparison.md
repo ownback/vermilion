@@ -15,7 +15,7 @@ loaded or restarted; no GPU work ran.
 | `kmutil showloaded --list-only` | Which Apple pieces are loaded here | Verified |
 | `ioreg -l -w0` of the live stack (dump kept outside git: it holds serials) | What we publish | Verified |
 | `system_profiler SPDisplaysDataType` (text and JSON), `SPAudioDataType` | What System Information shows | Verified |
-| A 70-line read-only Metal query (`MTLCopyAllDevices`, property getters; no queue, buffer or pipeline) | What our Metal device answers | Verified |
+| `tools/metaltest/mtlq.m`, a read-only Metal query (`MTLCopyAllDevices`, property getters; no queue, buffer or pipeline) | What our Metal device answers | Verified |
 | Apple's Metal Feature Set Tables PDF, dated 2026-10-23 (text extracted with PDFKit) | Reference for Metal answers | Verified (see row M10) |
 | Public ioreg dumps of older AMD Macs (the Chockenberry gist), Apple's PerformanceStatistics glossary | Runtime keys a real AMD Mac publishes | Older GPU generations, so `(public)` |
 
@@ -34,8 +34,8 @@ runtime keys are not stored as plain strings), so no runtime key name below rest
   (device IDs `0x7310`-`0x73ff`). Five accelerator personalities (`AMDNavi{10,12,14,21,23}GraphicsAccelerator`), five
   controller personalities, one wrangler. There is nothing to extend: the RDNA 3 presentation has to be built.
 - **Apple's kexts are Info.plist stubs on disk.** `AMDRadeonX6000.kext`, `...Framebuffer.kext`, `...HWServices.kext`,
-  `AMDSupport.kext` have no `Contents/MacOS`; the code lives in `SystemKernelExtensions.kc`. Their plists, all version
-  7.0.1 (source 7.1.8, SDK 26.7): `com.apple.kext.AMDRadeonX6000`, `...Framebuffer`, `...HWServices` (with seven
+  `AMDSupport.kext` have no `Contents/MacOS`; the code lives in `SystemKernelExtensions.kc`. Their plists, all bundle version
+  7.0.1 (short version string 7.1.8, SDK 26.7): `com.apple.kext.AMDRadeonX6000`, `...Framebuffer`, `...HWServices` (with seven
   per-ASIC `HWLibs` plug-ins, X6000 to X6810), `com.apple.kext.AMDSupport`, `...AMDRadeonServiceManager` (hive and
   power services).
 - **On this machine only `AMDSupport` is loaded** (from the system collection; `org.vermilion.boot` and the accelerator
@@ -66,7 +66,7 @@ runtime keys are not stored as plain strings), so no runtime key name below rest
 ## Property and behaviour table
 
 "Ours" is what the live stack answers. `(public)`: from public sources on older AMD Macs. `(unverified)`: not measured
-here.
+here. Apple cells without a tag in the registry table are plist content (verified on this machine).
 
 ### Registry and kernel side
 
@@ -75,7 +75,7 @@ here.
 | K1 | Accelerator class | `AMDRadeonX6000_AMDNavi21GraphicsAccelerator` (per-ASIC class), `IOMatchCategory` `IOAccelerator` | `NMXAccel`, same match category | Class name differs. Tools that match `IOAccelerator` work; tools that key on an "AMD" class name or bundle id (`com.apple.kext.AMDRadeonX6000`) would not (unverified) | None. Rename is a rule-7 question; leave |
 | K2 | Accelerator match | PCI IDs plus `IOPropertyMatch` `LoadAccelerator` (set by `AMDSupport`) | `IOPropertyMatch` `nmxgpu-claimed` (set by `mesboot claim` after the daemon) | Same shape, but the accelerator appears only after the daemon | B1 (A1) |
 | K3 | Framebuffer tree | Wrangler (`IOFramebuffer` category, score 60000) -> controller (`ATIFramebuffer`) -> per-connector framebuffer | `PhxFBSquatter` (`IOFramebuffer`, 30000) -> `PhxDisplay` -> `PhxAMDFB` (1000) -> `display0` -> `AppleDisplay` | Tree shape differs; no user-visible effect found | B2 |
-| K4 | AGDC / wrangler | `AppleGPUWrangler`, `AGDCPluginDisplayMetrics`, an AGDC user client on the controller | Same Apple classes loaded; our `PhxDeviceControl` publishes `AppleGraphicsDeviceControlClient` (WindowServer connected) | Match | none |
+| K4 | AGDC / wrangler | `AppleGPUWrangler`, `AGDCPluginDisplayMetrics` `(unverified)`; an AGDC user client on the controller (plist) | Same Apple classes loaded; our `PhxDeviceControl` publishes `AppleGraphicsDeviceControlClient` (WindowServer connected) | Match | none |
 | K5 | GPU power management | Power service (`AMDRadeonServiceManager`: `AMDRadeonPowerService`), PowerPlay knobs in the controller personalities (`PP_*`, `SMU_DisallowedFeatures`); AGPM / device-policy nodes `(public)` | No AGPM or device-policy node in our ioreg dump; idle power by daemon flags | Power policy owned by a script, not the OS's power manager | B1 (idle power). AGPM node is **N8** |
 | K6 | Video codec keys on the accelerator | `IOGVACodec` `AMDVCN2`, `IODVDBundleName` `AMDRadeonVADriver2`, `IOGVAHEVCDecode`, `IOGVAHEVCEncode`, `IOGVAH264EncodeCapabilities` and HEVC capability dictionaries (quality/rating, supported profiles), `IOVARendererID` | None of them (0 hits for `IOGVA*`, `IODVDBundleName`, `IOVARendererID`) | AppleGVA / VideoToolbox can't learn capabilities from the registry; encode isn't advertised | A6 for decode. Encode: **N3** |
 | K7 | Metal plugin keys | `MetalPluginName` = the MTL bundle, class `GFX10_MtlDevice` `(public pattern)`; `IOGLBundleName` AMD GL bundle, `IOOCDBundleName` `(public)` | `MetalPluginName` = relative path to `NVMTLDriver`, `MetalPluginClassName` `NVMTLDevice`, `IOGLBundleName` `AppleMetalOpenGLRenderer`; no `IOOCDBundleName` | NVIDIA-derived names; OpenCL bundle name absent | A2 |
@@ -86,32 +86,32 @@ here.
 | K12 | Accelerator capability keys | `GPUDCCDisplayable` true for Navi 12-23, `GPUTaskSingleChannel`, `IOPCITunnelCompatible` | `AccelCaps` 15, `IOAccelRevision` 2, `IOAccelDisplayPipeCapabilities`; no DCC | DCC scan-out is a bandwidth feature; compositing cost row A1 | A1 (indirect) |
 | K13 | GPU recovery | `recoveryCount` in the statistics; the driver resets the engine on a hang `(public)` | Key present; recovery missing (STATUS item 7) | A stuck shader ends the session | STATUS item 7 (not in the plan) |
 | K14 | PCI node | `model`, `IOName` `display`, `ATY,*` ROM properties `(public)`, `VRAM,totalMB` | `model` "AMD Radeon RX 7900 XTX", `VRAM,totalMB` 24576, `IOName` `display`; no `ATY,*` | Name and VRAM match; ROM revision absent (S4) | S4 |
-| K15 | Audio device | `AppleGFXHDA` on the GPU's HDA function; engine named after the display | Same Apple classes, matched by a Lilu patch for `1002:ab30`; device name/short name/manufacturer strings are placeholders (`DeviceN`, `DeviceS`, `ManufacturerName`); `System Information` > Audio lists "LG ULTRAGEAR+?" with a stray byte | Name defect visible in the Sound settings and System Information. Matching by patch, audio programmed by the daemon (~2.5 min after boot) | B1; stray byte is STATUS item 8 |
-| K16 | Framebuffer properties | `IOFBConfig` modes from the controller | Present (`IOFBConfig`, `IOFBTimingRange`, EDID in `phx-edid`) plus `phx-*` debug properties on `PhxBringup` and the framebuffer (about 25 keys) | Debug keys in the registry | A2 / release shape |
+| K15 | Audio device | `AppleGFXHDA` on the GPU's HDA function; engine named after the display `(unverified)` | Same Apple classes, matched by a Lilu patch for `1002:ab30`; device name/short name/manufacturer strings are placeholders (`DeviceN`, `DeviceS`, `ManufacturerName`); `System Information` > Audio lists "LG ULTRAGEAR+?" with a stray byte | Name defect visible in the Sound settings and System Information. Matching by patch, audio programmed by the daemon (~2.5 min after boot) | B1; stray byte is STATUS item 8 |
+| K16 | Framebuffer properties | `IOFBConfig` modes from the controller `(unverified)` | Present (`IOFBConfig`, `IOFBTimingRange`, EDID in `phx-edid`) plus `phx-*` debug properties on `PhxBringup` and the framebuffer (about 25 keys) | Debug keys in the registry | A2 / release shape |
 
 ### System Information, About This Mac
 
 | # | Property | Apple AMD (RDNA 2 Mac) | Ours | Gap | Parity item |
 |---|---|---|---|---|---|
-| S1 | Chipset model, type, bus | Name, `Type: GPU`, `Bus: PCIe`, lane width | "AMD Radeon RX 7900 XTX", GPU, PCIe, x16 | Match | none |
-| S2 | VRAM | e.g. "32 GB" | "24 GB" (from `VRAM,totalMB`, read from the memory controller) | Match | none |
-| S3 | Vendor, device, revision | `AMD (0x1002)`, device and revision IDs | `0x1002`, `0x744c`, `0x00c8` | Match | none |
+| S1 | Chipset model, type, bus | Name, `Type: GPU`, `Bus: PCIe`, lane width `(unverified)` | "AMD Radeon RX 7900 XTX", GPU, PCIe, x16 | Match | none |
+| S2 | VRAM | e.g. "32 GB" `(unverified)` | "24 GB" (from `VRAM,totalMB`, read from the memory controller) | Match | none |
+| S3 | Vendor, device, revision | `AMD (0x1002)`, device and revision IDs `(unverified)` | `0x1002`, `0x744c`, `0x00c8` | Match | none |
 | S4 | ROM Revision, Slot | ROM revision from the card's Apple ROM; `Slot` on slot-based GPUs `(public, unverified for our case)` | Neither row | Rows missing. A PC card has no Apple ROM; the VBIOS version string is readable from the VBIOS tables (rule 3) | **N4** |
-| S5 | Metal Support | `Metal 3` (RDNA 2 on macOS 26) | `Metal 3` (`spdisplays_metal3`) | Match | none |
-| S6 | Display entry | Name, resolution, "UI Looks like", depth, main, mirror, online, rotation | All present for the LG at 2560x1440 @ 240 Hz. Text report's depth line reads 24-bit ARGB8888 | HDR is off (D16); depth reflects that | HDR: STATUS item 4 (not in plan). Connection type row `(unverified)` |
-| S7 | Audio device | Output device named after the display, transport DisplayPort | Output present, 8 channels, DisplayPort, name ends with a stray `?` | Cosmetic defect | STATUS item 8 |
+| S5 | Metal Support | `Metal 3` (RDNA 2 on macOS 26) `(unverified)` | `Metal 3` (`spdisplays_metal3`) | Match | none |
+| S6 | Display entry | Name, resolution, "UI Looks like", depth, main, mirror, online, rotation `(unverified)` | All present for the LG at 2560x1440 @ 240 Hz. Text report's depth line reads 24-bit ARGB8888 | HDR is off (D16); depth reflects that | HDR: STATUS item 4 (not in plan). Connection type row `(unverified)` |
+| S7 | Audio device | Output device named after the display, transport DisplayPort `(unverified)` | Output present, 8 channels, DisplayPort, name ends with a stray `?` | Cosmetic defect | STATUS item 8 |
 
 ### Metal device answers (our values measured by the query tool)
 
 | # | Property | Apple AMD (RDNA 2 Mac) | Ours | Gap | Parity item |
 |---|---|---|---|---|---|
-| M1 | `name` | "AMD Radeon RX 6800 XT" style, no suffix | "AMD Radeon RX 7900 XTX (RADV NAVI31) (NVMTL over AMD Radeon RX 7900 XTX (RADV NAVI31))" | Every app showing the GPU name (Blender, games, benchmarks, Xcode) shows the suffix | A4 |
+| M1 | `name` | "AMD Radeon RX 6800 XT" style, no suffix `(unverified)` | "AMD Radeon RX 7900 XTX (RADV NAVI31) (NVMTL over AMD Radeon RX 7900 XTX (RADV NAVI31))" | Every app showing the GPU name (Blender, games, benchmarks, Xcode) shows the suffix | A4 |
 | M2 | `recommendedMaxWorkingSetSize` | About the VRAM size `(public, unverified)` | 6144 MiB (24 GB card) | Apps size caches and models by it; 6 GiB on a 24 GB GPU | A4 (A11) |
 | M3 | `maxBufferLength` | At least 256 MB by contract; AMD value `(unverified)` | 4095 MiB | Below 4 GiB; a big-model or large-texture app may refuse | A3 (check) |
-| M4 | `registryID` | The accelerator's registry ID | `0x1000006a4`, which is `NMXAccel`'s ID | Match | none |
+| M4 | `registryID` | The accelerator's registry ID `(unverified)` | `0x1000006a4`, which is `NMXAccel`'s ID | Match | none |
 | M5 | `location`, `isLowPower`, `isHeadless`, `isRemovable`, `hasUnifiedMemory` | Built-in or slot-based dGPU `(unverified)`; low power no; unified no | built-in (0), 0, 0, 0, 0 | Plausible; `location` unverified | A3 (check) |
-| M6 | GPU families | Common1-3, Mac1, Mac2, Metal3; no Apple1-9; no Metal4 | Common1-3, Mac1, Mac2, Metal3 yes; Apple1/7/9 no; 5002 (Metal 4) no | Match | none |
-| M7 | Feature flags | Raytracing, function pointers, dynamic libraries yes; BC, 32-bit MSAA, 32-bit float filtering yes | All yes; primitive motion blur no; pull-model interpolation no; programmable sample positions no; raster-order groups no | Cannot judge, see M10 | A3 |
+| M6 | GPU families | Common1-3, Mac1, Mac2, Metal3; no Apple1-9; no Metal4 `(unverified)` | Common1-3, Mac1, Mac2, Metal3 yes; Apple1/7/9 no; 5002 (Metal 4) no | Match | none |
+| M7 | Feature flags | Raytracing, function pointers, dynamic libraries yes; BC, 32-bit MSAA, 32-bit float filtering yes `(unverified)` | All yes; primitive motion blur no; pull-model interpolation no; programmable sample positions no; raster-order groups no | Cannot judge, see M10 | A3 |
 | M8 | Argument buffers, read-write textures | Tier 2 for argument buffers on AMD `(public, unverified)`; read-write tier 2 | Argument buffers **tier 1**, read-write tier 2 | Possibly wrong tier; apps with Tier 2 paths take a slow path or refuse | A3 |
 | M9 | Counters | A timestamp set and a statistics set `(public, unverified; the MTL bundle ships GFX10 statistics counter plists)` | Only `timestamp`; sampling at stage boundary no, draw/dispatch/blit yes | No GPU counters in Instruments or Xcode's GPU tools | **N6** |
 | M10 | The reference for these answers | Apple's published Metal feature tables | The 2026-10-23 tables list only Apple2-Apple11 families. No Mac2, AMD or Intel column exists in them (checked: the text has no "Mac2", "AMD", "Radeon" or "Common") | A3 as written ("conformance against Apple's feature tables for an AMD Mac") has no current Apple table to check against | A3 needs another reference (**N5**) |
@@ -164,7 +164,8 @@ the user-visible list above and should keep their STATUS order.
 - `python3 -I` over each `Info.plist` with `plistlib` (the script prints key names and scalar values; dictionaries as key lists).
 - `ioreg -l -w0 > <scratch>`, then grep the accelerator, framebuffer and HDA subtrees. The dump holds serials: keep it out of git.
 - `system_profiler SPDisplaysDataType -json`. Its display block carries the monitor's serial: not copied here.
-- The Metal query: `xcrun clang -arch x86_64 -fobjc-arc -o mtlq tools/metaltest/mtlq.m -framework Foundation -framework Metal`. It calls
+- The Metal query: `xcrun clang -arch x86_64 -fobjc-arc -O0 -Wno-deprecated-declarations -o mtlq tools/metaltest/mtlq.m -framework Foundation -framework Metal`
+  (the build line in the file's header). It calls
   `MTLCopyAllDevices`, reads properties and `supportsFamily:` / `supportsCounterSampling:`; no queue, no buffer.
   (The checked-in `tools/metaltest/apiprobe.m` does similar work but also opens CGL, OpenCL and Core Image contexts, which
   this research left out.)

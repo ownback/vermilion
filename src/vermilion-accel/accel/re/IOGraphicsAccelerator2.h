@@ -15,7 +15,7 @@
  * WHERE EACH FACT CAME FROM
  *   size        3544 bytes — the KERNEL'S OWN OSMetaClass registry (read by the
  *               inspector in bench/AccelDevice), cross-checked against the
- *               `movl $0xdd8, %ecx` immediate in the metaclass constructor.
+ *               size (0xdd8) the metaclass constructor passes.
  *               Two independent sources agreeing.
  *   superclass  IOAccelerator (full chain: IOAccelerator -> IOService ->
  *               IORegistryEntry -> OSObject), from the same registry.

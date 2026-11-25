@@ -86,8 +86,10 @@ have built it ([`ROADMAP.md`](ROADMAP.md), "The standard"). It's a fork of
    UUIDs. The guard blocks commits that contain this machine's values (run `sh scripts/dev/private-patterns.sh` once
    per machine).
 6. **Licence boundaries.** NullMoth-derived code stays PolyForm Noncommercial; translator changes stay LGPL; new
-   files start with an SPDX header (MIT unless derived). Reverse engineering of Apple's drivers produces our own
-   implementation: no Apple code or disassembly in the repo.
+   files start with an SPDX header (MIT unless derived). Apple's own AMD drivers (the RX 6800/6900 XT stack in this
+   macOS) are the reference implementation: reverse engineer them with the `reverse-engineer-anything` (REA) tools,
+   and reusing Apple's code is allowed by the owner (decisions.md, 2026-11-25); reference material lives under
+   `reference/apple-amd/`.
 7. **Keep the `phx`/`nv`/`nmx` names** of classes, sysctls, NVRAM variables, paths and the ABI ([`docs/NAMING.md`](docs/NAMING.md)).
 8. **Say what is verified.** Plain statements. Anything not tested on hardware is marked `(unverified)`, and a
    claim about hardware names the machine it was seen on.

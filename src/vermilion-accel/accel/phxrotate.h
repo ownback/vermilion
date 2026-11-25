@@ -153,7 +153,7 @@ inline int copyKind(int a, uint32_t sw, uint32_t sh, uint32_t w, uint32_t h, boo
 // Why bit 2 was not enough [F box 11-03 08:26, rot5 data]: at a portrait
 // set IOGraphicsLib had merged the AOC's EDID-preferred DTD (60) into mode 1, which therefore carries Default|Native
 // (IOFBConfig DM flags 0x2100007 with DF 3) next to mode 2's Default from bit 2: both score +1, and the tie goes to the
-// mode under 86 Hz. IOFBRebuild [F CoreDisplay 26.7.1 0x7ff80535e5b2: cmpl $0x0, 0x84(TM)] lets a mode become the default
+// mode under 86 Hz. IOFBRebuild [F CoreDisplay 26.7.1 0x7ff80535e5b2: tests TM byte 0x84 for 0] lets a mode become the default
 // only when its TM verticalBlankingExtension is 0, whatever its score. With only the current mode left, defaultMode =
 // current, its CG flags carry 0x4, and CGXRestoreDisplayConfiguration's "no saved conf" path keeps it (0x7ff8053a2e59:
 // it replaces a monitor's mode only when the current one lacks 0x4).

@@ -62,9 +62,10 @@ Step (a)'s cold-boot check passed 2026-11-25 11:40 (power-off, `sOS check: C2PMS
 `~/vermilion-rollback/NVMTLDriver.pre-crashfix-20261125` (`344c621f`, trusted as `-previous`). **EFI change 35**:
 VermilionTrust 1.0.4 with 15 cdhashes (the new plugin + the live 14; the list was seeded from `debug.phxtrust_files`,
 because this checkout had no `phxtrust_list.inc` to keep); `diff -rq` showed only the VermilionTrust binary;
-`OC.prev` = change 34, also in `~/vermilion-rollback/EFI-OC.change34-20261125`. Expected after the restart:
-`debug.phxtrust_stat` `mode=enforce list=15 denied_unlisted=0`, NVMTLDriver `15204728` listed with overrides,
-`SUCCESS`, 240 Hz. Then the owner tests Music and Maps, and `log show --predicate 'subsystem == "org.vermilion.nvmtl"'`.
+`OC.prev` = change 34, also in `~/vermilion-rollback/EFI-OC.change34-20261125`. **Live and passed** on the boot of
+2026-11-25 17:04: `mode=enforce list=15 denied_unlisted=0`, NVMTLDriver `15204728` listed with overrides (first
+WindowServer), `SUCCESS at 17:06:44`, 240 Hz; #26's record unchanged (`fails=0 ... last=full`). Next: the owner
+tests Music and Maps, then `log show --predicate 'subsystem == "org.vermilion.nvmtl"'` and the readback cost.
 
 Item 3: design on #24 (finding `2026-11-25-recovery-trap-design.md`). Step 1 (daemon and `navi31_up.sh` only, no
 EFI change, #26) installed 2026-11-25 under the lock, rollback in `~/vermilion-rollback/recovery-daemon-1`. **Live and passed**

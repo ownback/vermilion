@@ -5,8 +5,8 @@
 For people who want to run Vermilion on their own machine. Read the whole page before you start.
 
 > [!CAUTION]
-> **There is no finished installer yet.** Parts marked **(not available yet)** describe the release this project is
-> building ([docs/RELEASE.md](docs/RELEASE.md)). What works today is the manual install, which only the
+> **There is no finished installer yet.** Parts marked **(not available yet)** describe the first release this
+> project is building, `0.1.0-preview` ([docs/RELEASE.md](docs/RELEASE.md)). What works today is the manual install, which only the
 > [reference machine](docs/REFERENCE-MACHINES.md) has run, last done from scratch on 2026-11-19. Use it only if you can
 > recover a Mac that doesn't boot to a picture.
 
@@ -16,7 +16,7 @@ For people who want to run Vermilion on their own machine. Read the whole page b
 
 | | |
 |---|---|
-| GPU | AMD Radeon RX 7900 XTX (PCI `1002:744c`, revision `0xC8`) as the **only** display GPU, monitor on DisplayPort. See [SUPPORT.md](SUPPORT.md) for what has been tested |
+| GPU | AMD Radeon RX 7900 XTX (PCI `1002:744c`, revision `0xC8`) as the **only** display GPU, monitor on DisplayPort. No other card: not the RX 7900 XT, GRE or 7900M. See [SUPPORT.md](SUPPORT.md) for what has been tested |
 | Monitor | the LG 27GS95QE gets every mode; any other monitor gets one mode only, the one the card's firmware picked at power-on |
 | macOS | **Tahoe 26.7.1 (25G241)**, installed and booting with OpenCore. Never update macOS while Vermilion is installed |
 | OpenCore | booting this macOS already, on the card's firmware display without acceleration. The reference machine runs OpenCore 1.0.8 |
@@ -28,7 +28,7 @@ For people who want to run Vermilion on their own machine. Read the whole page b
 Today, unlike a driver Apple ships, it:
 
 - adds 4 kexts to OpenCore (VermilionBoot, VermilionTrust, VermilionAudio, plus Lilu if you don't have it) and one
-  to `/Library/Extensions` (VermilionAccel), which needs an **Allow** click;
+  to `/Library/Extensions` (VermilionAccel), which needs an **Allow** click (a known step that stays: section 2.3);
 - relaxes System Integrity Protection (`csr-active-config` `0x0A03`) and turns off OpenCore's Secure Boot model;
 - installs a Metal driver and its libraries under `/Library/GPUBundles`;
 - installs a **root LaunchDaemon** that runs scripts from `~/gpu` at every boot, loads AMD's firmware into the GPU,
@@ -37,8 +37,8 @@ Today, unlike a driver Apple ships, it:
 - turns off automatic macOS updates;
 - needs system sleep kept off (`pmset`, [docs/INSTALL.md](docs/INSTALL.md) section 10) and FileVault off.
 
-Each of these goes away as the driver work lands ([ROADMAP.md](ROADMAP.md)); the release target is "copy the kexts,
-merge one config snippet".
+Each of these except the Allow click goes away as the driver work lands ([ROADMAP.md](ROADMAP.md)); the release
+target is "copy the kexts, merge one config snippet, run one package".
 
 ### Rules that protect your GPU and your install
 
@@ -54,13 +54,20 @@ merge one config snippet".
 
 ### 2.1 The release route (not available yet)
 
+The first release is `0.1.0-preview`, for the RX 7900 XTX only.
+
 1. Download the release's `Vermilion-<version>-OpenCore.zip` and `Vermilion-<version>.pkg` from GitHub Releases and
    check them against `SHA256SUMS`.
 2. Copy the kexts from the zip into `EFI/OC/Kexts` and merge the zip's `config-snippet.plist` (section 3) into your
    `config.plist`. Run `ocvalidate`.
-3. Run the package. It checks your macOS build and GPU, downloads AMD's firmware from linux-firmware (you need a
-   network connection, or point it at a linux-firmware copy), and installs the Metal driver.
-4. Approve VermilionAccel in System Settings > Privacy & Security, then restart.
+3. Open the package. It is not signed with an Apple Developer ID, so Gatekeeper blocks it the first time: open
+   System Settings > Privacy & Security, scroll to Security, and click **Open Anyway** next to the package's name
+   (*unverified* on 26.7.1 with this package: it isn't built yet). Do this only after the `SHA256SUMS` check of
+   step 1: the checksum is what tells you the package is the project's.
+4. The package checks your macOS build and GPU and installs the Metal driver and VermilionAccel. No AMD firmware is
+   in it: its post-install script runs in macOS and downloads the firmware from linux-firmware (you need a network
+   connection, or point it at a linux-firmware copy), and checks every file.
+5. Approve VermilionAccel (the Allow click, section 2.3), then restart.
 
 On the reference machine's exact parts, the [ryzentosh](https://github.com/ownback) EFI will contain all of step 2
 *(not available yet)*.
@@ -81,6 +88,18 @@ On the reference machine's exact parts, the [ryzentosh](https://github.com/ownba
    `sudo nvram phxfb-squat=1`).
 
 Every file, permission and flag is described in [docs/INSTALL.md](docs/INSTALL.md), the expert reference.
+
+### 2.3 The Allow click (a known step)
+
+`VermilionAccel.kext` sits in `/Library/Extensions`, and macOS loads a kext from there only after you approve it. After
+the install, and again after every update that changes this kext:
+
+1. Open System Settings > Privacy & Security and scroll to Security.
+2. Next to the message about blocked system software, click **Allow** and enter your password.
+3. Restart when macOS asks.
+
+Until you do, the kext doesn't load and you get the basic display. This step stays: it is one of the project's
+[known limits](README.md#known-limits).
 
 ## 3. The OpenCore snippet
 

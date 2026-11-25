@@ -9,11 +9,12 @@ How releases are made: [docs/RELEASE.md](docs/RELEASE.md).
 
 ## Unreleased
 
-No release has been made yet. What `main` has, as a user would notice it (the reference machine, 2026-11-25):
+No release has been made yet; the first will be `0.1.0-preview`, for the RX 7900 XTX only. What `main` has, as a user would notice it (the reference machine, 2026-11-25):
 
 ### Added
 
-- RX 7900 XTX support next to upstream's RX 7900 XT: the card is detected by its PCI revision and named correctly.
+- RX 7900 XTX support: the card is detected by its PCI revision and named correctly. This fork supports the XTX
+  only; the RX 7900 XT is upstream's card.
 - 2560x1440 at 60, 120, 144 and 240 Hz and Variable refresh (60-240 Hz) on the LG 27GS95QE.
 - HEVC and AV1 hardware decode (optional; the decoder bundle sits on the system volume for now).
 - DisplayPort audio to the monitor (VermilionAudio, a Lilu plugin).

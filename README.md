@@ -12,7 +12,8 @@ hardware video decode and DisplayPort audio. The goal is a PC that behaves like 
 card: the driver Apple would have written, installed the way Apple would have done it.
 
 This is [ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx), a fork of
-[leolivm/vermilion](https://github.com/leolivm/vermilion) (which targets the RX 7900 XT).
+[leolivm/vermilion](https://github.com/leolivm/vermilion) (which targets the RX 7900 XT). This fork supports the
+RX 7900 XTX only. Its first release will be `0.1.0-preview`, for the reference machine; no release has been made yet.
 
 > [!CAUTION]
 > **Experimental. Not ready for everyday use, and not yet installable without expert work.**
@@ -29,7 +30,7 @@ State on the reference machine, 2026-11-25. The full list, row by row, is in [`.
 | | |
 |---|---|
 | **Works** | Accelerated desktop (WindowServer composites on the GPU) · Metal 3 for apps · Core Animation, Core Image · OpenGL 4.1 (on about 2 minutes after login) · OpenCL · Vulkan for apps · WebGL in Safari · 2560x1440 at 60 / 120 / 144 / 240 Hz with Variable refresh (60-240 Hz) on the LG · HEVC and AV1 hardware decode · DisplayPort audio to the monitor · cold boot, restart, shutdown |
-| **Works, slowly or not as a Mac does it** | Games and heavy apps run well below the same card under Linux · Maps fullscreen is choppy · 4K YouTube stutters · the GPU is powered up by a script after the login window, which restarts once · the boot shows the OpenCore picker and verbose text instead of the Apple logo · an "Allow" click for one kext |
+| **Works, slowly or not as a Mac does it** | Games and heavy apps run well below the same card under Linux · Maps fullscreen is choppy · 4K YouTube stutters · the GPU is powered up by a script after the login window, which restarts once · the boot shows the OpenCore picker and verbose text instead of the Apple logo |
 | **Broken or missing** | A GPU job that hangs ends the session (no GPU recovery; seen with one MPS benchmark) · WebGPU in Safari (in part) · the GPU's Metal name and VRAM size look wrong to apps · HDR (switched off) · unplugging or power-cycling the monitor needs a restart · system sleep · display sleep (the screen blanks, the monitor stays on) · any other monitor (one mode only), a second monitor, HDMI · hardware encode (FaceTime, exports) · H.264 / VP9 decode · GPU temperature and fan in Mac apps · recovery after a freeze · FileVault · Recovery and Safe Mode probably show no picture |
 
 ### Known limits
@@ -39,6 +40,8 @@ does, it's a bug.
 
 - macOS stays on **26.7.1** (build 25G241): the Metal driver uses private interfaces of exactly this build. Don't update
   macOS.
+- One **Allow** click in System Settings > Privacy & Security for `VermilionAccel.kext`, at the install and after
+  every update of that kext ([INSTALL.md](INSTALL.md)).
 - No Apple TV films or Safari FairPlay video (Apple Music works).
 - Blender Cycles renders on the CPU, as on a real Intel Mac with an AMD GPU.
 - No Hypervisor.framework on AMD CPUs: no Docker Desktop, accelerated UTM, Parallels or VMware.
@@ -51,7 +54,7 @@ does, it's a bug.
 | | Status |
 |---|---|
 | RX 7900 XTX (PCI `1002:744c`, revision `0xC8`) | verified on one XFX MERC 310 card; other boards untested |
-| RX 7900 XT (revision `0xCC`) | verified by upstream on its machine; not tested by this fork |
+| RX 7900 XT (revision `0xCC`) | not supported by this fork; it is upstream's card ([leolivm/vermilion](https://github.com/leolivm/vermilion)) |
 | RX 7900 GRE, RX 7900M, other RDNA 3 cards | not supported |
 | Monitor | the LG 27GS95QE over DisplayPort is fully supported; any other monitor gets one mode |
 
@@ -60,7 +63,8 @@ The full matrix (macOS, boards, CPUs, monitors, other operating systems on the s
 ## Install
 
 [INSTALL.md](INSTALL.md): requirements, what changes on your system, install, update, uninstall and recovery. The
-one-step install (copy the kexts into OpenCore, merge one config snippet) is the goal and is not available yet.
+release install (copy the kexts into OpenCore, merge one config snippet, run one package) is not available yet. The
+package will be unsigned, so macOS asks you to confirm that you want to open it.
 
 ## Licence: what you may do
 
@@ -76,9 +80,9 @@ Vermilion combines several licences ([LICENSE](LICENSE), [NOTICE](NOTICE),
     company's work.
 - Everything written for Vermilion is MIT. The shader translator is LGPL-3.0-or-later. The Mesa and FFmpeg patches
   follow their projects.
-- **No AMD firmware, VBIOS or Apple software** is in this repository. The installer downloads AMD's GPU firmware from
-  [linux-firmware](https://gitlab.com/kernel-firmware/linux-firmware) onto your machine
-  ([docs/FIRMWARE.md](docs/FIRMWARE.md)).
+- **No AMD firmware, VBIOS or Apple software** is in this repository, and none will be in a release. A script that runs in macOS after the install downloads AMD's
+  GPU firmware from [linux-firmware](https://gitlab.com/kernel-firmware/linux-firmware) onto your machine
+  ([docs/FIRMWARE.md](docs/FIRMWARE.md); today that script is `tools/firmware/fetch_firmware.sh`).
 - Apple's licence for macOS allows it only on Apple-branded hardware. This project doesn't distribute macOS; you are
   responsible for following Apple's terms.
 

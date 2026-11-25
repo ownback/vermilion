@@ -15,9 +15,14 @@ way to load them from OpenCore, which it doesn't.
 
 | Release | Ships | Needs first |
 |---|---|---|
-| **0.1 preview** (reference machine only) | OpenCore zip (4 kexts + snippet) and a package (the user-space parts, the boot daemon in a system path, the firmware fetch) | G1 revision gate, a clean-install test, CI builds, the release scan |
-| **0.x** | the daemon shrinks as B1 lands; the decoder moves to `/Library/GPUBundles` (A6, no system-volume step); VermilionAccel from OpenCore (B3, no Allow click) | the parity plan |
-| **1.0** | OpenCore zip (VermilionBoot with Accel and Audio folded in, VermilionTrust) and a package with only user-space bundles | B1, B2, B3, A6, A8, F1, R1 |
+| **`0.1.0-preview`** (reference machine only, RX 7900 XTX only) | OpenCore zip (the kexts + snippet) and an unsigned package (the user-space parts, VermilionAccel, the boot daemon in a system path, the post-install firmware fetch) | G1 revision gate (only `0xC8` runs), a clean-install test, CI builds, the release scan |
+| **0.x** | the daemon shrinks as B1 lands; the decoder moves to `/Library/GPUBundles` (A6, no system-volume step) | the parity plan |
+| **1.0** | OpenCore zip (VermilionBoot with Audio folded in, VermilionTrust) and a package with the user-space bundles and VermilionAccel | B1, B2, A6, A8, F1, R1 |
+
+Owner decisions, 2026-11-25 (`.agents/decisions.md`, "Release decisions"): the first release is `0.1.0-preview`; RX
+7900 XTX only, the kext refuses every other `0x744c` variant; no firmware is shipped, a post-install script that runs
+in macOS fetches it; the package is unsigned, with a Gatekeeper step in INSTALL.md; the Allow click for VermilionAccel
+stays as a known step (the plan item that moved VermilionAccel into OpenCore, B3, is dropped).
 
 ## Artefacts of a release
 
@@ -52,16 +57,16 @@ A flat package built with `pkgbuild` / `productbuild`, identifier `org.vermilion
 |---|---|---|
 | Metal driver bundle: `NVMTLDriver`, `libnvmtl_translate.dylib`, `libvulkan_radeon.dylib`, the AIR reader (R1), `spirv-val`, the bundle's `Info.plist`, license files in `Contents/Resources` | `/Library/GPUBundles/NVMTLDriver.bundle`, `/Library/GPUBundles/nvmtl` (with the sandbox relocation step of `relocate_gpubundle.sh` while sandboxed GPU processes need it) | always (user space) |
 | Decoder: `PhxVA.bundle` and its dylibs | `/Library/GPUBundles` | A6 lands; before that the decoder is not in the package (no system-volume writes from an installer) |
-| `VermilionAccel.kext` | `/Library/Extensions` (the package ends by asking for the Allow click) | B3 |
+| `VermilionAccel.kext` | `/Library/Extensions` (the package ends by asking for the Allow click, a known step: [INSTALL.md](../INSTALL.md#23-the-allow-click-a-known-step)) | always (owner decision) |
 | Boot daemon, bring-up scripts, `phxctl`, `mesboot`, `metaltest`, the default flags | a root-owned system path and `/Library/LaunchDaemons` (names per [NAMING.md](NAMING.md)); no file in the user's home | B1 |
 | `vermilion-uninstall`, `vermilion-firmware` | `/usr/local/sbin` *(name per owner)* | always |
 
 Scripts (`preinstall`, `postinstall`), each refusing with one clear sentence and changing nothing:
 
-1. **Checks:** macOS 25G241; a `1002:744c` function with a supported revision (G1's list); VermilionBoot loaded (its
+1. **Checks:** macOS 25G241; a `1002:744c` function with revision `0xC8`, the RX 7900 XTX (G1); VermilionBoot loaded (its
    `phx-build` in `ioreg`); the SIP bits the components need; no older install in the user's home (offer the
    migration below).
-2. **Firmware:** `vermilion-firmware fetch` downloads the files of `tools/firmware/fw.lock` from linux-firmware at the
+2. **Firmware** (the post-install script, running in macOS): `vermilion-firmware fetch` downloads the files of `tools/firmware/fw.lock` from linux-firmware at the
    pinned commit (GitLab mirror, then git.kernel.org) into a root-owned firmware directory, checks every md5 and
    SHA-256, and refuses on any mismatch. `vermilion-firmware fetch --from <linux-firmware checkout or tarball>` works
    offline. The package never contains a firmware file. With B1, the same tool generates the firmware kext that
@@ -85,9 +90,10 @@ installs without touching the system volume, NVRAM or EFI, and keeps rollback co
   ad-hoc signed and needs the Allow click.
 - The user-space Mach-O files are ad-hoc signed; VermilionTrust lists their cdhashes. A Developer ID signature would
   change the cdhash, so the list is generated after signing in either case.
-- The package: signed with a Developer ID Installer certificate and notarised (needs an Apple Developer Program
-  membership: owner decision). Unsigned, Gatekeeper blocks it and INSTALL.md must say how to open it (right-click >
-  Open, or System Settings > Privacy & Security > Open Anyway).
+- The package is **unsigned** (owner decision): no Developer ID Installer certificate, no notarisation. Gatekeeper
+  blocks it the first time, and [INSTALL.md](../INSTALL.md#21-the-release-route-not-available-yet) says how to open
+  it (System Settings > Privacy & Security > Open Anyway; unverified on 26.7.1 until a package exists). `SHA256SUMS`
+  and its signature are what a user checks instead.
 
 ## Uninstaller (`vermilion-uninstall`)
 
@@ -115,8 +121,8 @@ It never touches the EFI partition; it tells the user what to remove there.
 
 ## Versioning and the changelog
 
-- **One release version** for the whole set, semantic versioning: `0.y.z` while experimental, `0.1.0-preview.N` for
-  previews. A `VERSION` file at the root; tags `v<version>`.
+- **One release version** for the whole set, semantic versioning: `0.y.z` while experimental. The first release is
+  `0.1.0-preview`. A `VERSION` file at the root; tags `v<version>`.
 - Every kext's `CFBundleShortVersionString` is the release version; `CFBundleVersion` and VermilionBoot's
   `PHX_KEXT_BUILD` stay the internal build numbers (`src/vermilion-boot/CHANGELOG.md` keeps its per-build log).
 - [`CHANGELOG.md`](../CHANGELOG.md) at the root is for users: one section per release, in the user's words (what
@@ -153,6 +159,5 @@ Test (the reference machine, the owner):
 
 Publish (owner only):
 
-- [ ] Tell leolivm before the first public post (ROADMAP).
 - [ ] The GitHub Release as a pre-release while the version is `0.y.z`, with the experimental box at the top of the
       notes.

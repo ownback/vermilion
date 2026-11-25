@@ -8,7 +8,8 @@ What Vermilion has been seen working on, and what it hasn't. As of 2026-11-25.
 > **Vermilion is experimental.** It doesn't reach parity with a real Mac yet: the GPU is powered up by a script after
 > the login window, display modes are replays of what Linux sent on one card and one monitor, sleep is off, and several
 > parts need relaxed security settings ([README](README.md#what-works-what-doesnt)). Until that work is done, every
-> release is a preview, for people who can recover a machine that doesn't boot to a picture.
+> release is a preview, for people who can recover a machine that doesn't boot to a picture. The first one is
+> `0.1.0-preview`, for the RX 7900 XTX only.
 
 **What the words mean.** *Verified:* seen working on the named machine, by a person or a logged test. *Untested:*
 nobody has run it; it may work, fail, or show no picture. *Not supported:* the driver should refuse it (marked where it
@@ -20,8 +21,8 @@ doesn't yet). *Refused by the code* and *from the code* are what the source says
 |---|---|---|
 | RX 7900 XTX, XFX Speedster MERC 310, VBIOS `113-31XFSHBS1.L04` | `1002:744c` rev `0xC8` | **verified** (the [reference machine](docs/REFERENCE-MACHINES.md)) |
 | RX 7900 XTX, other board partners or VBIOS versions | `1002:744c` rev `0xC8` | untested. From the code: the card's own firmware sets power limits and fans (Vermilion sends no power or fan messages); the connector table is the reference board's; the display replays refuse a different firmware display build (one mode only) |
-| RX 7900 XT | `1002:744c` rev `0xCC` | verified by upstream ([leolivm/vermilion](https://github.com/leolivm/vermilion)) on its machine; untested in this fork |
-| RX 7900 GRE, RX 7900M | `1002:744c` rev `0xCE`, `0xCF` | not supported. **The kext still matches them today;** a refusal is planned before any release |
+| RX 7900 XT | `1002:744c` rev `0xCC` | not supported by this fork (it is upstream's card: [leolivm/vermilion](https://github.com/leolivm/vermilion)). **The kext still matches it today;** the refusal comes before the first release |
+| RX 7900 GRE, RX 7900M | `1002:744c` rev `0xCE`, `0xCF` | not supported. **The kext still matches them today;** the refusal comes before the first release |
 | Other Navi 31 (W7900, W7800), Navi 32/33, RDNA 2, RDNA 4 | other IDs | not supported (not matched) |
 | A second GPU next to it; an iGPU as the boot display | | untested; the RX 7900 XTX must be the boot display |
 
@@ -48,6 +49,8 @@ doesn't yet). *Refused by the code* and *from the code* are what the source says
 | FileVault | not supported today (the boot daemon logs in automatically once per boot) |
 | System sleep | not supported (keep it off) |
 | SIP | relaxed (`0x0A03`) |
+| Kext approval | one **Allow** click for VermilionAccel at the install and after each update of it: a known step ([INSTALL.md](INSTALL.md#23-the-allow-click-a-known-step)) |
+| Gatekeeper | the release package is unsigned: **Open Anyway** in System Settings > Privacy & Security ([INSTALL.md](INSTALL.md#21-the-release-route-not-available-yet)) |
 
 ## Machine
 

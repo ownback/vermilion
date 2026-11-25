@@ -245,6 +245,12 @@ megamind should add A8, F1, R1, G1 to the plan and the TODO, and the commit-addr
 
 ## 6. Owner decisions
 
+Decided 2026-11-25 evening (`.agents/decisions.md`, "Release decisions", on `ownback/megamind` until it merges):
+`0.1.0-preview`; RX 7900 XTX only (the XT is dropped, G1 refuses every revision but `0xC8`); firmware fetched by a
+post-install script; unsigned with a Gatekeeper step; the Allow click stays (B3 dropped); VermilionTrust a known limit
+for the preview; no notice to upstream before announcing. The user docs follow these; the list below is the audit's
+questions as asked.
+
 1. **Ship a preview this week or wait.** Recommendation: a tagged `0.1.0-preview` for the exact reference machine
    only, after G1 and one clean-install test, announced as experimental; the broad promotion after B1 and B3.
 2. **Licence wording:** confirm the plain-words summary; donations/sponsorship yes or no.

@@ -46,6 +46,10 @@ still claims the GPU (part of item 3). Seen by the Fable pass on #22 (`8a663b0`)
 - `m2_fail` after a refusal still runs `debug.phxagdc=0` and `apps_only` on the untouched GPU: unreviewed;
 - the audit finding (`2026-11-24-audit-display.md`) still calls `debug.phxfb_kill_iondrv` live; it is gone since 07:01.
 
+Item 2: a read-only root-cause agent started 2026-11-25 07:05 and was stopped at 07:10 for the owner's shutdown;
+restart it with the same brief (finding `2026-11-25-plugin-crashes-root-cause.md`, branch `ownback/plugin-crash-rca`).
+The next boot is a cold one: check `sOS check: C2PMSG_81=0x00000000 (cold)` for step (a)'s cold-boot check.
+
 System sleep, HDMI, a second monitor and the release shape need the phase 3 work first (bring-up in the kernel, own
 mode setting).
 

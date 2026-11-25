@@ -44,8 +44,8 @@ checked. Between the check and the copy, `nvmtl_vk_image_read` does the followin
 - records a layout barrier and `vkCmdCopyImageToBuffer`;
 - submits and **waits for the GPU**.
 
-Today's surface-outs in Music took 0.26-1.13 ms (log, 19:28-19:32). In that window another thread in Music freed the
-memory, and the CPU copy ran into the hole. The guard is a check-then-use: it can narrow the window but never close
+Music's surface-outs on 2026-11-24 took 0.26-1.13 ms (log, 19:28-19:32). In that window another thread in Music freed
+the memory, and the CPU copy ran into the hole. The guard is a check-then-use: it can narrow the window but never close
 it, because the memory belongs to another framework and can go at any moment, even in the middle of the copy loop.
 
 The same process had already logged the guard's other outcome 18 s before the first crash:
@@ -132,7 +132,7 @@ have their own paths, `NVMTLObjects.m:866`):
 **Proposed fix**
 
 1. **Make the plugin log reach every process (S).** Use `os_log` instead of `syslog()` plus a file (`nvlog`,
-   `NVMTLDevice.m:100-114`). Every nil texture logs its descriptor (type, format, size, mips, array, usage, storage
+   `NVMTLDevice.m:100-112`). Every nil texture logs its descriptor (type, format, size, mips, array, usage, storage
    mode) and its path. Risk: none to behaviour, only log volume.
 2. **Then reproduce once** (below) and fix the path it names. Whatever it is, the fix is the Metal contract: nil only
    for an invalid descriptor. For memory pressure, evict, fall back to system memory or wait, as macOS's GPU memory
@@ -163,8 +163,9 @@ nvlog < nvmtl_vk_cmd_begin+125 < -[NVMTLCommandQueue commandBuffer]+380
   < MetalTiledBacking::RenderToDestination < CompositorMetal::composite < ... < CGXUpdateDisplay
 ```
 
-The WindowServer started at 07:55:24 already logged `vk: dummy zero-fill did not complete — vkWaitForFences -> 2`
-(07:55:26): the GPU wasn't completing work. Its backend was then disabled (audit row 6). From then on every
+The WindowServer that started at 07:55:24 had already logged
+`vk: dummy zero-fill did not complete — vkWaitForFences -> 2` (07:55:26): the GPU wasn't completing work. Its backend
+was then disabled (audit row 6). From then on every
 `-commandBuffer` returned nil. SkyLight doesn't check for nil: `RenderEncoder` gets nil, `SetScissor` asks for the
 encoder again, and the two recurse until the stack overflows. The next WindowServer hung, and the watchdog report
 (`WindowServer-2026-11-24-075611.ips`) followed.
@@ -173,7 +174,7 @@ encoder again, and the two recurse until the stack overflows. The next WindowSer
 
 | Where | Line | When |
 |---|---|---|
-| `-[NVMTLCommandQueue commandBuffer]`, `nvmtl_vk_cmd_begin` fails | `NVMTLObjects.m:5640-5647` | the backend is down (`g_state = -1`: a failed submit `nvmtl_vk.c:6093`, a failed fence wait `:6139`, a missing completion witness `:6145`; never transient, so no retry), or a pool, allocation or begin refusal still failing after 40 retries (~1 s, `nvmtl_vk.c:4978-4990`) |
+| `-[NVMTLCommandQueue commandBuffer]`, `nvmtl_vk_cmd_begin` fails | `NVMTLObjects.m:5641-5647` | the backend is down (`g_state = -1`: a failed submit `nvmtl_vk.c:6093`, a failed fence wait `:6139`, a missing completion witness `:6145`; never transient, so no retry), or a pool, allocation or begin refusal still failing after 40 retries (~0.8 s, `nvmtl_vk.c:4978-4990`) |
 | same, `[NVMTLCommandBuffer new]` nil | `NVMTLObjects.m:5632` | out of memory only |
 | `commandBufferWithUnretainedReferences`, `commandBufferWithDescriptor:` | `NVMTLObjects.m:5650-5651` | forward to the above |
 | `-newCommandQueue` / `newCommandQueueWithMaxCommandBufferCount:` | `NVMTLDevice.m:666`, `:670` | backend down, or no command pool: a nil queue, so every later command buffer is nil |
@@ -183,13 +184,13 @@ The encoders themselves never return nil (`NVMTLObjects.m:5367-5540`). The plugi
 (`NVMTLObjects.m:853`, `:1218`, `:3862`) message a possible nil and drop the work silently.
 
 **Metal's contract and a real Mac.** `-[MTLCommandQueue commandBuffer]` doesn't fail on a working device. At
-`maxCommandBufferCount` it blocks until one is free, which the plugin's semaphore already does (`NVMTLObjects.m:5626-5630`).
-When the GPU hangs on an AMD Mac, the kernel restarts the GPU. The command buffers in flight complete with
-`MTLCommandBufferStatusError` (e.g. `MTLCommandBufferErrorTimeout`), new ones work, and the desktop stays. When the
-device really goes away, the command buffers complete with `MTLCommandBufferErrorDeviceRemoved` *(error codes from
-Apple's documentation; AMD-Mac behaviour not checked here)*. WindowServer is written for errored command buffers, not
-for nil. CoreDisplay asserts "Failed to get a MTLCommandBuffer" (the 2026-10-26 login crashes, `nvmtl_vk.c:4973`), and
-SkyLight recurses.
+`maxCommandBufferCount` it blocks until one is free, which the plugin's semaphore already does
+(`NVMTLObjects.m:5626-5630`). When the GPU hangs on an AMD Mac, the kernel restarts the GPU. The command buffers in
+flight complete with `MTLCommandBufferStatusError` (e.g. `MTLCommandBufferErrorTimeout`), new ones work, and the desktop
+stays. When the device really goes away, the command buffers complete with `MTLCommandBufferErrorDeviceRemoved` *(error
+codes from Apple's documentation; AMD-Mac behaviour not checked here)*. WindowServer is written for errored command
+buffers, not for nil. CoreDisplay asserts "Failed to get a MTLCommandBuffer" (the 2026-10-26 login crashes,
+`nvmtl_vk.c:4973`), and SkyLight recurses.
 
 **Proposed fix**
 
@@ -217,4 +218,4 @@ SkyLight recurses.
 |---|---|---|---|---|---|
 | A7 Music | `nvmtl_vk.c:6604` (`memcpy` row 0) via `NVMTLObjects.m:1455` | 600x600, 2400 B-pitch artwork surface, private image; its memory freed during the GPU wait after the guard at `:1454` passed | yes (registers, binary, log) | fault-proof copy, re-check after the wait; then GPU write-back into imported pages | S, then M |
 | A8 Maps | a nil from `newTextureWithDescriptor:` (`NVMTLDevice.m:877-920`) | unknown: no plugin log in Maps | no | `os_log` logging, one reproduction, then the named path | S + S-M |
-| A6 nil command buffer | `NVMTLObjects.m:5640-5647` | backend disabled after the 07:55 hot reset; SkyLight recursion | yes (report, code) | dead command buffer instead of nil; unlimited retry for transient refusals | S-M |
+| A6 nil command buffer | `NVMTLObjects.m:5641-5647` | backend disabled after the 07:55 hot reset; SkyLight recursion | yes (report, code) | dead command buffer instead of nil; unlimited retry for transient refusals | S-M |

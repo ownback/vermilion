@@ -9,6 +9,15 @@ The evidence for every row is in the audit findings, by row number:
 [last threads' state](findings/2026-11-24-audit-thread-handover.md). States: **works**, **broken**, **missing**,
 **not standard** (works, but not as Apple would ship it). Size: S about a day, M days, L weeks.
 
+## Boot in progress (2026-11-26, boot B): EFI change 39
+
+NVMTLDriver 1c15df79 (#40 scan-out half, #34 passtime; old 62f86c5d in
+`~/vermilion-rollback/NVMTLDriver.pre-scanout-20261126`) and VermilionTrust with 18 cdhashes (17 kept + the new
+plugin); VermilionBoot b162 and Audio 1.7.3 unchanged. Must show: `debug.phxtrust_stat` `denied_unlisted=0` and the
+new NVMTLDriver listed with `first=WindowServer`, daemon `SUCCESS`, 240 Hz; direct scan-out stays off until
+`/Library/GPUBundles/nvmtl/ws-direct` exists. If Metal or the desktop fails: put the old plugin back (still trusted)
+or swap `EFI/OC` and `EFI/OC.prev` (change 38; copy in `~/vermilion-rollback/EFI-OC.change38-20261126`).
+
 ## Last boot (2026-11-25 23:35, XTX machine): EFI change 38 passed
 
 VermilionBoot b162 (XTX-only gate + direct VRAM scan-out, off until the switch file), VermilionAudio 1.7.3,

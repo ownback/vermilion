@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// phx_scan_client.cpp: scanout selectors (9..14), user-client side.
+// phx_scan_client.cpp: scanout selectors (9..14, b161 22), user-client side.
 // Part of the PhxBringup.cpp translation unit (included there, in order); not compiled on its own.
 
 // ---- scanout selectors (9..14), see PhxBringup::scanAcquire ----------------------------------------------------
@@ -11,6 +11,7 @@ void IOAccelPhxNativeClient::scanUnbind() {
                 owner->vmMap(vmid, maps[i].va, bos[h].md, maps[i].off, maps[i].size);
         bos[h].scanSlot = 0;
         bos[h].scanVram = 0;
+        bos[h].scanDirect = false;
     }
 }
 
@@ -53,6 +54,36 @@ IOReturn IOAccelPhxNativeClient::doScan(uint32_t selector, IOExternalMethodArgum
                 r = owner->vmMapVram(vmid, maps[i].va, vramOff + maps[i].off, maps[i].size);
         IOLog("PhxBringup: scanout slot %u = BO %u (%llu bytes) at VRAM 0x%llx, MC 0x%llx%s\n", slot, reg.handle, b->size, vramOff, mc,
               r == kIOReturnSuccess ? "" : " - REMAP FAILED");
+        a->scalarOutput[0] = slot; a->scalarOutput[1] = mc;
+        return r;
+    }
+    case PHXN_SEL_SCAN_DIRECT: {
+        // b161: a display surface's own BO onto slot 0 or 1 (PhxScanDirect.h); the same rebinding as REGISTER below, for
+        // a host import too (the IOSurface's pages stay wired and untouched; the GPU reaches the slot instead)
+        if (!shape(a, 1, 2, sizeof(phxn_scan_reg), 0))
+            return kIOReturnBadArgument;
+        phxn_scan_reg reg;
+        bcopy(a->structureInput, &reg, sizeof(reg));
+        Bo *b = findBo(reg.handle);
+        const uint64_t slotIn = a->scalarInput[0];
+        uint64_t mc = 0, vramOff = 0;
+        int err = phxscandirect::kErrBo;
+        IOReturn r = b && slotIn < phxscandirect::kSlots
+                         ? owner->scanDirectSlot(this, static_cast<uint32_t>(slotIn), &reg, b->size, b->vram != 0, b->scanSlot != 0, &mc, &vramOff, &err)
+                         : kIOReturnBadArgument;
+        if (r != kIOReturnSuccess) {
+            if (!b || slotIn >= phxscandirect::kSlots) { OSIncrementAtomic64(&gScanDirectRefused); gScanDirectLastErr = b ? phxscandirect::kErrSlot : phxscandirect::kErrBo; }
+            return r;
+        }
+        const uint32_t slot = static_cast<uint32_t>(slotIn);
+        b->scanSlot = slot + 1;
+        b->scanVram = vramOff;
+        b->scanDirect = true;
+        for (int i = 0; i < kMaxMaps && r == kIOReturnSuccess; i++)
+            if (maps[i].used && maps[i].handle == reg.handle && vmid)
+                r = owner->vmMapVram(vmid, maps[i].va, vramOff + maps[i].off, maps[i].size);
+        IOLog("PhxBringup: direct scan-out slot %u = BO %u (%s, %llu bytes) at VRAM 0x%llx, MC 0x%llx%s\n", slot, reg.handle, b->host ? "host" : "system",
+              b->size, vramOff, mc, r == kIOReturnSuccess ? "" : " - REMAP FAILED");
         a->scalarOutput[0] = slot; a->scalarOutput[1] = mc;
         return r;
     }

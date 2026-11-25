@@ -143,6 +143,7 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxcalls);
         sysctl_register_oid(&sysctl__debug_phxscan);
         sysctl_register_oid(&sysctl__debug_phxscan_layout);   // b126
+        sysctl_register_oid(&sysctl__debug_phxscan_direct);   // b161
         if (!gMmIdxLock) gMmIdxLock = IOSimpleLockAlloc();   // b82: before the sysctls that use it
         sysctl_register_oid(&sysctl__debug_phxpipe2);
         sysctl_register_oid(&sysctl__debug_phxpipe2_stat);
@@ -396,7 +397,7 @@ IOReturn IOAccelPhxNativeClient::externalMethod(uint32_t selector, IOExternalMet
         case PHXN_SEL_DBG_ADOPTQ: r = doDbgAdoptQueue(a); break;
         case PHXN_SEL_DBG_CLAIM: r = doDbgClaim(a); break;
         case PHXN_SEL_SCAN_QUERY: case PHXN_SEL_SCAN_ACQUIRE: case PHXN_SEL_SCAN_REGISTER:
-        case PHXN_SEL_SCAN_PRESENT: case PHXN_SEL_SCAN_STATUS: case PHXN_SEL_SCAN_RELEASE:
+        case PHXN_SEL_SCAN_PRESENT: case PHXN_SEL_SCAN_STATUS: case PHXN_SEL_SCAN_RELEASE: case PHXN_SEL_SCAN_DIRECT:
             r = doScan(selector, a); break;
         default:                 r = kIOReturnBadArgument; break;
         }
@@ -798,6 +799,27 @@ IOReturn IOAccelPhxNativeClient::doBoImportHost(IOExternalMethodArguments *a) {
     if (r != kIOReturnSuccess) {
         md->release();
         return r;
+    }
+    // b161: never a page of the GPU's own BARs (a CPU-visible VRAM BO's mapping, b159, or the framebuffer aperture): the
+    // GPU would reach its VRAM through a system-memory PTE pointing back at its BAR. VRAM is reached through local-VRAM
+    // PTEs only (vmMapVram); Linux's userptr refuses such mappings (amdgpu_ttm_tt_get_user_pages: VM_IO / VM_PFNMAP).
+    for (IOByteCount off = 0; off < size;) {
+        IOByteCount segLen = 0;
+        const addr64_t pa = md->getPhysicalSegment(off, &segLen, kIOMemoryMapperNone);
+        if (!segLen) segLen = 4096;   // no page here: vmMap refuses it later, as before
+        if (pa && owner->physInOwnBars(pa, segLen)) {
+            OSIncrementAtomic64(&gHostBarRefused);
+            static SInt32 said;
+            if (OSIncrementAtomic(&said) < 8) {
+                char n[20] = {0}; proc_selfname(n, sizeof n);
+                IOLog("PhxBringup: host import refused: pid %d %s va 0x%llx size 0x%llx has BAR pages (phys 0x%llx)\n", proc_selfpid(), n, va, size,
+                      static_cast<unsigned long long>(pa));
+            }
+            md->complete();
+            md->release();
+            return kIOReturnNotPermitted;
+        }
+        off += segLen;
     }
     hostUsed += size;
     OSAddAtomic64(static_cast<SInt64>(size), &gBoBytes[3]);

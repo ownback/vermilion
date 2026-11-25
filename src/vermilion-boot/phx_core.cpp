@@ -120,6 +120,7 @@ void PhxBringup::stop(IOService *provider) {
         sysctl_unregister_oid(&sysctl__debug_phxdmub_dead);
         sysctl_unregister_oid(&sysctl__debug_phxpipe2_head1);   // b87
         sysctl_unregister_oid(&sysctl__debug_phxscan_layout);   // b126
+        sysctl_unregister_oid(&sysctl__debug_phxscan_direct);   // b161
         sysctl_unregister_oid(&sysctl__debug_phxedid_full);   // b127
         sysctl_unregister_oid(&sysctl__debug_phxdmub_trace);   // b88
         sysctl_unregister_oid(&sysctl__debug_phxpipe2_mode);   // b90

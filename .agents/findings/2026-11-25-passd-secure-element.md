@@ -81,8 +81,8 @@ and the keychain don't link it. In the last 6 h of logs, only passd ran the retr
   closest is OpenCore Legacy Patcher on real **T1** Macs (dortania/OpenCore-Legacy-Patcher#1103). Sonoma dropped the
   T1 relay in `AppleSSE`, `AppleKeyStore` and `AppleCredentialManager`, and OCLP restores older copies of those kexts
   and frameworks with a root patch. That needs real T1 hardware and an unsealed system volume, so it doesn't apply
-  here. Hackintosh guides treat Apple Pay and Touch ID as unavailable without T2 hardware, and they don't treat
-  passd's delay at all.
+  here. Hackintosh guides treat Apple Pay and Touch ID as unavailable without T2 hardware, and they don't mention
+  passd's delay.
 
 ## 3. The fix
 
@@ -109,7 +109,8 @@ What the platform can do Mac-like is reproduce **when** a T2 Mac starts passd, w
    libAppleSSE's capability question with "no", the state described in section 1, so the lookup would end at once
    with no 30 s anywhere. But IOKit matches by class name, so the service would have to be a class named `AppleSSE`
    that speaks Apple's private user-client ABI. That means:
-   - impersonating an Apple driver class (rule 7 names, and it collides with `AppleSSE.kext` if that ever loads);
+   - impersonating an Apple driver class (our classes carry our own names, `docs/NAMING.md`; it also collides with
+     `AppleSSE.kext` if that ever loads);
    - following a private ABI on every macOS update;
    - changing what nfcd, seserviced and SEService see.
 
@@ -129,14 +130,14 @@ What the platform can do Mac-like is reproduce **when** a T2 Mac starts passd, w
 |---|---|---|---|
 | **Pay with iPhone in Safari** (iPhone/Watch over Continuity; the iPhone's Secure Element signs) | no, PassKit only registers the pairing handler | first request after a passd cold start waits for the 30 s | no wait once 30 s have passed since login. Works at all? **unverified** |
 | **Wallet passes** (boarding passes, tickets added from Safari or Mail) | no | first import after a cold start waits | same as above |
-| **Apple Pay on the Mac itself** (Touch ID Macs only) | yes | not available: no Touch ID, no Secure Element. Same as a T2 Mac without Touch ID | unchanged |
+| **Apple Pay on the Mac itself** (Touch ID Macs only) | yes | not available: no Touch ID, no Secure Element. Same as a T2 Mac without Touch ID (inferred) | unchanged |
 | **Keychain, iCloud Keychain** | no (securityd doesn't link libAppleSSE) | none | none |
 | **Music, TV, App Store account saves** | indirectly, through accountsd → passd | 30 s on a cold passd | fast after the first 30 s of the session |
 
 ## 4. Deploy and test
 
-The recommended fix is already deployed: `local.phxpassd` is in `launchctl list` with exit status 0. What's left is
-moving it to ryzentosh and these owner tests (each is unverified until run):
+The recommended fix is already deployed on the XTX machine: `local.phxpassd` is in `launchctl list` with exit status
+0. What's left is moving it to ryzentosh and these owner tests (each is unverified until run):
 
 1. **Login start (the fix itself).**
    1. Cold boot, log in, wait 60 s.

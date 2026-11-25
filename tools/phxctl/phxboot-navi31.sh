@@ -434,9 +434,29 @@ echo "== bring-up + claim =="
 # claim or the desktop attempt leaves it, and the next boot counts it as an unfinished attempt. A clean shutdown or
 # restart meanwhile (launchd's TERM) is not one: the trap clears the mark.
 echo bringup >"$MARK"; sync
+# launchd's TERM during navi31_up.sh: bash runs a trap only after a foreground command returns, so with UPOUT=$(...) a
+# shutdown during the bring-up (about 10 s on the XTX machine) waited for its end, launchd SIGKILLed the daemon after
+# its exit timeout first, and the mark stayed: the next boot counted a failed bring-up. navi31_up.sh runs in the
+# background and the daemon waits for it with `wait`, which a trapped TERM ends at once (nap() does the same).
+# A TERM in the first PHXBOOT_UP_HANG s (60) of the bring-up is a clean shutdown or restart: the mark is cleared. A
+# later one is the bring-up watchdog's restart (3 min) of a hung bring-up, or a shutdown during one: the mark stays and
+# the next boot counts it, as before. Either way the daemon then waits for the bring-up to end, so nothing in it stops
+# sooner than before, and exits without a claim.
+UPF="$WSPTMP/phxboot-up.$$.log"; UPT0=$(date +%s); UPTERM=0
+up_term(){ local s; [ $UPTERM = 1 ] && return 0; UPTERM=1; s=$(( $(date +%s) - UPT0 ))
+  if [ $s -lt "${PHXBOOT_UP_HANG:-60}" ]; then rm -f "$MARK"; sync
+    echo "clean shutdown (TERM) at $(date '+%T') during the bring-up (${s}s in): in-progress mark cleared, not counted; no claim"
+  else echo "TERM at $(date '+%T') after ${s}s of the bring-up (it takes about 10 s): a hung bring-up (the bring-up watchdog restarts after 3 min): the in-progress mark stays, the next boot counts it"; fi
+  b21_on "shutdown (TERM) during the bring-up"; }
+trap up_term TERM
+bash "$G/phxctl/navi31_up.sh" >"$UPF" 2>&1 & UPPID=$!
+wait $UPPID; UPRC=$?
+while [ $UPTERM = 1 ] && kill -0 $UPPID 2>/dev/null; do wait $UPPID; UPRC=$?; done   # after a TERM: until it ends
+UPOUT=$(cat "$UPF" 2>/dev/null); rm -f "$UPF"
 trap 'echo "clean shutdown (TERM) at $(date "+%T") before the desktop attempt: in-progress mark cleared"; rm -f "$MARK"; sync
       b21_on "shutdown (TERM) before the desktop attempt"; exit 0' TERM
-UPOUT=$(bash "$G/phxctl/navi31_up.sh" 2>&1); UPRC=$?; echo "$UPOUT" | tail -4
+echo "$UPOUT" | tail -4
+[ $UPTERM = 1 ] && { echo "the bring-up ended after the shutdown's TERM: no claim"; exit 0; }
 UPOK=0; [ $UPRC = 0 ] && echo "$UPOUT" | grep -q "navi31 up:" && UPOK=1   # the GPU came up: navi31_up.sh's last line
 echo "$UPOUT" | grep -m1 '^sOS check:'   # C2PMSG_81 before the power-up, at every boot (is a warm restart cold?)
 # A bring-up that did not end with "navi31 up:" claims nothing: no Metal on a GPU without working queues, no PhxAMDFB.

@@ -1302,7 +1302,7 @@ inline int c3Load(const Env &e, State &st, C3 &c, const uint32_t *fp, uint32_t o
     c.done9 = 1;   // the one shot is spent from the first command on
     for (unsigned i = 0; i < kLoadN; i++) {
         c.step = static_cast<int>(i);
-        loadCmd(i, c.cmd, c.image);
+        if (!loadCmd(i, c.cmd, c.image)) return c3End(c, kC3Shape, "no C3 image installed");   // the G4 gate already refused this
         const Shape *s = shapeAt(kLoadShape, sizeof kLoadShape / sizeof kLoadShape[0], i);
         const int rc = c3Put(e, st, c, c.cmd, s, &w);
         if (rc < 0) return c3End(c, kC3Shape, w);

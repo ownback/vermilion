@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- SPDX-License-Identifier: MIT
+
+     Vermilion: the OpenCore entries of INSTALL.md section 3, as a fragment of config.plist. Merge it by hand (or with
+     your own tooling) into YOUR config.plist, then run ocvalidate. It holds no SMBIOS, serial, MLB, ROM or UUID of
+     any machine and never will: make your own.
+
+     Not expressible as a fragment (do these by hand):
+       - Lilu.kext (1.7.2 or later) is not Vermilion's: take it from Lilu's release. The Kernel > Add entry below is
+         the one to use if your config does not have it; keep it first in the list.
+       - NVRAM > Add > boot-args: ADD the two arguments to the boot-args you already have, do not replace them.
+       - UEFI > Drivers: do not load ResetNvramEntry.efi (it deletes phxfb-squat). Never Reset NVRAM.
+       - AMFIPass.kext (after Lilu): the reference machine still loads it; whether anything needs it with
+         VermilionTrust is open (unverified).
+     The kexts go into EFI/OC/Kexts in the order of the Kernel > Add array. One EFI change per boot, with a copy of
+     your working EFI folder on a stick. -->
+<plist version="1.0">
+<dict>
+	<key>Booter</key>
+	<dict>
+		<key>Quirks</key>
+		<dict>
+			<!-- 10 = BAR0 of 1 GiB (the reference machine); 0 (256 MiB) also ran -->
+			<key>ResizeAppleGpuBars</key>
+			<integer>10</integer>
+		</dict>
+	</dict>
+	<key>Kernel</key>
+	<dict>
+		<key>Add</key>
+		<array>
+			<dict>
+				<key>Arch</key>
+				<string>Any</string>
+				<key>BundlePath</key>
+				<string>Lilu.kext</string>
+				<key>Comment</key>
+				<string>Lilu: skip this entry if your config already has it</string>
+				<key>Enabled</key>
+				<true/>
+				<key>ExecutablePath</key>
+				<string>Contents/MacOS/Lilu</string>
+				<key>MaxKernel</key>
+				<string></string>
+				<key>MinKernel</key>
+				<string></string>
+				<key>PlistPath</key>
+				<string>Contents/Info.plist</string>
+			</dict>
+			<dict>
+				<key>Arch</key>
+				<string>Any</string>
+				<key>BundlePath</key>
+				<string>VermilionBoot.kext</string>
+				<key>Comment</key>
+				<string>Vermilion: brings the RX 7900 XTX up</string>
+				<key>Enabled</key>
+				<true/>
+				<key>ExecutablePath</key>
+				<string>Contents/MacOS/VermilionBoot</string>
+				<key>MaxKernel</key>
+				<string></string>
+				<key>MinKernel</key>
+				<string>25.0.0</string>
+				<key>PlistPath</key>
+				<string>Contents/Info.plist</string>
+			</dict>
+			<dict>
+				<key>Arch</key>
+				<string>Any</string>
+				<key>BundlePath</key>
+				<string>VermilionTrust.kext</string>
+				<key>Comment</key>
+				<string>Vermilion: library validation for Vermilion's own code only (after Lilu)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>ExecutablePath</key>
+				<string>Contents/MacOS/VermilionTrust</string>
+				<key>MaxKernel</key>
+				<string>25.99.99</string>
+				<key>MinKernel</key>
+				<string>25.0.0</string>
+				<key>PlistPath</key>
+				<string>Contents/Info.plist</string>
+			</dict>
+			<dict>
+				<key>Arch</key>
+				<string>Any</string>
+				<key>BundlePath</key>
+				<string>VermilionAudio.kext</string>
+				<key>Comment</key>
+				<string>Vermilion: DisplayPort audio (after Lilu)</string>
+				<key>Enabled</key>
+				<true/>
+				<key>ExecutablePath</key>
+				<string>Contents/MacOS/VermilionAudio</string>
+				<key>MaxKernel</key>
+				<string>25.99.99</string>
+				<key>MinKernel</key>
+				<string>25.0.0</string>
+				<key>PlistPath</key>
+				<string>Contents/Info.plist</string>
+			</dict>
+		</array>
+		<key>Patch</key>
+		<array>
+			<dict>
+				<key>Arch</key>
+				<string>Any</string>
+				<key>Base</key>
+				<string></string>
+				<key>Comment</key>
+				<string>AGDP board-id to board-ix (the same as agdpmod=pikera: Navi cards hang without it)</string>
+				<key>Count</key>
+				<integer>0</integer>
+				<key>Enabled</key>
+				<true/>
+				<key>Find</key>
+				<data>Ym9hcmQtaWQ=</data>
+				<key>Identifier</key>
+				<string>com.apple.driver.AppleGraphicsDevicePolicy</string>
+				<key>Limit</key>
+				<integer>0</integer>
+				<key>Mask</key>
+				<data></data>
+				<key>MaxKernel</key>
+				<string></string>
+				<key>MinKernel</key>
+				<string>25.0.0</string>
+				<key>Replace</key>
+				<data>Ym9hcmQtaXg=</data>
+				<key>ReplaceMask</key>
+				<data></data>
+				<key>Skip</key>
+				<integer>0</integer>
+			</dict>
+		</array>
+	</dict>
+	<key>Misc</key>
+	<dict>
+		<key>Security</key>
+		<dict>
+			<!-- the injected kexts are unsigned -->
+			<key>SecureBootModel</key>
+			<string>Disabled</string>
+		</dict>
+	</dict>
+	<key>NVRAM</key>
+	<dict>
+		<key>Add</key>
+		<dict>
+			<key>7C436110-AB2A-4BBB-A880-FE41995C9F82</key>
+			<dict>
+				<!-- SIP 0x0A03: the AuxKC kext and the optional decoder -->
+				<key>csr-active-config</key>
+				<data>AwoAAA==</data>
+				<!-- ADD these two to your boot-args; do not replace them -->
+				<key>boot-args</key>
+				<string>phxdebug=1 ipc_control_port_options=0</string>
+			</dict>
+		</dict>
+		<key>Delete</key>
+		<dict>
+			<key>7C436110-AB2A-4BBB-A880-FE41995C9F82</key>
+			<array>
+				<string>csr-active-config</string>
+				<string>boot-args</string>
+			</array>
+		</dict>
+	</dict>
+</dict>
+</plist>

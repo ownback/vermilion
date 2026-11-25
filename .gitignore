@@ -8,6 +8,9 @@
 config*.plist
 !src/**/Info.plist
 opencore-*.txt
+# the release's OpenCore fragment and README: templates with no machine values (scripts/release/make-oc-zip.sh)
+!scripts/release/config-snippet.plist
+!scripts/release/OpenCore-README.txt
 *.tgz
 *.zip
 .DS_Store

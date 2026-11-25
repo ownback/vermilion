@@ -158,6 +158,14 @@ static long nvmtl_gpu_wait_budget_ms(void)
 static size_t g_alloc_bytes;
 static uint64_t g_buf_made, g_buf_gone, g_img_made, g_img_gone;
 static uint64_t g_pool_blocks, g_pool_live, g_pool_bytes;
+// Submissions of the main path (nvmtl_vk_submit_begin_at), numbered in queue order, and the highest one whose fence
+// signalled: a fence signal on one queue covers every earlier submission, so every seq <= done has finished on the GPU.
+static _Atomic uint64_t g_gpu_sub_seq, g_gpu_done_seq;
+static void nvmtl_gpu_done_note(uint64_t seq)
+{
+    uint64_t d = atomic_load(&g_gpu_done_seq);
+    while (seq > d && !atomic_compare_exchange_weak(&g_gpu_done_seq, &d, seq)) ;
+}
 static uint64_t g_img_align, g_sys_align;
 void (*nvmtl_purge_report_hook)(const char *why);
 static uint64_t g_budget_delta;
@@ -1188,6 +1196,7 @@ static int memtype(uint32_t bits, VkMemoryPropertyFlags want)
     return -1;
 }
 
+#include "nvmtl_pool_range.h"
 #define NVMTL_POOL_BLOCK (32u << 20)
 #define NVMTL_POOL_MAX   (4u << 20)
 #define NVMTL_POOL_KEEP  2
@@ -1219,8 +1228,9 @@ static int bar1_memtype(uint32_t bits, VkDeviceSize size)
     return -1;
 }
 static int  pool_buffer_create(size_t size, nvk_buffer *out);
-static int  pool_buffer_create_in(int vram, size_t size, nvk_buffer *out);
+static int  pool_buffer_create_in(int kind, size_t size, nvk_buffer *out);
 static int  vpool_on(void);
+static int  ppool_on(void);
 static void pool_buffer_release(nvk_buffer *b);
 #define NVMTL_BUFPARK_N     32
 #define NVMTL_BUFPARK_BYTES (256ull << 20)
@@ -1386,9 +1396,11 @@ static int nvmtl_vk_buffer_create_body(size_t size, int host_visible, nvk_buffer
 {
     if (nvmtl_vk_init()) return -1;
     memset(out, 0, sizeof *out); out->size = size;
-    if (host_visible == 2 && size <= NVMTL_POOL_MAX && vpool_on() && pool_buffer_create_in(1, size, out) == 0) return 0;
+    if (host_visible == 2 && size <= NVMTL_POOL_MAX && vpool_on() && pool_buffer_create_in(NVMTL_POOL_BAR1, size, out) == 0) return 0;
     memset(out, 0, sizeof *out); out->size = size;
     if (host_visible && size <= NVMTL_POOL_MAX && pool_buffer_create(size, out) == 0) return 0;
+    memset(out, 0, sizeof *out); out->size = size;
+    if (nvmtl_pool_private_fits(size, host_visible) && ppool_on() && pool_buffer_create_in(NVMTL_POOL_PRIVATE, size, out) == 0) return 0;
     memset(out, 0, sizeof *out); out->size = size;
     if (bpark_take(size, host_visible, out) == 0) return 0;
     memset(out, 0, sizeof *out); out->size = size;
@@ -1848,7 +1860,7 @@ static VkResult nvmtl_vk_alloc_image_mem(const VkMemoryRequirements *mr, VkDevic
                   (unsigned long long)(g_vram_bytes >> 20), (unsigned long long)(g_sys_bytes >> 20),
                   (unsigned long long)(used >> 20), (unsigned long long)(freev >> 20),
                   (unsigned long long)g_spilled); }
-        else { nvmtl_x420_count(X4_VRAMFULL); nvlog("vk: %s image: VRAM full and no system-memory type takes it (bits 0x%x) -> %d", what, mr->memoryTypeBits, r); }
+        else { nvmtl_x420_count(X4_VRAMFULL); nvlog("vk: %s image: VRAM refused and system memory refused it too (bits 0x%x) -> %d - VRAM full, or the kext's per-process BO handles (debug.phxvm 'BO create refused')", what, mr->memoryTypeBits, r); }
     }
     return r;
 }
@@ -5994,7 +6006,7 @@ static void nvmtl_pre_drop(nvmtl_prologue *p)
     for (unsigned i = 0; i < p->nhold; i++) if (p->hold[i] && nvmtl_pre_release_hook) nvmtl_pre_release_hook(p->hold[i]);
     p->nhold = 0;
 }
-struct nvmtl_inflight { nvk_cmdbuf *c; VkFence fence; nvmtl_prologue pre; uint64_t pt[8]; };
+struct nvmtl_inflight { nvk_cmdbuf *c; VkFence fence; nvmtl_prologue pre; uint64_t pt[8]; uint64_t seq; };
 nvmtl_inflight *nvmtl_vk_inflight_new(void) { return calloc(1, sizeof(nvmtl_inflight)); }
 void nvmtl_vk_inflight_free(nvmtl_inflight *f) { free(f); }
 void nvmtl_vk_gsub_nvk_stats(uint64_t *out, unsigned n)
@@ -6090,7 +6102,12 @@ int nvmtl_vk_submit_begin_at(nvk_cmdbuf *c, nvmtl_inflight *f, const char *who)
     nvmtl_wit_control(wseq);
     const uint64_t sE = nvmtl_perf_now();
     if (pt[0]) { pt[1] = pt[0] + (sA - pt[0]) + (sD - sC); pt[2] = pt[1] + (sB - sA) + (sE - sD); pt[3] = pt[2] + (sC - sB); }
+    // Numbered before the submit: a pooled range released from here on waits for this submission
+    // (pool_buffer_release reads g_gpu_sub_seq without this mutex). A failed submit disables the backend,
+    // so its number never completes and ranges released after it stay held, like the other in-flight resources.
+    const uint64_t seq = atomic_fetch_add(&g_gpu_sub_seq, 1) + 1;
     result = g_state == 1 ? pvkQueueSubmit(g_queue, 1, &si, fence) : VK_ERROR_DEVICE_LOST;
+    if (result == VK_SUCCESS) f->seq = seq;
     pthread_mutex_unlock(&nvmtl_submit_mutex);
     pt[4] = nvmtl_perf_now();
     g_cmd_submitted++;
@@ -6153,6 +6170,7 @@ int nvmtl_vk_submit_finish(nvmtl_inflight *f)
         }
         c->wseq = 0;
     }
+    nvmtl_gpu_done_note(f->seq);
     c->timing.host_after_ns = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     if (c->timing_pool && c->timing.clock.valid) {
         uint64_t pair[4] = {0};
@@ -7837,16 +7855,18 @@ static int nvmtl_vk_image_create_buffer_alias_lifetime_body(uint32_t w, uint32_t
     return 0;
 }
 
-typedef struct { size_t off, len; } pool_range;
 typedef struct pool_block {
-    struct pool_block *next; nvk_heap heap; size_t used; uint32_t nlive;
-    int vram;
-    pool_range *fr; uint32_t nfr, cfr;
+    struct pool_block *next; nvk_heap heap; uint32_t nlive;   // nlive counts held ranges too (nvmtl_range_fifo)
+    int kind;                                                 // NVMTL_POOL_SYS, _BAR1 or _PRIVATE
+    nvmtl_range_set rs;
 } pool_block;
 static pool_block *g_pool;
 #define NVMTL_VPOOL_BLOCK (8u << 20)
 static pool_block *g_vpool;
 static uint64_t g_vpool_blocks;
+static pool_block *g_ppool;
+static uint64_t g_ppool_blocks, g_ppool_held_max, g_ppool_leaked;
+static nvmtl_range_fifo g_ppool_held;
 static pthread_mutex_t g_pool_lock = PTHREAD_MUTEX_INITIALIZER;
 static size_t g_pool_align;
 
@@ -7863,31 +7883,8 @@ static size_t pool_align(void)
     }
     g_pool_align = a; return a;
 }
-static int pool_block_take(pool_block *blk, size_t len, size_t *off)
-{
-    for (uint32_t i = 0; i < blk->nfr; i++) {
-        if (blk->fr[i].len >= len) {
-            *off = blk->fr[i].off; blk->fr[i].off += len; blk->fr[i].len -= len;
-            if (!blk->fr[i].len) blk->fr[i] = blk->fr[--blk->nfr];
-            return 1;
-        }
-    }
-    if (blk->used + len <= blk->heap.size) { *off = blk->used; blk->used += len; return 1; }
-    return 0;
-}
-static void pool_block_give(pool_block *blk, size_t off, size_t len)
-{
-    if (off + len == blk->used) { blk->used = off; }
-    else {
-        for (uint32_t i = 0; i < blk->nfr; i++) {
-            if (blk->fr[i].off + blk->fr[i].len == off) { blk->fr[i].len += len; return; }
-            if (off + len == blk->fr[i].off) { blk->fr[i].off = off; blk->fr[i].len += len; return; }
-        }
-        if (blk->nfr == blk->cfr) { uint32_t c = blk->cfr ? blk->cfr * 2 : 64; pool_range *n = realloc(blk->fr, c * sizeof *n); if (!n) return; blk->fr = n; blk->cfr = c; }
-        blk->fr[blk->nfr].off = off; blk->fr[blk->nfr].len = len; blk->nfr++;
-    }
-    if (!blk->nlive) { blk->used = 0; blk->nfr = 0; }
-}
+static int pool_block_take(pool_block *blk, size_t len, size_t *off) { return nvmtl_range_take(&blk->rs, blk->heap.size, len, off); }
+static void pool_block_give(pool_block *blk, size_t off, size_t len) { nvmtl_range_give(&blk->rs, off, len, blk->nlive); }
 static int vpool_on(void)
 {
     static int on = -1;
@@ -7895,9 +7892,49 @@ static int vpool_on(void)
         if (!on) nvlog("vk: small Shared buffers stay in the system-RAM pool (NVMTL_SHARED_POOL_VRAM=0)"); }
     return on && bar1_on() && !g_bar1_off;
 }
-static const char *pool_place_why(int vram)
+static int ppool_on(void)
 {
-    if (vram) return "VRAM through BAR1";
+    static int on = -1;
+    if (on < 0) { const char *e = getenv("NVMTL_PRIVATE_POOL"); on = !(e && e[0] == '0');
+        nvlog("buffer pool: %s (NVMTL_PRIVATE_POOL=%s)", on ? "device-local buffers up to 256 KiB (Private, and Managed buffers' VRAM copies) share 4 MiB blocks - one kext BO and VA map per block, not per buffer"
+              : "OFF - every device-local buffer takes its own memory (one kext BO each; the kext allows 4095 per process)", e ? e : "unset"); }
+    return on;
+}
+static int ppool_heap_create(size_t size, nvk_heap *out)
+{
+    static uint32_t bits;
+    memset(out, 0, sizeof *out);
+    if (!bits) {
+        VkBufferCreateInfo bci = { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, NULL, 0, 4096, NVMTL_BUFFER_USAGE, VK_SHARING_MODE_EXCLUSIVE, 0, NULL };
+        VkBuffer pb = VK_NULL_HANDLE;
+        if (pvkCreateBuffer(g_dev, &bci, NULL, &pb) != VK_SUCCESS) return -1;
+        VkMemoryRequirements mr; pvkGetBufferMemoryRequirements(g_dev, pb, &mr); pvkDestroyBuffer(g_dev, pb, NULL);
+        bits = mr.memoryTypeBits; if (!bits) return -1;
+    }
+    const int mt = memtype(bits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT); if (mt < 0) return -1;
+    // the plain budget check: g_pool_lock is held, and the full wall's reclaim hook frees resources. Refused here, the
+    // buffer takes the dedicated path, whose wall reclaims outside the lock.
+    uint64_t bfree = 0, bbud = 0, bused = 0; int bmeas = 0;
+    const int gate = nvmtl_vk_vram_wall0(size, &bfree, &bbud, &bused, &bmeas);
+    VkMemoryAllocateFlagsInfo mafi = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO, NULL, VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT, 0 };
+    VkMemoryAllocateInfo mai = { VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, &mafi, size, (uint32_t)mt };
+    void *m = NULL;
+    const VkResult r = gate ? VK_ERROR_OUT_OF_DEVICE_MEMORY : nvmtl_opaque_AllocateMemory(g_dev, &mai, NULL, &m);
+    if (r != VK_SUCCESS) {
+        static unsigned said; if (said++ < 8 || said % 4096 == 0)
+            nvlog("buffer pool: Private block of %zu MiB REFUSED (%s) -> %d: %llu MB free, heapUsage %llu of budget %llu MB - this buffer takes its own memory",
+                  size >> 20, gate ? "our soft gate" : "RM refused it: VRAM, or the kext's BO handles (debug.phxvm)", r,
+                  (unsigned long long)(bfree >> 20), (unsigned long long)(bused >> 20), (unsigned long long)(bbud >> 20));
+        return -1; }
+    nvmtl_vk_budget_charge(size);
+    out->mem = m; out->size = size; out->memtype = (uint32_t)mt; out->host_visible = 0;
+    g_alloc_bytes += size;
+    return 0;
+}
+static const char *pool_place_why(int kind)
+{
+    if (kind == NVMTL_POOL_PRIVATE) return "device-local, for Private buffers and Managed VRAM copies";
+    if (kind == NVMTL_POOL_BAR1) return "VRAM through BAR1";
     if (!bar1_on()) return "system RAM BY DESIGN - Shared is system RAM on a discrete GPU (batch 56; NVMTL_SHARED_VRAM=1 opts in)";
     if (g_bar1_off) return "system RAM - BAR1 REFUSED a VRAM block for this process (see the REFUSED line above)";
     return "system RAM - this request never asked for VRAM (host_visible != 2)";
@@ -7929,19 +7966,52 @@ static int vpool_heap_create(size_t size, nvk_heap *out)
     g_alloc_bytes += size; g_bar1_bytes += size;
     return 0;
 }
-static int pool_buffer_create_in(int vram, size_t size, nvk_buffer *out)
+static pool_block **pool_head(int kind) { return kind == NVMTL_POOL_BAR1 ? &g_vpool : kind == NVMTL_POOL_PRIVATE ? &g_ppool : &g_pool; }
+// A range goes back to its block (g_pool_lock held); a block left empty is freed when its list keeps more than
+// NVMTL_POOL_KEEP empty ones.
+static void pool_put_locked(pool_block *blk, size_t off, size_t len)
+{
+    blk->nlive--; g_pool_live--; g_pool_bytes -= len;
+    pool_block_give(blk, off, len);
+    if (!blk->nlive) {
+        pool_block **head = pool_head(blk->kind);
+        uint32_t empties = 0; for (pool_block *p = *head; p; p = p->next) if (!p->nlive) empties++;
+        if (empties > NVMTL_POOL_KEEP) {
+            pool_block **pp = head; while (*pp && *pp != blk) pp = &(*pp)->next;
+            if (*pp) { *pp = blk->next; const size_t hs = blk->heap.size; const int k = blk->kind;
+                nvmtl_vk_heap_destroy(&blk->heap); free(blk->rs.fr); free(blk); g_pool_blocks--;
+                if (k == NVMTL_POOL_BAR1) { g_vpool_blocks--; g_bar1_bytes -= hs; }
+                if (k == NVMTL_POOL_PRIVATE) { g_ppool_blocks--; g_budget_stale = 1; } }
+        }
+    }
+}
+// Held Private ranges whose submissions have finished go back to their blocks (g_pool_lock held).
+static void ppool_settle_locked(void)
+{
+    nvmtl_held_range h;
+    const uint64_t done = atomic_load(&g_gpu_done_seq);
+    while (nvmtl_fifo_pop_ready(&g_ppool_held, done, &h)) pool_put_locked((pool_block *)h.blk, h.off, h.len);
+}
+static int pool_buffer_create_in(int kind, size_t size, nvk_buffer *out)
 {
     size_t al = pool_align(), len = (size + al - 1) / al * al; if (!len) len = al;
     pthread_mutex_lock(&g_pool_lock);
-    pool_block **head = vram ? &g_vpool : &g_pool;
+    if (kind == NVMTL_POOL_PRIVATE) ppool_settle_locked();
+    pool_block **head = pool_head(kind);
     pool_block *blk = *head; size_t off = 0; int got = 0;
     for (; blk; blk = blk->next) if (pool_block_take(blk, len, &off)) { got = 1; break; }
     if (!got) {
         pool_block *nb = calloc(1, sizeof *nb);
-        if (!nb || (vram ? vpool_heap_create(NVMTL_VPOOL_BLOCK, &nb->heap) : nvmtl_vk_heap_create(NVMTL_POOL_BLOCK, 1, &nb->heap))) { free(nb); pthread_mutex_unlock(&g_pool_lock); return -1; }
-        nb->vram = vram; nb->next = *head; *head = nb; g_pool_blocks++; if (vram) g_vpool_blocks++;
-        nvlog("buffer pool: block #%llu mapped (%zu MiB, %s; %llu VRAM blocks, memory type %u); %llu pooled buffers live in %llu bytes of ranges",
-              (unsigned long long)g_pool_blocks, nb->heap.size >> 20, pool_place_why(vram), (unsigned long long)g_vpool_blocks,
+        const int made = !nb ? -1 : kind == NVMTL_POOL_BAR1 ? vpool_heap_create(NVMTL_VPOOL_BLOCK, &nb->heap)
+                       : kind == NVMTL_POOL_PRIVATE ? ppool_heap_create(NVMTL_PPOOL_BLOCK, &nb->heap)
+                       : nvmtl_vk_heap_create(NVMTL_POOL_BLOCK, 1, &nb->heap);
+        if (made) { free(nb); pthread_mutex_unlock(&g_pool_lock); return -1; }
+        nb->kind = kind; nb->next = *head; *head = nb; g_pool_blocks++;
+        if (kind == NVMTL_POOL_BAR1) g_vpool_blocks++;
+        if (kind == NVMTL_POOL_PRIVATE) g_ppool_blocks++;
+        nvlog("buffer pool: block #%llu %s (%zu MiB, %s; %llu BAR1 VRAM blocks, %llu Private blocks, memory type %u); %llu pooled buffers live in %llu bytes of ranges",
+              (unsigned long long)g_pool_blocks, nb->heap.map ? "mapped" : "made", nb->heap.size >> 20, pool_place_why(kind),
+              (unsigned long long)g_vpool_blocks, (unsigned long long)g_ppool_blocks,
               nb->heap.memtype, (unsigned long long)g_pool_live, (unsigned long long)g_pool_bytes);
         blk = nb; if (!pool_block_take(blk, len, &off)) { pthread_mutex_unlock(&g_pool_lock); return -1; }
     }
@@ -7959,23 +8029,24 @@ static int pool_buffer_create_in(int vram, size_t size, nvk_buffer *out)
         (unsigned long long)g_pool_blocks, (unsigned long long)g_pool_live, (unsigned long long)g_pool_bytes);
     return 0;
 }
-static int pool_buffer_create(size_t size, nvk_buffer *out) { return pool_buffer_create_in(0, size, out); }
+static int pool_buffer_create(size_t size, nvk_buffer *out) { return pool_buffer_create_in(NVMTL_POOL_SYS, size, out); }
 static void pool_buffer_release(nvk_buffer *b)
 {
     pool_block *blk = (pool_block *)b->pool; if (!blk) return;
     pthread_mutex_lock(&g_pool_lock);
-    blk->nlive--; g_pool_live--; g_pool_bytes -= b->alloc;
-    pool_block_give(blk, b->poff, b->alloc);
-    if (!blk->nlive) {
-        pool_block **head = blk->vram ? &g_vpool : &g_pool;
-        uint32_t empties = 0; for (pool_block *p = *head; p; p = p->next) if (!p->nlive) empties++;
-        if (empties > NVMTL_POOL_KEEP) {
-            pool_block **pp = head; while (*pp && *pp != blk) pp = &(*pp)->next;
-            if (*pp) { *pp = blk->next; const size_t hs = blk->heap.size; const int v = blk->vram;
-                nvmtl_vk_heap_destroy(&blk->heap); free(blk->fr); free(blk); g_pool_blocks--;
-                if (v) { g_vpool_blocks--; g_bar1_bytes -= hs; } }
-        }
-    }
+    const uint64_t sub = atomic_load(&g_gpu_sub_seq);
+    const int priv = blk->kind == NVMTL_POOL_PRIVATE;   // read now: pool_put_locked may free the block
+    if (priv && atomic_load(&g_gpu_done_seq) < sub) {
+        // work submitted before this release may still read or write the range: it is reused after that work finished
+        if (nvmtl_fifo_push(&g_ppool_held, (nvmtl_held_range){ blk, b->poff, b->alloc, sub })) {
+            g_ppool_leaked++;   // no memory for the list: the range stays out of use (a leak beats a range the GPU still uses)
+        } else if (nvmtl_fifo_len(&g_ppool_held) > g_ppool_held_max) {
+            g_ppool_held_max = nvmtl_fifo_len(&g_ppool_held);
+            if ((g_ppool_held_max & (g_ppool_held_max - 1)) == 0)
+                nvlog("buffer pool: %llu released Private ranges wait for the GPU (high-water; submission %llu done, %llu made)",
+                      (unsigned long long)g_ppool_held_max, (unsigned long long)atomic_load(&g_gpu_done_seq), (unsigned long long)sub); }
+    } else pool_put_locked(blk, b->poff, b->alloc);
+    if (priv) ppool_settle_locked();
     pthread_mutex_unlock(&g_pool_lock);
     b->pool = NULL;
 }

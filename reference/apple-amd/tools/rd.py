@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Work dir: $REA_WORK (holds kc/ dsc/ syms/ decomp/), default the parent of this folder.
-# rd.py <bin> <vaddr> <n-qwords|ints:N> : dump qwords with fixup decode + symbol
-import struct,sys,subprocess,glob,os,bisect
+# rd.py <bin> <vaddr-hex> <n-qwords|ints:N> : dump qwords with fixup decode + symbol, or N int32s
+# Needs syms/<bin>.txt (README, "Reproduce" step 3).
+import struct,sys,subprocess,os,bisect
 S=os.environ.get('REA_WORK') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 b=sys.argv[1]; data=open(b,'rb').read(); va=int(sys.argv[2],16); mode=sys.argv[3]
 out=subprocess.run(['otool','-l',b],capture_output=True,text=True).stdout

@@ -56,7 +56,8 @@ the XTX machine only `AMDSupport` is loaded.)
 
 ## Reproduce
 
-All read-only. Scripts in [tools/](tools/) (MIT, ours).
+All read-only. Scripts in [tools/](tools/) (MIT, ours). They read the work folder from `REA_WORK` (it holds `kc/`,
+`dsc/`, `syms/` and `decomp/`); the commands below run inside it.
 
 1. `ipsw kernel extract <SystemKernelExtensions.kc> <bundle-id> --imports -o kc/` for each kext above;
    `ipsw kernel extract <BootKernelExtensions.kc> com.apple.kernel -o bootkc/` for xnu's symbols.
@@ -67,7 +68,9 @@ All read-only. Scripts in [tools/](tools/) (MIT, ours).
 5. `tools/vtables.py <bin>` decodes every `vtable for X` (KC chained fixups: low 30 bits are the target, bits 30-31
    the collection; boot-KC targets are `target + 0xffffff8000100000`). `tools/ann.py` then names virtual calls on
    `this` and, with `FAM=<class family>`, on member objects whose type it infers from `X::createX` assignments.
-6. `tools/flow.sh <decomp> <regex> <class>` prints a function's call flow; `tools/srch.py <regex>` finds functions.
+6. `tools/flow.sh <decomp> <regex> <class>` prints a function's call flow; `tools/srch.py <regex>` finds functions;
+   `tools/show.sh` prints a function's decompiled text, `tools/vt.sh` the method at a vtable offset, `tools/rd.py`
+   qwords of a binary with the fixups decoded.
 
 The decompiled output, the extracted binaries and the firmware blobs inside HWLibs stay outside git (hard rule 4:
 no AMD firmware in the repo).

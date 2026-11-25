@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: MIT
-# Work dir: $REA_WORK (holds kc/ dsc/ syms/ decomp/), default the parent of this folder.
+# mkidx.py <export-dir> : writes names.tsv  name<TAB>address<TAB>relative-path  from decompile-index.json
 import json,sys,os
 d=sys.argv[1]
 j=json.load(open(os.path.join(d,'decompile-index.json')))

@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: MIT
 # Work dir: $REA_WORK (holds kc/ dsc/ syms/ decomp/), default the parent of this folder.
-# vtables.py <kext-binary> : writes <out>.vt.tsv  class<TAB>offset<TAB>method  for every "vtable for X" symbol
+# vtables.py <kext-binary> : writes syms/<binary>.vt.tsv  class<TAB>offset<TAB>method  for every "vtable for X" symbol
+# Needs syms/*.txt (README, "Reproduce" step 3).
 import struct,sys,subprocess,glob,os,re
 S=os.environ.get('REA_WORK') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 syms={}
 for p in glob.glob(S+'/syms/*.txt'):
-    kern=p.endswith('kernel.txt')
     for l in open(p,errors='replace'):
         parts=l.rstrip('\n').split(' ',2)
         if len(parts)<3: continue
@@ -18,7 +18,7 @@ out=subprocess.run(['otool','-l',binp],capture_output=True,text=True).stdout
 segs=[];cur={}
 for l in out.splitlines():
     l=l.strip()
-    if l.startswith('cmd '): cur={'cmd':l.split()[1]}; 
+    if l.startswith('cmd '): cur={'cmd':l.split()[1]}
     for k in ('vmaddr','vmsize','fileoff','filesize'):
         if l.startswith(k+' '): cur[k]=int(l.split()[1],0)
     if cur.get('cmd')=='LC_SEGMENT_64' and 'filesize' in cur and cur not in segs: segs.append(cur)

@@ -1,6 +1,8 @@
 # SPDX-License-Identifier: MIT
 # Work dir: $REA_WORK (holds kc/ dsc/ syms/ decomp/), default the parent of this folder.
-# ann.py <export-dir> <name-regex> <this-class> [full]  -> condensed, vcalls on `this` named; IOService-range calls hinted
+# ann.py <export-dir> <name-regex> <this-class> [full] : condensed listing, vcalls on `this` named, IOService-range
+# calls hinted. FAM=<class family> also names vcalls on member objects. Needs names.tsv (mkidx.py) and syms/*.vt.tsv
+# (vtables.py).
 import sys,os,re,glob
 S=os.environ.get('REA_WORK') or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 d,pat,cls=sys.argv[1],sys.argv[2],sys.argv[3]; full=len(sys.argv)>4

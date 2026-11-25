@@ -174,6 +174,20 @@ PROJECT_KNOWLEDGE.
   (cold vs warm passd). Then: find what makes `PKSecureElement registerObserver:` run on a Mac without a Secure
   Element, and report that from the platform (ryzentosh). Until then, a login agent that kickstarts passd is the
   mitigation, unverified.
+- [ ] **Phase 2 item 2: Maps fullscreen, the phase-B GPU capture** (before the branch below is installed;
+  [finding](findings/2026-11-25-maps-fullscreen-perf.md) section 5). The owner holds Maps in the 3D city view; the
+  capture gets GPU time per process (`GPUTIME=1`) and per pass (`/tmp/nvmtl-passtime-request`) in fullscreen, in a
+  window and with Maps in VRAM. It decides between Maps' passes (shaders, MSAA in system memory) and WindowServer's
+  composite for the ~7.5 ms of GPU per frame.
+- [ ] **Phase 2 item 2: deploy the Maps CPU fixes** (branch `ownback/maps-gpu-saturation`; finding section 4): async
+  `replaceRegion:` uploads, bounded, on by default outside WindowServer; cache-hit touches once a minute. A plugin
+  install = trust + EFI change, one boot. Check: Maps' log has `vk: async texture upload ON` and `async texture upload
+  #1`, WindowServer's says OFF; map tiles, labels and icons draw right while panning; no new `FAILED` lines or
+  `Maps-*.ips`; an appcapture in phase A shows no main-thread wait under `replaceRegion:`. Rollback without a
+  restart: create the file `/Library/GPUBundles/nvmtl/async-tex-upload-off` (root), relaunch the app.
+- [ ] **Maps CPU: binary cache keys and the library reload** (S-M, plugin; finding section 4 "Not done here"): JSON
+  keys over VideoToolbox's 242 function constants cost 11-12 % of Maps' CPU, the metallib re-read 5.7-7 %,
+  `nvmtl_surface_keep` 2.4-3.2 %.
 - [ ] **Phase 2 item 2: the plugin's other `syslog()` calls** (`NVMTLX420.m`, `nvmtl_imgmem.c`, `nvmtl_pitch_align.c`,
   `NVMTLWSCapture.m`, `NVMTLHolders.m`, the ANGLE line in `NVMTLDevice.m`) still bypass `nvlog`: move them to the
   `org.vermilion.nvmtl` subsystem too.

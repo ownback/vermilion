@@ -190,6 +190,13 @@ PROJECT_KNOWLEDGE.
   image). A chain of handles would let mip levels and 3D slices of one texture go without those waits. The review
   fixes of #31 (park, unlist by handle, buffer textures synchronous, barrier, byte recheck, atomics, appcapture trap)
   are on the branch ([finding](findings/2026-11-25-maps-fullscreen-perf.md) section 4), host-tested only.
+- [ ] **Async surface copy-in: buffer-backed images stay synchronous** (S, plugin, behaviour change; second clean-up
+  review of #31, read from the code, not seen on hardware). `nvmtl_surfin_async` (opt-in `NVMTL_ASYNC_SURFACE_IN`,
+  off by default) does not test `placed == NVK_PLACED_IN_BUFFER` as `replaceRegion:` now does. A `_vramOn` surface
+  texture is an image in the family's shared VRAM: `nvmtlSurfaceIn` marks that VRAM current right after the submit,
+  so another process can skip its own copy-in and read the VRAM before this process's copy has run (queue order
+  holds inside one process only). Also: `nvmtl_vk_image_migrate` (RES2, off on AMD) takes no upload barrier, unlike
+  `nvmtl_vk_image_reback`; its copy is waited for, so the upload has landed, but the comments name migration.
 - [ ] **Maps CPU: binary cache keys and the library reload** (S-M, plugin; finding section 4 "Not done here"): JSON
   keys over VideoToolbox's 242 function constants cost 11-12 % of Maps' CPU, the metallib re-read 5.7-7 %,
   `nvmtl_surface_keep` 2.4-3.2 %.

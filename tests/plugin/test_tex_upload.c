@@ -5,8 +5,9 @@
    driven with fake fences; the plugin's lock and Vulkan calls around them are left out.
    Arms: the synchronous path leaves nothing pending; a second upload to an image finishes the first; destroy and
    readback finish a pending upload first; a sampling draw finishes nothing; the table bounds what is pending (count
-   and bytes, also when the upload is listed) and a full table takes the synchronous path; reaping a done upload never clears a newer handle; two threads
-   uploading to one image leave one entry, finished at destroy; a parked (recycled) texture carries no pending upload.
+   and bytes, also when the upload is listed) and a full table takes the synchronous path; reaping a done upload never
+   clears a newer handle; two threads uploading to one image leave one entry, finished at destroy; a take unlists the
+   taken handle's entry only; a parked (recycled) texture carries no pending upload.
    cc -fsanitize=address,undefined -I src/metal-plugin tests/plugin/test_tex_upload.c -o /tmp/test_tex_upload && /tmp/test_tex_upload */
 #include <stdio.h>
 #include <stdint.h>

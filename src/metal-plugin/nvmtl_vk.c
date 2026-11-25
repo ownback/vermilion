@@ -6713,8 +6713,9 @@ int nvmtl_vk_cmd_prepare_sampled_image(nvk_cmdbuf *c, nvk_image *img, int storag
 // nvmtl_tex_upload.h for the invariants. An earlier attempt (community PR #96) deferred the wait without this
 // lifetime guard and corrupted IOSurface textures that are uploaded then destroyed; the guard is what makes it
 // safe, and it is a no-op on the synchronous path because up_token is only ever set by an async upload.
-// Pending uploads are listed in the surface-in table (nvmtl_async_surfin.c) and reaped at each new upload (fence
-// polled, never waited), so their staging memory is bounded; a full table takes the synchronous path.
+// Pending uploads are listed in the pending-upload table (nvmtl_tex_upload.h, shared with the async surface copy-in)
+// and reaped at each new upload (fence polled, never waited), so their staging memory is bounded; a full table takes
+// the synchronous path, and so does a buffer texture.
 // On by default outside WindowServer; NVMTL_ASYNC_TEX_UPLOAD=0 turns it off, =1 turns it on in WindowServer too,
 // and the file /Library/GPUBundles/nvmtl/async-tex-upload-off turns it off for processes started after it exists.
 static int nvmtl_async_tex_upload(void)
@@ -6771,7 +6772,8 @@ int nvmtl_vk_image_write_region_level_layer(nvk_queue *q, nvk_image *img, const 
     if (row_bytes < (size_t)cols * bpp) { nvlog("image_write_region: bytesPerRow %zu < %u blocks * %zu B", row_bytes, cols, bpp); return -1; }
     const size_t bytes = (size_t)cols * rows * bpp;
     // Decide sync vs async. Async gives the upload its own staging buffer + command buffer so the submission
-    // can be left in flight; sync keeps the shared per-thread staging buffer and waits (flag off, or a full table).
+    // can be left in flight; sync keeps the shared per-thread staging buffer and waits (flag off, a buffer texture, or
+    // a full table).
     nvmtl_up_state upst = { img->up_token };
     uint64_t finish_first = 0;
     // A buffer texture stays synchronous: its bytes are the MTLBuffer's, and the app may read them through -contents

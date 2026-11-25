@@ -14,9 +14,9 @@
    its own staging buffer and its handle is stored on the image (img->up_token, the NVMTL_ASYNC_TEX_UPLOAD machinery): a
    readback, migration, destroy or the next upload of that image finishes it first (nvmtl_vk_image_upload_barrier).
    Completed uploads are reaped at each new one (fence polled, never waited) so the staging memory they hold is bounded:
-   at most NVMTL_UPTAB_N uploads and NVMTL_UPTAB_CAP bytes pending (the table is nvmtl_tex_upload.h's); above that the upload takes the synchronous path.
-   replaceRegion's async uploads (NVMTL_ASYNC_TEX_UPLOAD, on by default outside WindowServer) are listed in the same
-   table and count against the same bounds. */
+   at most NVMTL_UPTAB_N uploads and NVMTL_UPTAB_CAP bytes pending (the table is nvmtl_tex_upload.h's); above that the
+   upload takes the synchronous path. replaceRegion's async uploads (NVMTL_ASYNC_TEX_UPLOAD, on by default outside
+   WindowServer) are listed in the same table and count against the same bounds. */
 #define NVMTL_SURFIN_SYNC (-2)
 static _Atomic uint64_t g_surfin_async, g_surfin_sync, g_surfin_reaped;   // counters for the log, from any thread
 static int nvmtl_async_surface_in(void)
@@ -29,6 +29,7 @@ static int nvmtl_async_surface_in(void)
     }
     return on;
 }
+// nvmtl_uptab_reap's test of one pending upload: has its fence signalled? Polled, never waited (timeout 0).
 static int nvmtl_asyncup_done(uint64_t h, void *ctx)
 {
     (void)ctx;
@@ -103,7 +104,8 @@ static int nvmtl_surfin_async(nvk_queue *q, nvk_image *img, const void *src, siz
     pvkCmdPipelineBarrier(c->cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &toRead);
     img->layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     if (nvmtl_vk_submit_begin_at(c, &au->infl, "surface upload async")) { nvmtl_vk_buffer_destroy(&au->stage); free(au); return -1; }
-    // another thread filled the table since the check: this one was waited for after all
+    // refused (other threads took the table's room since the check, or listed their own upload to this image): this
+    // one was waited for after all
     unsigned pend_n; size_t pend_bytes;
     if (!nvmtl_asyncup_list(img, au, bytes, &pend_n, &pend_bytes)) { g_surfin_sync++; return 0; }
     const uint64_t n = ++g_surfin_async;

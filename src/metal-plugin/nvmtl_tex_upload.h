@@ -82,8 +82,8 @@ static inline int nvmtl_uptab_room(const nvmtl_uptab *t, size_t bytes)
 
 // Lists upload `h` of `bytes` staging bytes on the image whose handle is *tok. Returns 0 (nothing changed) if the
 // table has no room for it (count or bytes: another thread may have listed uploads since the caller's room check) or
-// the image already has a pending upload (another thread uploaded to it at the same time): the caller
-// then finishes `h` itself. So an image has at most one entry, and it is the handle on the image.
+// the image already has a pending upload (another thread uploaded to it at the same time): the caller then finishes
+// `h` itself. So an image has at most one entry, and it is the handle on the image.
 static inline int nvmtl_uptab_list(nvmtl_uptab *t, uint64_t *tok, uint64_t h, size_t bytes)
 {
     if (!nvmtl_uptab_room(t, bytes) || *tok) return 0;

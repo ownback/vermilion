@@ -237,6 +237,7 @@ a 30 s run, read the sample's `Date/Time` and its length before attributing it t
 ## 9. Unverified
 
 - The GPU split in phase B (section 2): no GPU timing of Maps exists. The ~2.1 ms composite is Horizon's figure.
-- The effect of this branch's changes on hardware: built and host-tested only, the review fixes included. Whether the async upload is correct in
-  every app (texture contents, IOSurface textures) is checked by the deploy steps, not by a test on the GPU.
+- The effect of this branch's changes on hardware: built and host-tested only, the review fixes included. Whether the
+  async upload is correct in every app (texture contents, IOSurface textures) is checked by the deploy steps, not by
+  a test on the GPU.
 - The rates in section 2 point 3 come from log census lines over 3-13 s windows, not a profiler.

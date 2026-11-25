@@ -34,6 +34,19 @@ several reviewed boots each; they start this week and may not finish.
 | B5 | Warm restart without the SMU unload (D5, D6) | Driver quiesces the GPU before restart | Linux's SMU unload at restart (hw-safety) | M | 2 | restarts, no stall reports |
 | B6 | Boot picker, verbose text, no Apple logo (D1) | Apple logo, no picker | Release profile in ryzentosh (EFI change) | S | 1 | boot looks like a Mac |
 
+## Track C: release and the rest of phase 2 (agents started 2026-11-25 ~20:15)
+
+The owner's target widened the same evening: publishable for real users by the end of the week, clean install.
+
+| # | Item | Agent branch |
+|---|---|---|
+| C1 | Release readiness: install shape, firmware sourcing, licence audit, Apple-code and personal-data scan, other-machine safety, user docs, installer, release checklist | `ownback/release-readiness` |
+| C2 | HDR (item 4), replug / monitor power / input switch (5), display sleep (6), DDC/CI (9), Night Shift / calibration (D22) | `ownback/display-parity` |
+| C3 | GPU hang recovery (7), 4K video async decode, H.264, AV1 fallback, WebGPU render bundles (10) | `ownback/hang-video-parity` |
+| C4 | Comparison with Apple's own AMD driver stack on this macOS (ioreg, Metal answers, PerformanceStatistics, install layout) | `ownback/apple-amd-comparison` |
+
+Owner contact: a message that needs the owner starts with **PING!**. Subagents get a model sized to the task.
+
 ## Order
 
 1. Now: agents on A2+A3, A4, A5+A6, B1 design, B2 design, B3+B4 design (A1 and A7 already running).

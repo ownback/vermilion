@@ -468,9 +468,12 @@ echo bringup >"$MARK"; sync
 # later one is the bring-up watchdog's restart (3 min) of a hung bring-up, or a shutdown during one: the mark stays and
 # the next boot counts it, as before. Either way the daemon then waits for the bring-up to end, so nothing in it stops
 # sooner than before, and exits without a claim.
-UPF="$WSPTMP/phxboot-up.$$.log"; UPT0=$(date +%s); UPTERM=0
+# A clean shutdown before the claim also takes phxfb-boot back (set above for PhxAMDFB's start at the claim; no
+# PhxAMDFB consumed it): with the mark cleared, the next boot's oneshots_off doesn't run (hw-safety review 2026-11-25).
+# The output file comes from mktemp: root writes it in /tmp, where a fixed name could be a planted link.
+UPF=$(mktemp "$WSPTMP/phxboot-up.XXXXXX" 2>/dev/null) || UPF=/var/db/phxboot-up.log; UPT0=$(date +%s); UPTERM=0
 up_term(){ local s; [ $UPTERM = 1 ] && return 0; UPTERM=1; s=$(( $(date +%s) - UPT0 ))
-  if [ $s -lt "${PHXBOOT_UP_HANG:-60}" ]; then rm -f "$MARK"; sync
+  if [ $s -lt "${PHXBOOT_UP_HANG:-60}" ]; then rm -f "$MARK"; [ $DESK = 1 ] && nvram -d phxfb-boot; sync
     echo "clean shutdown (TERM) at $(date '+%T') during the bring-up (${s}s in): in-progress mark cleared, not counted; no claim"
   else echo "TERM at $(date '+%T') after ${s}s of the bring-up (it takes about 10 s): a hung bring-up (the bring-up watchdog restarts after 3 min): the in-progress mark stays, the next boot counts it"; fi
   b21_on "shutdown (TERM) during the bring-up"; }
@@ -479,8 +482,8 @@ bash "$G/phxctl/navi31_up.sh" >"$UPF" 2>&1 & UPPID=$!
 wait $UPPID; UPRC=$?
 while [ $UPTERM = 1 ] && kill -0 $UPPID 2>/dev/null; do wait $UPPID; UPRC=$?; done   # after a TERM: until it ends
 UPOUT=$(cat "$UPF" 2>/dev/null); rm -f "$UPF"
-trap 'echo "clean shutdown (TERM) at $(date "+%T") before the desktop attempt: in-progress mark cleared"; rm -f "$MARK"; sync
-      b21_on "shutdown (TERM) before the desktop attempt"; exit 0' TERM
+trap 'echo "clean shutdown (TERM) at $(date "+%T") before the desktop attempt: in-progress mark cleared"; rm -f "$MARK"
+      [ $DESK = 1 ] && nvram -d phxfb-boot; sync; b21_on "shutdown (TERM) before the desktop attempt"; exit 0' TERM
 echo "$UPOUT" | tail -4
 [ $UPTERM = 1 ] && { echo "the bring-up ended after the shutdown's TERM: no claim"; exit 0; }
 UPOK=0; [ $UPRC = 0 ] && echo "$UPOUT" | grep -q "navi31 up:" && UPOK=1   # the GPU came up: navi31_up.sh's last line

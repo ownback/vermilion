@@ -22,6 +22,8 @@ several reviewed boots each; they start this week and may not finish.
 | A5 | WebGL shader cache can't be stored (A14) | Safari's GPU process caches in its container | Cache path the sandbox allows | S | 1 | WebGL page loads twice, fast |
 | A6 | Video decoder on the system volume (M, TODO 09) | Decoders load through AppleGVA from a normal bundle path | `PhxVA.bundle` route from `/Library/GPUBundles`; then restore the sealed snapshot (owner's OK: system volume) | M | 2 | YouTube HEVC/AV1 |
 | A7 | passd started by a login agent | T2 Mac: service exists, passd starts at login | `ryzentosh-sse` kext (own thread), then remove `local.phxpassd` | S | 1 (EFI) | Music opens fast at once after login |
+| A8 | DP audio through a Lilu patch of AppleGFXHDA (release audit #35) | AppleGFXHDA takes the card with no patch | Test whether a `device-id` of `0xab28` on the audio function makes AppleGFXHDA take its Navi 21 path unpatched | S | 1 (EFI) | monitor sound |
+| A9 | XT paths left in user space (the XT is dropped) | One supported GPU, no dead variants | Drop Mesa 0016-0018's `navi31_xt` profile with A4's hardware-read device info; XT branches in scripts and plugin | S | with A4 | none |
 
 ## Track B: kernel and display (designs now, hw-safety, boots later)
 
@@ -29,7 +31,7 @@ several reviewed boots each; they start this week and may not finish.
 |---|---|---|---|---|---|---|
 | B1 | GPU power-up by a user-space daemon (D3); boot to desktop via WindowServer restart, login rewrites, auto-login by the daemon (D2, D28); Metal device after the daemon (A1); OpenGL ~2 min after login (A10); DP audio set up by the daemon ~2.5 min after boot (M); idle power by daemon flags (M); release shape (M) | The kext brings the GPU up in `start`, before WindowServer; Metal, GL and audio exist at login | Bring-up in `PhxBringup::start` from Linux amdgpu's sequence (hw-safety at every step), DC audio programmed by the kernel with the display, DPM in the kext; the daemon shrinks to nothing | XL | many, one step per boot | cold boot to an accelerated login with sound |
 | B2 | Mode setting from replayed Linux captures (D10, D14); other sizes by CPU copy (D11); a failed EDID read serves another EDID (D15) | The driver computes timings and trains the link itself from EDID/DPCD | Own DCN mode setting and link training (hw-safety), GPU present at every size, report "no EDID" | XL | many | every mode, every size |
-| B3 | VermilionAccel from the AuxKC with an Allow click (A20) | Kexts load without a user click | Load from OpenCore (dependencies outside the Boot KC) | L | 1-2 | no Allow prompt |
+| B3 | VermilionAccel from the AuxKC with an Allow click (A20) | Kexts load without a user click | **Dropped** by the owner (2026-11-25): the Allow click stays, a known limit | - | - | - |
 | B4 | VermilionTrust with fixed AMFI offsets (A21) | No library-validation patch at all on a Mac | Find the slots at boot and refuse cleanly; cdhashes as data. Long term: signing that needs no patch | M | 1 | none |
 | B5 | Warm restart without the SMU unload (D5, D6) | Driver quiesces the GPU before restart | Linux's SMU unload at restart (hw-safety) | M | 2 | restarts, no stall reports |
 | B6 | Boot picker, verbose text, no Apple logo (D1) | Apple logo, no picker | Release profile in ryzentosh (EFI change) | S | 1 | boot looks like a Mac |
@@ -47,6 +49,21 @@ The owner's target widened the same evening: publishable for real users by the e
 | C5 | From the comparison (#33): per-process GPU time (N1), GPU sensors (N2), GPU counters for Instruments (N6), power-policy node (N8) | `ownback/gpu-stats-parity` |
 | C6 | System Information ROM / Slot rows (N4), plugin bundle identity (N7), DP audio name's stray byte | `ownback/sysinfo-identity` |
 | C7 | Hardware encode and IOGVA codec keys (N3) | `ownback/video-encode-parity` |
+
+## Release items (from the owner's decisions on #35, [decisions.md](decisions.md))
+
+IDs R1, F1, G1 and A8 are the release audit's ([finding](findings/2026-11-25-release-readiness.md), section 1).
+
+| # | Item | State |
+|---|---|---|
+| R1 | **Blocker for strangers:** the AIR reader built by this project (LLVM 21.1.8 `libLLVM.dylib` from source in CI, notices in the bundle); today it only comes from NullMoth's bundle | not started |
+| P1 | **Blocker:** the release artefacts of [docs/RELEASE.md](../docs/RELEASE.md): `Vermilion-<ver>.pkg` (checks the macOS build and GPU; its post-install script fetches the firmware with `fetch_firmware.sh` and checks md5 plus SHA-256), the OpenCore zip with `config-snippet.plist`, `SHA256SUMS`, the uninstaller | not started |
+| F1 | No AMD bytes in any release binary: VermilionBoot reads the C3 slice at run time from the installed firmware instead of compiling it in (hw-safety review of the load path) | not started |
+| G1 | RX 7900 XTX only: the kexts refuse every other `0x744c` variant | #37 merged, not installed (needs the owner for the Allow click) |
+| K1 | Every kext in its own clean repo with CI and a GitHub release (ryzentosh-sse first) | ryzentosh-sse ready; the `v0.1.0` tag waits on the owner |
+| C8 | Apple AMD reference: Apple's RDNA 2 stack (AMDRadeonX6000*) reverse engineered with REA into `reference/apple-amd/`; every parity item compares against it | PR #38 |
+
+Commits use the GitHub noreply address from 2026-11-25 on; the old history stays.
 
 Apple ships no Navi 31 support (#33): the reference for parity is Apple's RDNA 2 (Navi 21/23) stack on this macOS.
 Owner contact: a message that needs the owner starts with **PING!**. Subagents get a model sized to the task.

@@ -179,7 +179,7 @@ mode setting).
 - `machine-lock` didn't parse since #18 (missing `esac`): fixed on `ownback/megamind`, `guard_test` runs it.
 - The guard blocked read-only SIP status reads: fixed on `ownback/megamind`.
 - The guard blocked Bash commands that only mentioned the rollback folder, the ESP mount path or `shutdown` (heredoc
-  bodies, quoted text, read commands): fixed on `ownback/tooling-guard-efi`. Heredoc bodies fed to data commands and
+  bodies, quoted text, read commands): fixed in #32 (merged 2026-11-25). Heredoc bodies fed to data commands and
   quoted text given to read commands (`ls`, `cat`, `diff`, `cmp`, `grep`, `stat`, `echo`, `codesign -d` ...) and to
   `git`/`gh` are ignored; redirects, `tee`, `cp`, `rm`, shell/interpreter heredocs and `sh -c` still need the lock.
   The rollback folder and `/private/tmp/efi` are now protected paths for writes. The review of #32 found writes the
@@ -188,9 +188,11 @@ mode setting).
   read-only, and anything else gets the whole-text test (fail closed). It also closed old gaps: `sysctl` writes,
   `pmset` writes, `nvram -f`, `osascript ... restart`, `efi/build.py install`, `codesign --sign/--force`, `sed` with
   `-i` anywhere, `"$HOME"/gpu` paths, git/gh writing into protected paths, interpreter heredocs, `/etc`.
-  `tests/hooks/guard_cases.py` holds the 298 adversarial rows; `guard_test` runs them.
+  `tests/hooks/guard_cases.py` holds the 298 adversarial rows; `guard_test` runs them. Known limits (deliberate
+  spellings, unknown write tools, a script written in one call and run in another) are in decisions.md: it guards
+  against accidents, it is not a sandbox.
 - `efi/build.py build` and `install` now require `--stage` (the old silent default built the wrong EFI); the error
-  lists the stages (`ownback/tooling-guard-efi`).
+  lists the stages (#32).
 - The link gate passed a kext that can't load from OpenCore (IOGraphicsFamily is in the System KC) (thread 04).
 - `~/gpu/phxboot-navi31.sh` and `phxboot-pre.sh` belong to the desktop user but run as root (TODO 06).
 - `src/vermilion-accel/accel/re/IOGraphicsAccelerator2.h:18` quotes an instruction from Apple's binary (rule 6,
@@ -199,5 +201,7 @@ mode setting).
 
 ## Open decisions
 
-- The XT question (keep the detection code, drop it, rename): the owner's.
+- The XT question: decided 2026-11-25, the XT is dropped ([decisions.md](decisions.md), release decisions). #37
+  (merged, not installed yet: VermilionBoot b161, VermilionAccel 0.1.1, VermilionAudio 1.7.3) makes the kexts
+  refuse every board but the XTX; the XT left in user space is plan item A9.
 - HDMI output: after phase 2, before ryzentosh (owner, 2026-11-24).

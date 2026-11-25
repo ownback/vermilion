@@ -12,7 +12,7 @@
 #   smbios       a plist with a filled SystemSerialNumber, MLB, ROM or SystemUUID
 #   firmware     a file whose md5 is one of tools/firmware/fw.lock's AMD firmware files, or a Mach-O that defines
 #                the C3 firmware slice (kPhxC3Image; found only while symbols are present)
-#   edid-serial  an EDID block (in a binary file) with a serial number (bytes 12-15, or a 0xFF descriptor)
+#   edid-serial  an EDID block (in a binary file) with a serial number (bytes 12-15, or a 0xFF descriptor with text)
 #   apple-asm    an AT&T x86 instruction with operands in a text file, outside an asm statement (rule 6: no Apple
 #                disassembly; our own asm is in __asm__ / asm())
 #   commit-email (--commits) a commit whose author or committer address isn't a GitHub / Anthropic noreply address
@@ -86,7 +86,8 @@ PAT_HOME='/(Users|home)/[A-Za-z0-9<._-]+'
 PAT_ASM='(movl|movq|leal|leaq|cmpl|cmpq|testl|testq|callq|jmpq|btl|xorl|addl|subl)[[:space:]]+[$%-][^ ]*,'
 
 # EDIDs with a serial, in one binary file: hex-dump it, find each 8-byte header, and look at the serial bytes (12-15)
-# and the four 18-byte descriptors (bytes 54-125) for a "00 00 00 ff" serial-string descriptor.
+# and the four 18-byte descriptors (bytes 54-125) for a "00 00 00 ff" serial-string descriptor with text in it (an
+# emptied one, 0x0A then space padding as in docs/EDID.md, or all spaces or NULs, is no serial).
 edid_serials() {
   od -An -v -tx1 "$1" | tr -d ' \n' | awk -v f="$1" '{
     s = $0; off = 0
@@ -94,7 +95,8 @@ edid_serials() {
       b = substr(s, i, 256)
       if (length(b) == 256 && (off + i - 1) % 2 == 0) {
         bad = substr(b, 25, 8) != "00000000"
-        for (d = 0; d < 4; d++) if (substr(b, 109 + d * 36, 8) == "000000ff") bad = 1
+        for (d = 0; d < 4; d++)
+          if (substr(b, 109 + d * 36, 8) == "000000ff" && substr(b, 119 + d * 36, 26) !~ /^(0a)?(20|00)*$/) bad = 1
         if (bad) print f ": EDID at byte " (off + i - 1) / 2
       }
       off += i + 15; s = substr(s, i + 16)

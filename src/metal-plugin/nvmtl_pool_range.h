@@ -3,9 +3,9 @@
    VkDeviceMemory block, so they share one kext BO handle and one GPU VA map. First fit in the freed ranges, else a bump
    from the block's high-water mark; a block whose last range comes back starts over. Pure (no Vulkan, no locks: the
    caller holds g_pool_lock), so a host test can run it (tests/plugin/test_pool_range.c).
-   The kext gives each process 4095 BO handles (PHXN_MAX_BOS) and 4096 VA maps: one BO per small device-local buffer
-   (Managed buffers' VRAM copies, 4 to 800 B) ran Maps out of handles with 6 GB of VRAM free (finding
-   2026-11-25-maps-allocation-limit.md). */
+   The kext gives each process 4095 BO handles (PHXN_MAX_BOS 4096, handle 0 unused) and 4096 VA maps: one BO per small
+   device-local buffer (Managed buffers' VRAM copies, 4 to 798 B) ran Maps out of handles with 6 GB of VRAM free
+   (finding 2026-11-25-maps-allocation-limit.md). */
 #ifndef NVMTL_POOL_RANGE_H
 #define NVMTL_POOL_RANGE_H
 #include <stddef.h>
@@ -33,7 +33,8 @@ static inline int nvmtl_range_take(nvmtl_range_set *s, size_t cap, size_t len, s
     return 0;
 }
 
-/* [off, off + len) is free again; nlive is the block's live range count after this release. */
+/* [off, off + len) is free again; nlive is the block's live range count after this release (0: the block starts
+   over). */
 static inline void nvmtl_range_give(nvmtl_range_set *s, size_t off, size_t len, uint32_t nlive)
 {
     if (!nlive) { s->used = 0; s->nfr = 0; return; }
@@ -42,9 +43,9 @@ static inline void nvmtl_range_give(nvmtl_range_set *s, size_t off, size_t len, 
         if (s->fr[i].off + s->fr[i].len == off) { s->fr[i].len += len; return; }
         if (off + len == s->fr[i].off) { s->fr[i].off = off; s->fr[i].len += len; return; }
     }
-    if (s->nfr == s->cfr) {   // no memory for the list: the range stays unused until the block empties
+    if (s->nfr == s->cfr) {
         uint32_t c = s->cfr ? s->cfr * 2 : 64; pool_range *n = (pool_range *)realloc(s->fr, c * sizeof *n);
-        if (!n) return;
+        if (!n) return;   // no memory for the list: the range stays unused until the block empties
         s->fr = n; s->cfr = c; }
     s->fr[s->nfr].off = off; s->fr[s->nfr].len = len; s->nfr++;
 }
@@ -60,7 +61,8 @@ static inline int nvmtl_pool_private_fits(size_t size, int host_visible) { retur
 /* A released Private range waits here until the GPU completed every submission made before its release (seq = the last
    submission then): the guarantee the kext gave a dedicated BO, whose free it defers until the client's work retired. */
 typedef struct { void *blk; size_t off, len; uint64_t seq; } nvmtl_held_range;
-typedef struct { nvmtl_held_range *q; uint32_t head, n, cap; } nvmtl_range_fifo;
+typedef struct { nvmtl_held_range *q; uint32_t head, n, cap; } nvmtl_range_fifo;   /* entries: q[head .. n) */
+/* Appends r (callers push in non-decreasing seq order): 0, or -1 when there is no memory for the list. */
 static inline int nvmtl_fifo_push(nvmtl_range_fifo *f, nvmtl_held_range r)
 {
     if (f->n == f->cap && f->head) {

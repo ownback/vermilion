@@ -14,6 +14,7 @@ static uint32_t rnd(void) { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17;
 #define CAP  (4u << 20)
 #define AL   256u
 #define NMAX 20000
+#define MAPS_PEAK_LIVE 7632   /* the most buffers Maps had live at once (2026-11-25 log) */
 typedef struct { size_t off, len; } live_t;
 static live_t live[NMAX]; static uint32_t nlive;
 
@@ -51,7 +52,7 @@ int main(void)
     // A Maps-like churn: tens of thousands of creates, a live window of thousands, random frees.
     nlive = 0; int sound = 1, refused = 0; uint64_t takes = 0;
     for (int step = 0; step < 200000; step++) {
-        const int grow = nlive < 200 || (nlive < 7632 && rnd() % 100 < 55);
+        const int grow = nlive < 200 || (nlive < MAPS_PEAK_LIVE && rnd() % 100 < 55);
         if (grow) {
             size_t len = len_of(rnd()), off;
             if (!nvmtl_range_take(&s, CAP, len, &off)) { refused++; continue; }
@@ -110,9 +111,9 @@ int main(void)
         if ((step & 15) == 0) sub++;
         const uint64_t done = sub > 3 ? sub - 3 : 0;
         while (nvmtl_fifo_pop_ready(&held, done, &h)) { uint32_t k = (uint32_t)(uintptr_t)h.blk; bl[k]--; nvmtl_range_give(&blk[k], h.off, h.len, bl[k]); }
-        const int grow = pn < 7632 && (pn < 1000 || rnd() % 100 < 52);
+        const int grow = pn < MAPS_PEAK_LIVE && (pn < 1000 || rnd() % 100 < 52);
         if (grow) {
-            const size_t want = msz[rnd() % 8]; routed &= nvmtl_pool_private_fits(want, 0);
+            const size_t want = msz[rnd() % (sizeof msz / sizeof msz[0])]; routed &= nvmtl_pool_private_fits(want, 0);
             const size_t len = (want + AL - 1) / AL * AL; size_t off = 0; uint32_t k = 0;
             while (k < nblocks && !nvmtl_range_take(&blk[k], NVMTL_PPOOL_BLOCK, len, &off)) k++;
             if (k == nblocks) { if (nblocks == BLOCKS) { fit = 0; break; } nblocks++; nvmtl_range_take(&blk[k], NVMTL_PPOOL_BLOCK, len, &off); }

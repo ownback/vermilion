@@ -266,11 +266,6 @@ b21_off(){ b21_ok || return 0
 if b21_ok; then b21_on "daemon start"
 else al_off "daemon start";  echo "b21guard: off (~/gpu/phxboot-b21guard = 0): SHOWFULLNAME not managed$([ -e "$B21ORIG" ] && echo " (a guard ON left by an earlier boot stays: the user's value '$(cat "$B21ORIG")' is in $B21ORIG)")"; fi
 [ -e "$NOTICE" ] && { rm -f "$NOTICE"; echo "notice: one from an earlier boot was never shown: dropped"; }
-# Safe Mode (Shift at startup; XNU's -x, kern.safeboot 1): no bring-up, no kmutil load, nothing armed, the record and the
-# in-progress mark left for the next normal boot. A Mac in Safe Mode runs without its third-party drivers too.
-if [ "$(sysctl -n kern.safeboot 2>/dev/null)" = 1 ]; then echo "safe mode (kern.safeboot 1): no bring-up, nothing armed this boot"; exit 0; fi
-if [ -e "$NOTICE_NEXT" ]; then CARRY=$(head -1 "$NOTICE_NEXT" 2>/dev/null); rm -f "$NOTICE_NEXT"; sync
-  echo "notice: the last boot left one for this boot (shown after login unless this boot has its own): $CARRY"; fi
 # Squat detection (11-02): poll until PhxFBSquatter (squat boot) or an
 # IOFramebuffer (IONDRV/GOP boot) appears, up to 60 s. The old one-shot check ran before the squatter attached on fast
 # boots (no -v: the daemon starts ~4 s after the kernel), read 0, and wait_fb then waited 90 s for a framebuffer the
@@ -281,6 +276,24 @@ for ((sq=0; sq<${PHXBOOT_SQUAT_WAIT:-60}; sq++)); do
   ioreg -rc IOFramebuffer -d0 | grep -q 'class ' && { SQWHY="IOFramebuffer after ${sq}s"; break; }
   sleep 1
 done
+# Safe Mode (Shift at startup; XNU's -x, kern.safeboot 1): no bring-up, no kmutil load, nothing armed, the record and the
+# in-progress mark left for the next normal boot. A Mac in Safe Mode runs without its third-party drivers too. The
+# squat detection above (ioreg reads only) runs first, for this: a squat boot in Safe Mode has no picture. VermilionBoot
+# (OSBundleRequired Root) loads in Safe Mode and PhxFBSquatter squats whenever phxfb-squat is set (it has no -x check),
+# so IONDRV never starts, and PhxAMDFB, in VermilionAccel in the AuxKC, which Safe Mode doesn't load (unverified), never
+# takes the screen. Nothing in the running boot can give it back: `release` is PhxAMDFB's own hold (debug.phxfb_hold),
+# not the squat, and terminating the squatter hot-resets the GPU (hard rule 1). The fix is VermilionBoot not squatting
+# with -x (.agents/findings/2026-11-25-recovery-trap-design.md, plan step 2). Until then the log says so, and the next
+# normal boot tells the user why the screen stayed dark.
+if [ "$(sysctl -n kern.safeboot 2>/dev/null)" = 1 ]; then
+  if [ $SQUAT = 1 ]; then
+    echo "safe mode (kern.safeboot 1): no bring-up, nothing armed this boot; PhxFBSquatter holds the framebuffer and Safe Mode starts no PhxAMDFB: no picture this boot (until VermilionBoot doesn't squat in Safe Mode, plan step 2); ssh and T3 reach the machine"
+    notice_next "Safe Mode can't show a picture on this Mac yet, so the screen stayed dark. Start up normally instead."
+  else echo "safe mode (kern.safeboot 1): no bring-up, nothing armed this boot"; fi
+  exit 0
+fi
+if [ -e "$NOTICE_NEXT" ]; then CARRY=$(head -1 "$NOTICE_NEXT" 2>/dev/null); rm -f "$NOTICE_NEXT"; sync
+  echo "notice: the last boot left one for this boot (shown after login unless this boot has its own): $CARRY"; fi
 # GPU state at a hang, logged before any revert so the next boot can tell a GPU hang from a WindowServer-side stall
 HANGDIR=${PHXBOOT_HANGDIR:-/var/log}; PTWALK=${PHXBOOT_PTWALK:-$G/ptwalk.sh}
 # GPU state at a hang, kept in $HANGDIR/phxhang-<time>/ (survives the revert reboot; /tmp does not): GC status, the VM

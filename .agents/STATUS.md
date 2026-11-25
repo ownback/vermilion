@@ -203,5 +203,5 @@ mode setting).
 
 - The XT question: decided 2026-11-25, the XT is dropped ([decisions.md](decisions.md), release decisions). #37
   (merged, not installed yet: VermilionBoot b161, VermilionAccel 0.1.1, VermilionAudio 1.7.3) makes the kexts
-  refuse every board but the XTX; the XT left in user space is plan item A8.
+  refuse every board but the XTX; the XT left in user space is plan item A9.
 - HDMI output: after phase 2, before ryzentosh (owner, 2026-11-24).

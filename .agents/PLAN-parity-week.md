@@ -22,7 +22,8 @@ several reviewed boots each; they start this week and may not finish.
 | A5 | WebGL shader cache can't be stored (A14) | Safari's GPU process caches in its container | Cache path the sandbox allows | S | 1 | WebGL page loads twice, fast |
 | A6 | Video decoder on the system volume (M, TODO 09) | Decoders load through AppleGVA from a normal bundle path | `PhxVA.bundle` route from `/Library/GPUBundles`; then restore the sealed snapshot (owner's OK: system volume) | M | 2 | YouTube HEVC/AV1 |
 | A7 | passd started by a login agent | T2 Mac: service exists, passd starts at login | `ryzentosh-sse` kext (own thread), then remove `local.phxpassd` | S | 1 (EFI) | Music opens fast at once after login |
-| A8 | XT paths left in user space (the XT is dropped) | One supported GPU, no dead variants | Remove Mesa 0016's `navi31_xt` profile, XT branches in scripts and plugin, stale XT comments (the kexts are G1) | S | 1 (RADV = trust + EFI) | none |
+| A8 | DP audio through a Lilu patch of AppleGFXHDA (release audit #35) | AppleGFXHDA takes the card with no patch | Test whether a `device-id` of `0xab28` on the audio function makes AppleGFXHDA take its Navi 21 path unpatched | S | 1 (EFI) | monitor sound |
+| A9 | XT paths left in user space (the XT is dropped) | One supported GPU, no dead variants | Drop Mesa 0016-0018's `navi31_xt` profile with A4's hardware-read device info; XT branches in scripts and plugin | S | with A4 | none |
 
 ## Track B: kernel and display (designs now, hw-safety, boots later)
 
@@ -51,12 +52,16 @@ The owner's target widened the same evening: publishable for real users by the e
 
 ## Release items (from the owner's decisions on #35, [decisions.md](decisions.md))
 
+IDs R1, F1, G1 and A8 are the release audit's ([finding](findings/2026-11-25-release-readiness.md), section 1).
+
 | # | Item | State |
 |---|---|---|
-| R1 | Apple AMD reference: Apple's RDNA 2 stack (AMDRadeonX6000*) reverse engineered with REA into `reference/apple-amd/`; every parity item compares against it | agent on `ownback/apple-amd-re` |
-| G1 | RX 7900 XTX only: the kexts refuse every other `0x744c` variant | PR #37 (clean-up pass, then a deploy with the owner for the Allow click) |
-| F1 | Firmware not shipped: a kext plus a post-install script that runs in macOS, fetches the files and checks them against `fw.lock` | not started |
+| R1 | **Blocker for strangers:** the AIR reader built by this project (LLVM 21.1.8 `libLLVM.dylib` from source in CI, notices in the bundle); today it only comes from NullMoth's bundle | not started |
+| P1 | **Blocker:** the release artefacts of [docs/RELEASE.md](../docs/RELEASE.md): `Vermilion-<ver>.pkg` (checks the macOS build and GPU; its post-install script fetches the firmware with `fetch_firmware.sh` and checks md5 plus SHA-256), the OpenCore zip with `config-snippet.plist`, `SHA256SUMS`, the uninstaller | not started |
+| F1 | No AMD bytes in any release binary: VermilionBoot reads the C3 slice at run time from the installed firmware instead of compiling it in (hw-safety review of the load path) | not started |
+| G1 | RX 7900 XTX only: the kexts refuse every other `0x744c` variant | #37 merged, not installed (needs the owner for the Allow click) |
 | K1 | Every kext in its own clean repo with CI and a GitHub release (ryzentosh-sse first) | ryzentosh-sse ready; the `v0.1.0` tag waits on the owner |
+| C8 | Apple AMD reference: Apple's RDNA 2 stack (AMDRadeonX6000*) reverse engineered with REA into `reference/apple-amd/`; every parity item compares against it | PR #38 |
 
 Commits use the GitHub noreply address from 2026-11-25 on; the old history stays.
 

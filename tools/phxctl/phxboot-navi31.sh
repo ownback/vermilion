@@ -135,7 +135,8 @@ oneshots_off(){ nvram -d phxfb-boot; nvram -d phxfb-squat; rm -f "$MARK" "$DESKT
 #           when no in-progress mark is left, so a fallback that froze does not count
 #   bfail=  bring-up failures in a row (navi31_up.sh without "navi31 up:"; a hang in the bring-up counts too)
 #   skipped=1 the last boot skipped the bring-up (bfail >= 2): this boot tries again
-#   last=   what the last boot ran: full, safe, gop or skip (no bring-up, or one that failed)
+#   last=   what the last boot ran: full, safe, gop or skip (no bring-up, one that failed, or a fallback that failed:
+#           only a safe or gop boot that ended without a failure counts as a clean fallback boot)
 # The return: with fails > 0 the next boot after REC_NEED clean fallback boots tries the full desktop again. REC_NEED is
 # 1, and 3 once 3 attempts in a row failed. One clean boot shows that the machine and the plain path work; the failures
 # seen so far on the XTX machine (the 2026-11-24 freeze, the HDR freeze) did not repeat on the next attempt. A failure
@@ -156,7 +157,9 @@ rec_save(){ local t; t=$(rec_text); [ "$t" = "$REC_SAVED" ] && return 0
   printf '%s\n' $t >"$FAILS.new" && mv -f "$FAILS.new" "$FAILS"; sync; REC_SAVED=$t; echo "record: $t ($1)"; }
 rec_need(){ if [ "$REC_F" -ge 3 ]; then echo 3; else echo 1; fi; }
 inc(){ local v=$(( $1 + 1 )); [ $v -gt 99 ] && v=99; echo $v; }
-rec_fail(){ REC_F=$(inc "$REC_F"); REC_C=0; rec_save "$1"; }   # a failed attempt
+# a failed attempt. A fallback boot (safe desktop, GOP) that fails is no clean fallback boot: last=skip, so the next
+# boot does not count it as one (it would try the full desktop at once)
+rec_fail(){ REC_F=$(inc "$REC_F"); REC_C=0; case "$REC_L" in safe|gop) REC_L=skip;; esac; rec_save "$1"; }
 # when the full desktop comes back, said from this boot's point of view (this boot, once it finishes, is one more clean one)
 rec_when(){ local left=$(( $(rec_need) - REC_C - 1 ))
   if [ $left -le 0 ]; then echo "at the next startup"; elif [ $left = 1 ]; then echo "after 1 more startup"; else echo "after $left more startups"; fi; }

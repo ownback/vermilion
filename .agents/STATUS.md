@@ -15,7 +15,7 @@ Ranked by what a Mac user notices, safety first. Each item is a branch and a PR.
 
 | # | Item | Why now | Size | Refs |
 |---|---|---|---|---|
-| 1 | **Safety fixes. Done 2026-11-25** (#22, deploy steps a-c live; open: the cold-boot check of (a), the owner's picker check). Remove `debug.phxfb_kill_iondrv` (terminates a driver on the GPU's PCI function); `bringup_navi31.sh` refuses a warm GPU (PSP sOS alive) instead of loading SMU firmware; no "Reset NVRAM" advice in the daemon log and `docs/XTX.md`, the picker entry hidden; OWNER-TESTS 04 sleep test marked blocked; read the 00:05 replug logs for an ab30 detach before any replug test | Hard rule 1 | S | D risks 1-4, M risks |
+| 1 | **Safety fixes. Done 2026-11-25** (#22, deploy steps a-c live and passed; open: the owner's picker check). Remove `debug.phxfb_kill_iondrv` (terminates a driver on the GPU's PCI function); `bringup_navi31.sh` refuses a warm GPU (PSP sOS alive) instead of loading SMU firmware; no "Reset NVRAM" advice in the daemon log and `docs/XTX.md`, the picker entry hidden; OWNER-TESTS 04 sleep test marked blocked; read the 00:05 replug logs for an ab30 detach before any replug test | Hard rule 1 | S | D risks 1-4, M risks |
 | 2 | **App crashes in the plugin.** Music's readback (`nvmtl_vk_image_read`, twice today with the guard in place); Maps' null texture; never hand WindowServer a nil command buffer | Apps crash daily | S-M | A7, A8, A6 |
 | 3 | **The recovery trap and the GOP fallback.** After a freeze every boot is a safe desktop until an `rm`; the GOP revert can't run because `phxfb-squat` can't be cleared (`DisableVariableWrite`). The kext decides the squat itself; the daemon returns to the full desktop after clean boots and tells the user | One freeze costs a degraded machine; hard rule 1 (keep the fallbacks) | M | D7, D30, D risk 3 |
 | 4 | **HDR back on.** The plugin's widen path shows stale frames when WindowServer composites BGRA | HDR is off on an HDR OLED | M | D16, M |
@@ -48,7 +48,8 @@ still claims the GPU (part of item 3). Seen by the Fable pass on #22 (`8a663b0`)
 
 Item 2: a read-only root-cause agent started 2026-11-25 07:05 and was stopped at 07:10 for the owner's shutdown;
 restart it with the same brief (finding `2026-11-25-plugin-crashes-root-cause.md`, branch `ownback/plugin-crash-rca`).
-The next boot is a cold one: check `sOS check: C2PMSG_81=0x00000000 (cold)` for step (a)'s cold-boot check.
+Step (a)'s cold-boot check passed 2026-11-25 11:40 (power-off, `sOS check: C2PMSG_81=0x00000000 (cold)`, `SUCCESS at
+11:42:43`).
 
 System sleep, HDMI, a second monitor and the release shape need the phase 3 work first (bring-up in the kernel, own
 mode setting).

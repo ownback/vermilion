@@ -27,7 +27,7 @@ PROJECT_KNOWLEDGE.
   `bash tests/mock/b15test.sh` and `bash tests/mock/bringup_warm_test.sh` green on main.
   - **(a) Daemon and bring-up scripts into `~/gpu`** (no EFI change, no system volume). **Installed 2026-11-25
     06:47; boot 2 (warm) passed** (`sOS check: C2PMSG_81=0x00000000 (cold)`, `SUCCESS at 06:50:12`); boot 1 (cold)
-    waits for the owner's next power-on.
+    passed 2026-11-25 11:40.
     - First, optional, through the `linux-queue` skill: hw-safety-reviewer's read-only check. Run
       `journalctl -k -b <n>` on a Linux boot that followed a warm reboot and look for `MODE1 reset` near amdgpu's
       probe. If it's absent, a warm reset leaves the sOS stopped.

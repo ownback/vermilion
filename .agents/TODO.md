@@ -149,10 +149,25 @@ PROJECT_KNOWLEDGE.
   ID), and write the private image back with a GPU copy (`vkCmdCopyImageToBuffer`, `bufferRowLength` 600) at the end
   of the command buffer that wrote it. This extends the multi-plane `_planeHost` path to single-plane surfaces with an
   unaligned pitch (2400 B), both ways. Step 1 (the fault-safe copy) is on `ownback/plugin-crash-fixes`.
-- [ ] **Phase 2 item 2: Maps: the path the reproduction names** (finding section 2, fix 2): the Metal contract is nil
-  only for an invalid descriptor. If it is the 250 ms allocation block (`allocations failing` in the log): evict,
-  fall back to system memory or wait, never fail a whole window. Ties in with sizing the pools from the hardware
-  (row A3, item 8).
+- [ ] **Phase 2 item 2: deploy the Maps allocation fix** (branch `ownback/maps-alloc-limit`, after the merge;
+  [finding](findings/2026-11-25-maps-allocation-limit.md)). The reproduction named the path: the kext's 4095 BO
+  handles per process, held by Managed buffers' VRAM copies; the fix pools small device-local buffers. A new
+  `NVMTLDriver` (branch build cdhash `06fd1ac9`), so a VermilionTrust + EFI change as for #25 above (same install,
+  rollback copy, trust list with `PHXTRUST_KEEP=1`, `diff -rq` shows only `Kexts/VermilionTrust.kext`). One EFI change,
+  its own boot, under the machine lock. Everything below is (unverified) until that boot.
+  - Before: on main, `sh scripts/build/plugin.sh`; `tests/plugin/test_pool_range.c` and the four tests above green.
+  - Rollback copy: the live `NVMTLDriver` (cdhash `15204728`) to `~/vermilion-rollback/NVMTLDriver.pre-allocfix-<date>`.
+  - Check after the boot: `debug.phxtrust_stat` `denied_unlisted=0`, the new cdhash listed, 240 Hz, `SUCCESS`; the log
+    has `buffer pool: device-local buffers up to 256 KiB ...` from WindowServer. Then, with the owner's OK (GPU load):
+    `tests/plugin/test_private_pool_gpu.m` (header) all passed, and the Maps reproduction as for #25. Afterwards
+    `sysctl debug.phxvm`: the `handles` count in `BO create refused` the same as before the run, no `texture nil:` line,
+    no new `Maps-*.ips`; `buffer pool: block ... device-local` lines from Maps, few of them.
+  - Rollback: as for #25 (the old binary back as `.new` + `mv`, kept trusted as `-previous`; or `EFI/OC.prev` after
+    restoring the old binary).
+- [ ] **Phase 2 item 2: the kext's 4095 BOs per process** (finding section 6). Images, buffers over 256 KiB and
+  RADV's own BOs still take a handle each; a process with ~4000 live textures fails as Maps did. Choose: pool small
+  images in the plugin, or let the kext's `bos` / `maps` tables grow (an N48N ABI minor with RADV; the VA map table is
+  GPU VM work: `hw-safety-reviewer`).
 - [ ] **Phase 2 item 2: the plugin's other `syslog()` calls** (`NVMTLX420.m`, `nvmtl_imgmem.c`, `nvmtl_pitch_align.c`,
   `NVMTLWSCapture.m`, `NVMTLHolders.m`, the ANGLE line in `NVMTLDevice.m`) still bypass `nvlog`: move them to the
   `org.vermilion.nvmtl` subsystem too.

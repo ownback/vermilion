@@ -21,7 +21,7 @@ Short version:
   tile-loading phase, both runs cost the same GPU per frame. Whether VRAM placement helps the 3D phase is open.
 - **Maps' CPU**: half of it (52-60 % of its busy samples) is under our plugin and RADV in the tile-loading phase,
   mostly VideoToolbox's per-tile transfer sessions. Maps' main thread waited 10 % of the capture for the GPU inside
-  `replaceRegion:`. A Mac never waits there. This branch fixes that wait (section 4).
+  `replaceRegion:`. A Mac never waits there. This branch removes that wait (section 4; unverified on hardware).
 
 ## 1. Two phases, from the per-second data
 
@@ -96,8 +96,8 @@ The VideoToolbox rows come from each tile's transfer session (`VTPixelTransferSe
 `MTLCommandQueue`, loads VideoToolbox's default library, specializes `VTMTSComputeFunction` with 242 constants and
 makes its compute pipeline (4096 of each logged by 18:33:36 in the earlier session, ~56/s). All of it hits our caches.
 The cost is computing the cache keys: `NSJSONSerialization` with sorted keys over the 242 constants, three times per
-session, plus a JSON parse of the reflection. `utimes` runs on every hit, several times per session (~1.5-2.5 %). A Mac's driver keys its caches
-on binary hashes and doesn't touch files on a hit.
+session, plus a JSON parse of the reflection. `utimes` runs on every hit, several times per session (~1.5-2.5 %). A
+Mac's driver keys its caches on binary hashes and doesn't touch files on a hit.
 
 Waits (idle samples, so not in the table above):
 
@@ -105,8 +105,9 @@ Waits (idle samples, so not in the table above):
   `nvmtl_vk_image_write_region_level_layer` -> `nvmtl_vk_submit_wait` (fullscreen; 446 ms of 11.3 s in the VRAM run).
   The upload's copy is behind everything already queued, so each wait drains Maps' queued frames. At
   ~35 calls/s (VRAM run's submit census: 114 `image_write_region` per 4096 submissions in 3.3 s) that is about 3 ms
-  per call. In the window run the tile decode threads waited there instead (~120-190 ms each). On a Mac, `replaceRegion:` is a CPU write and never waits
-  for the GPU. **Fixed on this branch** (section 4).
+  per call. In the window run the tile decode threads waited there instead (~120-190 ms each). On a Mac,
+  `replaceRegion:` is a CPU write and never waits for the GPU. **Changed on this branch** (section 4; unverified on
+  hardware).
 - **`nvmtl.execution`, the serial worker that retires command buffers**, waited 3.7-3.8 s of ~11.5 s: 1.3-2.2 s in
   the surface-out readback (`nvmtl_vk_image_read`, a waited submit per VideoToolbox transfer) and 1.5-2.5 s
   retiring. While it waits in a readback it retires nothing else: TODO "Music write-back as Apple does" (#23 fix 2)
@@ -139,8 +140,8 @@ per call.
    Expected (unverified): Maps' main thread loses the ~10 % wait in phase A, so frames are encoded on time. This
    doesn't make the GPU faster.
 2. **A cache hit touches its file at most once a minute** (`nvmtl_cache_touch`, `NVMTLLibraryLoad.m`). It was
-   several `utimes` calls per VideoToolbox session in Maps, 1.5-2.5 % of its CPU and a metadata write each. The trimmer runs once per process and
-   orders by last use, so a minute's resolution keeps its order.
+   several `utimes` calls per VideoToolbox session in Maps, 1.5-2.5 % of its CPU and a metadata write each. The
+   trimmer runs once per process and orders by last use, so a minute's resolution keeps its order.
 
 Not done here (design, plugin, S-M each):
 

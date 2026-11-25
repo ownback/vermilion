@@ -14,7 +14,9 @@
    its own staging buffer and its handle is stored on the image (img->up_token, the NVMTL_ASYNC_TEX_UPLOAD machinery): a
    readback, migration, destroy or the next upload of that image finishes it first (nvmtl_vk_image_upload_barrier).
    Completed uploads are reaped at each new one (fence polled, never waited) so the staging memory they hold is bounded:
-   at most NVMTL_SURFIN_N uploads and NVMTL_SURFIN_CAP bytes pending; above that the upload takes the synchronous path. */
+   at most NVMTL_SURFIN_N uploads and NVMTL_SURFIN_CAP bytes pending; above that the upload takes the synchronous path.
+   replaceRegion's async uploads (NVMTL_ASYNC_TEX_UPLOAD, on by default outside WindowServer) are listed in the same
+   table and count against the same bounds. */
 #define NVMTL_SURFIN_SYNC (-2)
 #define NVMTL_SURFIN_N 64
 #define NVMTL_SURFIN_CAP (128ull << 20)
@@ -57,8 +59,10 @@ static void nvmtl_surfin_reap(void)
     g_surfin_reaped += nd;
 }
 // The async region uploads of replaceRegion (NVMTL_ASYNC_TEX_UPLOAD, nvmtl_vk_image_write_region_level_layer) share this
-// table, its bounds and its reaping. Room for one more upload of `bytes` staging bytes?
+// table, its bounds and its reaping; these count them. nvmtl_surfin_async below keeps its own copy of the two helpers'
+// code: calling them from there changes the compiled code, so that merge is a TODO, not part of a clean-up.
 static uint64_t g_texup_async, g_texup_sync;
+// Room in the table for one more upload of `bytes` staging bytes?
 static int nvmtl_asyncup_room(size_t bytes)
 {
     pthread_mutex_lock(&g_asyncup_mutex);

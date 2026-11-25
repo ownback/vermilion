@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
 // nvmtl_tex_upload.h: ordering and lifetime decisions for asynchronous texture uploads.
 //
-// replaceRegion and IOSurface uploads currently submit a copy and wait for the GPU before returning
-// (nvmtl_vk_image_write*), so a GL app that uploads many textures per frame stalls once per upload. An
+// On the synchronous path, replaceRegion and IOSurface uploads submit a copy and wait for the GPU before returning
+// (nvmtl_vk_image_write*), so an app that uploads many textures per frame stalls once per upload. An
 // earlier attempt (community PR #96) deferred the wait but was reverted: nvmtl_vk_image_destroy frees the
 // image and its memory at once, and IOSurface-backed textures are uploaded then destroyed, so a deferred
 // copy could land in freed GPU memory.
 //
-// This is the decision logic for doing it safely, gated by NVMTL_ASYNC_TEX_UPLOAD. One async upload may be
-// in flight per image; its in-flight handle is recorded on the image. Before anything that would overwrite,
+// This is the decision logic for doing it safely (NVMTL_ASYNC_TEX_UPLOAD, on by default outside WindowServer;
+// NVMTL_ASYNC_SURFACE_IN for the surface copy-in, default off). One async upload may be in flight per image;
+// its in-flight handle is recorded on the image. Before anything that would overwrite,
 // read back, CPU-map or free that image's memory, the pending upload is finished (fence waited) first. Pure,
 // so the invariants are unit-tested without a GPU; the plugin supplies the fence primitives.
 //
-// Invariants (each an arm of test_tex_upload.c):
+// Invariants (each an arm of tests/plugin/test_tex_upload.c):
 //   - synchronous path (flag off): a new upload submits-and-waits; nothing is ever left pending, so the
-//     destroy/readback guard finds nothing to finish and is a no-op (this is what keeps the current path
+//     destroy/readback guard finds nothing to finish and is a no-op (this is what keeps the synchronous path
 //     byte-for-byte the same);
 //   - a second upload to the same image finishes the first (it would otherwise overwrite a texture, or reuse
 //     staging bytes, while the GPU is still copying);
@@ -29,11 +30,11 @@
 #include <stdint.h>
 
 // Per-image async-upload bookkeeping. `infl` is an opaque handle to the in-flight submission (the plugin
-// stores an nvmtl_inflight pointer, cast to uint64_t); 0 means no async upload is in flight for this image.
+// stores an nvmtl_asyncup pointer, cast to uint64_t); 0 means no async upload is in flight for this image.
 typedef struct { uint64_t infl; } nvmtl_up_state;
 
 typedef enum {
-    NVMTL_UP_SUBMIT_WAIT  = 0,   // submit the copy and wait now (the synchronous default)
+    NVMTL_UP_SUBMIT_WAIT  = 0,   // submit the copy and wait now (the synchronous path)
     NVMTL_UP_SUBMIT_ASYNC = 1,   // submit without waiting; the caller records the handle with nvmtl_up_set
 } nvmtl_up_submit;
 

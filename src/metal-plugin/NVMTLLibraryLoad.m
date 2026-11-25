@@ -300,7 +300,7 @@ static void nvmtl_spvcache_trim_async(NSString *dir) {
 // violation report the kernel files: hundreds a minute. After the first refusal this process stops touching.
 // A path is touched at most once a minute per process: the trimmer runs once per process and orders by the minute
 // at best, and an in-memory hit touched its file every time. VideoToolbox's transfers in Maps made that ~90 utimes
-// calls a second (each a metadata write), ~2.5 % of Maps' CPU (finding 2026-11-25-maps-fullscreen-perf.md).
+// calls a second (each a metadata write), 1.5-2.5 % of Maps' CPU (finding 2026-11-25-maps-fullscreen-perf.md).
 static _Atomic int nvmtl_touch_refused;
 #define NVMTL_TOUCH_SLOTS 1024
 #define NVMTL_TOUCH_EVERY_S 60

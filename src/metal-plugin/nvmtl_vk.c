@@ -6768,7 +6768,7 @@ int nvmtl_vk_image_write_region_level_layer(nvk_queue *q, nvk_image *img, const 
     if (row_bytes < (size_t)cols * bpp) { nvlog("image_write_region: bytesPerRow %zu < %u blocks * %zu B", row_bytes, cols, bpp); return -1; }
     const size_t bytes = (size_t)cols * rows * bpp;
     // Decide sync vs async. Async gives the upload its own staging buffer + command buffer so the submission
-    // can be left in flight; sync keeps the shared per-thread staging buffer and waits (the default path).
+    // can be left in flight; sync keeps the shared per-thread staging buffer and waits (flag off, or a full table).
     nvmtl_up_state upst = { img->up_token };
     uint64_t finish_first = 0;
     const nvmtl_up_submit mode = nvmtl_up_before_upload(&upst, nvmtl_async_tex_upload(), &finish_first);

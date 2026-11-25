@@ -66,5 +66,17 @@ check air_install '[ "$(cat "$T/rc")" = 0 ]' '[ "$(cat "$R/Library/GPUBundles/NV
 rm -rf "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime"; echo tampered >"$A/libLLVM.dylib"
 VERMILION_NOCHOWN=1 sh "$HERE/../../tools/phxctl/air_runtime_install.sh" "$A" "$R" >"$T/out" 2>&1; echo $? >"$T/rc"
 check air_badmd5 '[ "$(cat "$T/rc")" != 0 ]' 'grep -q "does not match MD5SUMS" "$T/out"' '[ ! -e "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime/libLLVM.dylib" ]'
+# our build's layout (notices in LICENSES/) is the default source; with none, an existing copy stays as a fallback
+echo llvm >"$A/libLLVM.dylib"; mkdir -p "$A/LICENSES"; echo apache >"$A/LICENSES/LLVM-LICENSE.txt"; echo bsd >"$A/LICENSES/ZSTD-LICENSE.txt"; rm -f "$A/LLVM-LICENSE.txt"
+( cd "$A" && md5 -r libLLVM.dylib libzstd.1.dylib | awk '{print $1"  "$2}' >MD5SUMS )
+mkdir -p "$T/out-ours"; cp -R "$A" "$T/out-ours/air-runtime"
+VERMILION_OUT="$T/out-ours" VERMILION_NOCHOWN=1 sh "$HERE/../../tools/phxctl/air_runtime_install.sh" "" "$R" >"$T/out" 2>&1; echo $? >"$T/rc"
+check air_default_ours '[ "$(cat "$T/rc")" = 0 ]' '[ "$(cat "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime/libLLVM.dylib")" = llvm ]' \
+  '[ -f "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/Resources/air-runtime/ZSTD-LICENSE.txt" ]'
+VERMILION_OUT="$T/nothing-here" VERMILION_NOCHOWN=1 sh "$HERE/../../tools/phxctl/air_runtime_install.sh" "" "$R" >"$T/out" 2>&1; echo $? >"$T/rc"
+check air_fallback_kept '[ "$(cat "$T/rc")" = 0 ]' 'grep -q "fallback" "$T/out"'
+rm -rf "$R/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime"
+VERMILION_OUT="$T/nothing-here" VERMILION_NOCHOWN=1 sh "$HERE/../../tools/phxctl/air_runtime_install.sh" "" "$R" >"$T/out" 2>&1; echo $? >"$T/rc"
+check air_none '[ "$(cat "$T/rc")" != 0 ]' 'grep -q "scripts/build/llvm.sh" "$T/out"'
 
 echo "RESULT: $PASSN passed, $FAILN failed"; rm -rf "$T"; [ $FAILN = 0 ]

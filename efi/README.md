@@ -27,9 +27,9 @@ efi/build.py smbios                      # once per machine: ~/.config/vermilion
 sudo efi/build.py acpi-dump              # once per BIOS version, on the machine, Linux booted directly (not via OpenCore):
                                          #   DSDT + the live ACPI namespace, in ~/.config/vermilion/acpi/<machine>/
 efi/build.py stages                      # what each stage contains; "(default)" marks the profile's default_stage
-efi/build.py build                       # the default stage (vermilion-trust) -> build/efi/b650e-i-xtx-vermilion-trust/EFI/{BOOT,OC}
-efi/build.py build --stage install       # any other stage by name
-efi/build.py build --placeholder-smbios  # test build with dummy serials (never boot it)
+efi/build.py build --stage vermilion-trust   # the everyday stage -> build/efi/b650e-i-xtx-vermilion-trust/EFI/{BOOT,OC}
+efi/build.py build --stage install           # any other stage by name; `build` and `install` refuse to run without --stage
+efi/build.py build --stage install --placeholder-smbios  # test build with dummy serials (never boot it)
 ```
 
 The DSDT patches are byte patterns for one BIOS version (`acpi_patches_bios` in the machine file, 4005 here).
@@ -69,12 +69,12 @@ the previous one as `EFI/OC.prev`. It never touches `EFI/BOOT/BOOTX64.EFI` (Limi
 `--with-fallback` is given, which is meant for USB sticks.
 
 ```sh
-sudo efi/build.py install --esp /boot --stage install     # the first boot; later installs omit --stage (default stage)
+sudo efi/build.py install --esp /boot --stage install     # the first boot; --stage is always required (later: vermilion-trust)
 sudo efibootmgr --create --disk /dev/nvme0n1 --part 1 --label OpenCore --loader '\EFI\OC\OpenCore.efi'
 ```
 
 From macOS on the same machine the EFI partition is `disk0s1` (`sudo diskutil mount disk0s1`, it mounts at
-`/Volumes/NO NAME`), then `sudo efi/build.py install --esp "/Volumes/NO NAME"`. The macOS build steps (iasl, the
+`/Volumes/NO NAME`), then `sudo efi/build.py install --esp "/Volumes/NO NAME" --stage <stage>`. The macOS build steps (iasl, the
 machine config, `build/VermilionBoot.kext`, `build/VermilionTrust.kext`) are in
 [`.agents/runbooks.md`](../.agents/runbooks.md#building-and-installing-the-efi-on-the-mac-itself-2026-11-19-works).
 Before installing, compare the build with the live EFI (`diff -rq`): only the intended files may differ.

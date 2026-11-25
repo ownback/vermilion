@@ -246,9 +246,12 @@ device, and the boot falls back to the firmware framebuffer.**
   next to it). The plugin dlopens it to read every metallib in memory (`src/metal-plugin/NVMTLLibraryLoad.m`); without
   it, and without `air-opt` below, no shader translates, and WindowServer's Metal compositor aborts in
   `CA::OGL::new_metal_context` ("translation produced nothing for .../QuartzCore.framework/Resources/default.metallib";
-  seen on the XTX machine, 2026-11-19). NullMoth's bundle carries an LLVM 21.1.8 build of it (Apache-2.0 with LLVM
-  exception; zstd BSD) with its license files in `Contents/Resources/air-runtime`; `tools/phxctl/air_runtime_install.sh`
-  installs it. The reference machine's copy came with NullMoth's bundle.
+  seen on the XTX machine, 2026-11-19). Vermilion builds it: `scripts/build/llvm.sh` compiles LLVM 21.1.8 (Apache-2.0
+  with LLVM exception) and zstd 1.5.7 (BSD) from the pinned release tarballs into `build/air-runtime/` with their
+  notices in `LICENSES/`, and `sh tools/phxctl/air_runtime_install.sh` installs it (notices into
+  `Contents/Resources/air-runtime`). The same build runs in CI (`.github/workflows/air-reader.yml`). NullMoth's bundle
+  carries an LLVM 21.1.8 build of it too (Homebrew's): the reference machine's copy came from there, and it stays
+  only as a fallback: without a build of ours, `air_runtime_install.sh` keeps a copy already in the bundle.
 - **`spirv-val`** (SPIRV-Tools). The translator validates every SPIR-V module it produces by running `spirv-val`
   (`src/translator/translator/src/tools.rs`). It looks in `METAL2VULKAN_SPIRV_VAL` (an absolute path), then
   `/opt/homebrew/opt/llvm/bin`, `/usr/local/opt/llvm/bin`, `/opt/homebrew/bin`, `/usr/local/bin`, then `PATH`. From

@@ -76,8 +76,10 @@ On the reference machine's exact parts, the [ryzentosh](https://github.com/ownba
 
 1. Build everything on a Mac with the Command Line Tools: [docs/BUILD.md](docs/BUILD.md). The firmware comes from
    `tools/firmware/fetch_firmware.sh`, which downloads it from linux-firmware and checks every file.
-2. Get the AIR reader (`libLLVM.dylib`): today it only comes inside NullMoth's driver bundle
-   ([docs/INSTALL.md](docs/INSTALL.md) 5.2). This project doesn't build it yet *(blocker, see SUPPORT.md)*.
+2. Build the AIR reader (`libLLVM.dylib` + `libzstd.1.dylib`): `sh scripts/build/llvm.sh` (LLVM 21.1.8 from source,
+   30 to 90 minutes, `build/air-runtime/`). After step 4 has installed the Metal driver, run
+   `sudo sh tools/phxctl/air_runtime_install.sh` to put it into the bundle ([docs/INSTALL.md](docs/INSTALL.md) 5.2;
+   wiring it into `esp_stage.sh` is TODO). NullMoth's copy is only a fallback.
 3. Lay out the install payload: `sh tools/phxctl/esp_stage.sh <EFI partition>/vermilion`.
 4. From Recovery's Terminal (or with `sudo` on the running system), run `sh <EFI partition>/vermilion/install.sh`. It
    installs the Metal driver, VermilionAccel, the tools, the daemon and the firmware, keeps a copy of every replaced

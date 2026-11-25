@@ -6774,7 +6774,10 @@ int nvmtl_vk_image_write_region_level_layer(nvk_queue *q, nvk_image *img, const 
     // can be left in flight; sync keeps the shared per-thread staging buffer and waits (flag off, or a full table).
     nvmtl_up_state upst = { img->up_token };
     uint64_t finish_first = 0;
-    const nvmtl_up_submit mode = nvmtl_up_before_upload(&upst, nvmtl_async_tex_upload(), &finish_first);
+    // A buffer texture stays synchronous: its bytes are the MTLBuffer's, and the app may read them through -contents
+    // right after replaceRegion returns (on a Mac the write has landed by then).
+    const nvmtl_up_submit mode = nvmtl_up_before_upload(&upst, nvmtl_async_tex_upload() && img->placed != NVK_PLACED_IN_BUFFER,
+                                                        &finish_first);
     nvmtl_asyncup *au = NULL;
     nvk_buffer *stageb, stage_sync;
     nvk_cmdbuf local_cb, *c;
@@ -7859,7 +7862,7 @@ static int nvmtl_vk_image_create_buffer_alias_lifetime_body(uint32_t w, uint32_t
         nvlog("buffer texture: image size %llu runs %llu B past the buffer's %zu at offset %zu (the tail of the last row, never addressed)",
               (unsigned long long)mr.size, (unsigned long long)(mr.size - (b->size - offset)), b->size, offset);
     VKCK(pvkBindImageMemory(g_dev, (VkImage)out->img, (VkDeviceMemory)b->mem, at), "vkBindImageMemory(buffer texture)");
-    out->mem = b->mem; out->placed = 1; out->alloc = 0;
+    out->mem = b->mem; out->placed = NVK_PLACED_IN_BUFFER; out->alloc = 0;
     VkComponentMapping swz = nvmtl_a8_mapping(a8);
     VkImageViewCreateInfo vci = { VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, NULL, 0, out->img, VK_IMAGE_VIEW_TYPE_2D,
         (VkFormat)vkfmt, swz, { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 } };

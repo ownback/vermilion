@@ -137,6 +137,23 @@ per call.
    (`nvmtl_vk_image_upload_barrier`). `tests/plugin/test_tex_upload.c` covers the decision logic and the table's
    bounds.
 
+   Fixed after the clean-up review of #31 (read from the code, not seen on hardware; one commit each):
+   - a recyclable heap or buffer texture parked its image with the pending handle still on it, and the table kept a
+     pointer into the freed texture: `-[NVMTLTexture dealloc]` now takes the upload barrier before parking;
+   - the take unlisted the image's first table entry, not the taken handle's, so two threads uploading to one texture
+     left a freed handle in the table and an upload never finished: the table unlists by handle, and a listing is
+     refused (that upload waited for) while the image has a pending upload, so an image has at most one entry;
+   - buffer textures (`newTextureWithDescriptor:offset:bytesPerRow:`) stay synchronous: the app can read their bytes
+     through the buffer's `-contents` right after `replaceRegion:` returns (`placed = NVK_PLACED_IN_BUFFER`);
+   - the async upload's ALL_COMMANDS barrier is emitted also when the image is already in TRANSFER_DST;
+   - the listing rechecks the 128 MiB byte bound under the lock, not only the count;
+   - the counters are atomic and the log reads the table's fill under the lock;
+   - `appcapture.sh` turns `debug.phxgpu_time_on` back off on an interrupt.
+
+   The table's code moved into `nvmtl_tex_upload.h` (`nvmtl_uptab_*`, a separate refactor commit) so the host test
+   runs it instead of a model; it has arms for the park, two threads on one texture and the byte recheck, built with
+   AddressSanitizer (the old park order is a heap-use-after-free there). The dealloc itself is not host-tested.
+
    Expected (unverified): Maps' main thread loses the ~10 % wait in phase A, so frames are encoded on time. This
    doesn't make the GPU faster.
 2. **A cache hit touches its file at most once a minute** (`nvmtl_cache_touch`, `NVMTLLibraryLoad.m`). It was
@@ -220,6 +237,6 @@ a 30 s run, read the sample's `Date/Time` and its length before attributing it t
 ## 9. Unverified
 
 - The GPU split in phase B (section 2): no GPU timing of Maps exists. The ~2.1 ms composite is Horizon's figure.
-- The effect of this branch's changes on hardware: built and host-tested only. Whether the async upload is correct in
+- The effect of this branch's changes on hardware: built and host-tested only, the review fixes included. Whether the async upload is correct in
   every app (texture contents, IOSurface textures) is checked by the deploy steps, not by a test on the GPU.
 - The rates in section 2 point 3 come from log census lines over 3-13 s windows, not a profiler.

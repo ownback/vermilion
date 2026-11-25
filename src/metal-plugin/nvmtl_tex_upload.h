@@ -22,7 +22,12 @@
 //   - destroy, readback, CPU map and surface-out finish a pending upload first (no use-after-free: this is
 //     the #96 regression this guard exists to prevent);
 //   - a draw that merely SAMPLES the image needs no CPU finish: the upload's command buffer was submitted, so
-//     queue order plus the image's TRANSFER->SHADER_READ barrier already order the copy before the sample.
+//     queue order plus the image's TRANSFER->SHADER_READ barrier already order the copy before the sample;
+//   - an image has at most one table entry, and it is the handle on the image (a second thread's upload to it is
+//     waited for); a take removes exactly the taken handle's entry;
+//   - a texture parked for recycling carries no handle and the table keeps no pointer into it (dealloc finishes
+//     the upload first);
+//   - the table's count and byte bounds hold also when the upload is listed, after other threads listed theirs.
 
 #ifndef NVMTL_TEX_UPLOAD_H
 #define NVMTL_TEX_UPLOAD_H

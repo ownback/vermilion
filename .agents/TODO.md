@@ -185,14 +185,11 @@ PROJECT_KNOWLEDGE.
   #1`, WindowServer's says OFF; map tiles, labels and icons draw right while panning; no new `FAILED` lines or
   `Maps-*.ips`; an appcapture in phase A shows no main-thread wait under `replaceRegion:`. Rollback without a
   restart: create the file `/Library/GPUBundles/nvmtl/async-tex-upload-off` (root), relaunch the app.
-- [ ] **Async uploads: open points from the clean-up review of #31** (plugin, behaviour changes; read from the code,
-  not seen on hardware). Before the deploy above: (1) a parked texture keeps its pending handle: `nvmtl_heap_park` /
-  `nvmtl_bpark_put` copy the `nvk_image` with `up_token` set and the table keeps a pointer into the freed texture, so
-  a recycled image can finish a freed handle; take the upload barrier before parking. (2) `nvmtl_surfin_unlist`
-  removes the first table entry of an image, not the handle taken: two threads uploading to one texture leave a stale
-  entry and an unfinished upload. Later: `nvmtl_surfin_async` calls `nvmtl_asyncup_room` / `nvmtl_asyncup_list`
-  instead of its own copy of them (changes the compiled code); a chain of handles so mip levels and 3D slices of one
-  texture don't wait for each other; `appcapture.sh` turns `debug.phxgpu_time_on` back off on an interrupt.
+- [ ] **Async uploads: one handle per image** (plugin, performance only). A second upload to an image waits for the
+  first, and two threads uploading to one texture at once make one of them wait (the table keeps one entry per
+  image). A chain of handles would let mip levels and 3D slices of one texture go without those waits. The review
+  fixes of #31 (park, unlist by handle, buffer textures synchronous, barrier, byte recheck, atomics, appcapture trap)
+  are on the branch ([finding](findings/2026-11-25-maps-fullscreen-perf.md) section 4), host-tested only.
 - [ ] **Maps CPU: binary cache keys and the library reload** (S-M, plugin; finding section 4 "Not done here"): JSON
   keys over VideoToolbox's 242 function constants cost 11-12 % of Maps' CPU, the metallib re-read 5.7-7 %,
   `nvmtl_surface_keep` 2.4-3.2 %.

@@ -5,10 +5,12 @@
    driven with fake fences; the plugin's lock and Vulkan calls around them are left out.
    Arms: the synchronous path leaves nothing pending; a second upload to an image finishes the first; destroy and
    readback finish a pending upload first; a sampling draw finishes nothing; the table bounds what is pending (count
-   and bytes) and a full table takes the synchronous path; reaping a done upload never clears a newer handle.
-   cc -I src/metal-plugin tests/plugin/test_tex_upload.c -o /tmp/test_tex_upload && /tmp/test_tex_upload */
+   and bytes) and a full table takes the synchronous path; reaping a done upload never clears a newer handle; a parked
+   (recycled) texture carries no pending upload.
+   cc -fsanitize=address,undefined -I src/metal-plugin tests/plugin/test_tex_upload.c -o /tmp/test_tex_upload && /tmp/test_tex_upload */
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <string.h>
 #include "nvmtl_tex_upload.h"
 
@@ -24,7 +26,11 @@ static nvmtl_uptab tab;   // the plugin's table code (nvmtl_tex_upload.h), drive
 static unsigned sync_uploads;
 #define H(u) ((uint64_t)(uintptr_t)(u))
 
-static void finish(uint64_t h) { if (!h) return; upload *u = (upload *)(uintptr_t)h; if (!u->signalled) u->waited = 1; u->signalled = 1; u->finished = 1; }
+static void finish(uint64_t h) {
+    if (!h) return; upload *u = (upload *)(uintptr_t)h;
+    CHECK(!u->finished, "an upload was finished twice (its handle freed twice)");
+    if (!u->signalled) u->waited = 1; u->signalled = 1; u->finished = 1;
+}
 static int fence_done(uint64_t h, void *ctx) { (void)ctx; return ((upload *)(uintptr_t)h)->signalled; }
 // nvmtl_asyncup_take + nvmtl_asyncup_finish (nvmtl_vk_image_upload_barrier)
 static uint64_t take(image *img) { return nvmtl_uptab_take(&tab, &img->st.infl); }
@@ -49,6 +55,9 @@ static int upload_to(image *img, upload *u, int async_flag) {
     return list(img, u);
 }
 static void destroy(image *img) { finish(take(img)); img->freed = 1; }
+// -[NVMTLTexture dealloc] of a recyclable heap or buffer texture: the upload barrier, then nvmtl_heap_park /
+// nvmtl_bpark_put copy the image into the park and zero it, then the texture object is freed.
+static void park(image *img, image *parked) { finish(take(img)); *parked = *img; memset(img, 0, sizeof *img); }
 
 int main(void) {
     // synchronous path: nothing pending, the consumers' guard finds nothing
@@ -93,6 +102,17 @@ int main(void) {
       reap();
       CHECK(a.st.infl == (uint64_t)(uintptr_t)&v && u.finished, "reap cleared the newer handle");
       tab.n = 0; tab.bytes = 0; }
+    // a parked texture carries no pending handle and the table keeps no pointer into the freed texture object
+    // (built with -fsanitize=address, a reap that reads the freed texture fails the run)
+    { image *a = calloc(1, sizeof *a), parked = {0}; upload u = { .bytes = 4096 }, v = { .bytes = 4096 };
+      CHECK(upload_to(a, &u, 1), "async upload not pending");
+      park(a, &parked); free(a);
+      CHECK(u.finished && parked.st.infl == 0 && tab.n == 0 && tab.bytes == 0, "park left the pending upload on the parked copy or in the table");
+      u.signalled = 1; reap();   // the GPU finished it: a table entry left for it would make the reap read the freed texture
+      image *r = calloc(1, sizeof *r); *r = parked;   // the next texture recycles the parked image
+      CHECK(upload_to(r, &v, 1) && !v.finished, "upload to the recycled image not pending");
+      destroy(r); free(r);
+      CHECK(v.finished && tab.n == 0, "recycled image's upload not finished at destroy"); }
     printf(fails ? "test_tex_upload: %d FAILED\n" : "test_tex_upload: all passed\n", fails);
     return fails != 0;
 }

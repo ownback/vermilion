@@ -47,13 +47,42 @@ static void nvmtl_surfin_reap(void)
     for (unsigned i = 0; i < g_surfin_n;) {
         nvmtl_asyncup *au = g_surfin[i].au;
         if (pvkWaitForFences(g_dev, 1, &au->infl.fence, VK_TRUE, 0) == VK_SUCCESS) {
-            g_surfin[i].img->up_token = 0; done[nd++] = au;
+            if (g_surfin[i].img->up_token == (uint64_t)(uintptr_t)au) g_surfin[i].img->up_token = 0;   // not a newer upload's handle
+            done[nd++] = au;
             g_surfin_bytes -= g_surfin[i].bytes; g_surfin[i] = g_surfin[--g_surfin_n];
         } else i++;
     }
     pthread_mutex_unlock(&g_asyncup_mutex);
     for (unsigned i = 0; i < nd; i++) nvmtl_asyncup_finish((uint64_t)(uintptr_t)done[i]);
     g_surfin_reaped += nd;
+}
+// The async region uploads of replaceRegion (NVMTL_ASYNC_TEX_UPLOAD, nvmtl_vk_image_write_region_level_layer) share this
+// table, its bounds and its reaping. Room for one more upload of `bytes` staging bytes?
+static uint64_t g_texup_async, g_texup_sync;
+static int nvmtl_asyncup_room(size_t bytes)
+{
+    pthread_mutex_lock(&g_asyncup_mutex);
+    const int room = g_surfin_n < NVMTL_SURFIN_N && g_surfin_bytes + bytes <= NVMTL_SURFIN_CAP;
+    pthread_mutex_unlock(&g_asyncup_mutex);
+    return room;
+}
+// Lists a submitted async upload on its image and in the table. Returns 0 if another thread filled the table since
+// nvmtl_asyncup_room: the upload is then finished (waited for) here and nothing is left pending.
+static int nvmtl_asyncup_list(nvk_image *img, nvmtl_asyncup *au, size_t bytes)
+{
+    pthread_mutex_lock(&g_asyncup_mutex);
+    if (g_surfin_n >= NVMTL_SURFIN_N) {
+        pthread_mutex_unlock(&g_asyncup_mutex);
+        nvmtl_asyncup_finish((uint64_t)(uintptr_t)au);
+        return 0;
+    }
+    nvmtl_up_state s = { img->up_token };
+    nvmtl_up_set(&s, (uint64_t)(uintptr_t)au);
+    img->up_token = s.infl;
+    g_surfin[g_surfin_n].img = img; g_surfin[g_surfin_n].au = au; g_surfin[g_surfin_n].bytes = bytes;
+    g_surfin_n++; g_surfin_bytes += bytes;
+    pthread_mutex_unlock(&g_asyncup_mutex);
+    return 1;
 }
 static int nvmtl_surfin_async(nvk_queue *q, nvk_image *img, const void *src, size_t row_bytes)
 {

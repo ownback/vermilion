@@ -34,6 +34,16 @@ IOReturn PhxBringup::vmMapVram(uint32_t handle, uint64_t va, uint64_t vramOff, u
 // the slot's VRAM). The console surface A (VRAM 0) keeps receiving the display
 // pipe's copies (debug.phxfb_flip must be 0 for Acquire), so a restore is a flip back to A. HUBP0 registers are
 // absolute dwords (DCN 3.2 segment 0x34c0 + dcn_3_2_0_offset.h), the flip sequence is Linux's hubp3 one.
+uint64_t PhxBringup::scanEarliest1() const {
+    return (static_cast<uint64_t>(rreg(kHubpreq0EarliestInuseHigh + kHubpreq1Delta) & 0xffff) << 32) | rreg(kHubpreq0EarliestInuse + kHubpreq1Delta);
+}
+uint32_t PhxBringup::scanSurfCtlAll() const {
+    return rreg(kHubpreq0SurfaceControl) | (gP0OdmActive ? rreg(kHubpreq0SurfaceControl + kHubpreq1Delta) : 0u);
+}
+uint32_t PhxBringup::scanVmidAll() const {
+    return rreg(kHubpreq0VmidSettings0) | (gP0OdmActive ? rreg(kHubpreq0VmidSettings0 + kHubpreq1Delta) : 0u);
+}
+
 uint64_t PhxBringup::scanFrameLocked() {
     const uint32_t f = rreg(kOtg0StatusFrameCount) & 0xffffff;
     scan.frameExt += (f - scan.frameLast) & 0xffffff;
@@ -58,6 +68,10 @@ void PhxBringup::scanPollLocked() {
     if (scan.pending == PHXN_SCAN_NO_SLOT)
         return;
     if (rreg(kHubpreq0FlipControl) & 0x100)
+        return;
+    // b162: under ODM 2:1 HUBP1 scans the same surface and takes the same flip: latched once both have (Linux's
+    // dc_plane_get_status ORs dcn10_update_pending_status over every pipe of the plane)
+    if (gP0OdmActive && (rreg(kHubpreq0FlipControl + kHubpreq1Delta) & 0x100))
         return;
     if (scanEarliest() != scan.slotMc[scan.pending]) {   // b74: FLIP_PENDING cleared, EARLIEST_INUSE not there yet
         OSIncrementAtomic64(&gScanEarliestLag);
@@ -108,8 +122,12 @@ void PhxBringup::scanWatchFire(thread_call_param_t p0, thread_call_param_t) {
         bool known = plane == me->scan.consoleMc;
         for (uint32_t k = 0; k < PHXN_SCAN_MAX_SLOTS; k++) known |= me->scan.slotUsed[k] && plane == me->scan.slotMc[k];
         uint64_t idleNs; absolutetime_to_nanoseconds(mach_absolute_time() - me->scan.lastCallAbs, &idleNs);
-        if (!gScanOn || !known || idleNs > 5000000000ull) {
-            IOLog("PhxBringup: scanout watchdog restores the console (%s)\n", !gScanOn ? "debug.phxscan=0" : !known ? "HUBP0 points elsewhere" : "5 s without a call");
+        bool direct = false;   // b162: a display surface is bound to a slot (its kill switch is debug.phxscan_direct)
+        for (uint32_t k = 0; k < PHXN_SCAN_MAX_SLOTS; k++) direct |= me->scan.slotDirect[k];
+        const bool directOff = direct && !gScanDirectOn;
+        if (!gScanOn || !known || idleNs > 5000000000ull || directOff) {
+            IOLog("PhxBringup: scanout watchdog restores the console (%s)\n", !gScanOn ? "debug.phxscan=0" : !known ? "HUBP0 points elsewhere" :
+                  directOff ? "debug.phxscan_direct=0" : "5 s without a call");
             me->scanRestoreLocked();
             me->scan.watchdogRestores++;
         }
@@ -144,6 +162,12 @@ void PhxBringup::scanQuery(phxn_scan_query *q) {
     const bool fmtOk = q->hubp_format == PHXN_SCAN_FMT_ARGB8888 || q->hubp_format == PHXN_SCAN_FMT_ARGB2101010;
     if (fmtOk && !q->sw_mode && !q->dcc_en && q->plane_h && scanLayoutFor(bytes, nullptr) >= 0)
         q->flags |= PHXN_SCANQ_GEOM_OK;
+    // b162: direct scan-out would be allowed for this plane (PhxScanDirect.h): the large layout, BAR0 over the slots, and
+    // HUBP0 as Linux leaves a linear surface: DCC_EN, PRIMARY_SURFACE_TMZ and the VMID 0. Register reads only.
+    if ((q->flags & PHXN_SCANQ_GEOM_OK) && gScanDirectOn && scanLayoutFor(bytes, nullptr) == phxscanlay::kLarge &&
+        phxscandirect::barCoversSlots(fbBarLen, fbAperLen) &&
+        !(scanSurfCtlAll() & (phxscandirect::kSurfCtlTmz | phxscandirect::kSurfCtlDcc)) && !(scanVmidAll() & phxscandirect::kVmidMask))
+        q->flags |= PHXN_SCANQ_DIRECT_OK;
     if (scanLock) IOLockLock(scanLock);
     q->frame_count = scanFrameLocked();
     q->acquired = scan.acquired;
@@ -197,6 +221,14 @@ int PhxBringup::scanLayoutStat(char *buf, size_t cap) {
     if (q.acquired && n > 0 && static_cast<size_t>(n) < cap)
         n += snprintf(buf + n, cap - static_cast<size_t>(n), " (slots %s at VRAM 0x%llx + k * 0x%llx)", phxscanlay::name(scan.lay.kind), scan.lay.base,
                       scan.lay.stride);
+    // b162: direct scan-out (PhxScanDirect.h)
+    if (n > 0 && static_cast<size_t>(n) < cap)
+        n += snprintf(buf + n, cap - static_cast<size_t>(n),
+                      "; direct: switch %d, allowed %u, BAR0 %llu MiB (mapped %llu), slots bound %u%u, binds %lld, refused %lld (last: %s), "
+                      "host imports of BAR pages refused %lld",
+                      gScanDirectOn, (q.flags & PHXN_SCANQ_DIRECT_OK) ? 1u : 0u, static_cast<unsigned long long>(fbBarLen >> 20),
+                      static_cast<unsigned long long>(fbAperLen >> 20), scan.slotDirect[0] ? 1u : 0u, scan.slotDirect[1] ? 1u : 0u,
+                      gScanDirectBinds, gScanDirectRefused, phxscandirect::name(gScanDirectLastErr), gHostBarRefused);
     return n;
 }
 
@@ -276,6 +308,62 @@ IOReturn PhxBringup::scanAllocSlot(const void *who, const phxn_scan_reg *r, uint
     return ret;
 }
 
+// b162: direct scan-out (PhxScanDirect.h). Slot 0 or 1 of this acquisition's large layout for the BO a display surface is
+// drawn through; the caller (doScan) rebinds the BO's maps onto the slot's VRAM. The checks read HUBP0's live format,
+// tiling, SURFACE_CONTROL and VMID_SETTINGS_0; nothing is written here. The flips to it are scanPresent's, unchanged.
+IOReturn PhxBringup::scanDirectSlot(const void *who, uint32_t slot, const phxn_scan_reg *r, uint64_t boSize, bool boVram, bool boBound,
+                                    uint64_t *mc, uint64_t *vramOff, int *err) {
+    if (!scanLock || !gScanOn || !mmio)
+        return kIOReturnUnsupported;
+    IOLockLock(scanLock);
+    phxscandirect::Live l{};
+    l.on = gScanDirectOn != 0;
+    l.owner = scan.acquired && scan.owner == who;
+    l.layKind = scan.lay.kind;
+    l.stride = scan.lay.stride;
+    l.barBytes = fbBarLen;
+    l.aperBytes = fbAperLen;
+    l.pitchPx = scan.pitchPx;
+    l.planeH = scan.planeH;
+    l.hubpFormat = rreg(kHubp0SurfaceConfig) & 0x7f;
+    l.swMode = rreg(kHubp0TilingConfig) & 0x1f;
+    l.surfCtl = scanSurfCtlAll();   // HUBP0, and HUBP1 under ODM 2:1
+    l.vmid = scanVmidAll();
+    for (uint32_t k = 0; k < phxscandirect::kSlots; k++) l.slotUsed[k] = scan.slotUsed[k];
+    const phxscandirect::Req q{slot, r->reserved0, r->pitch_bytes, r->width, r->height, r->format, r->offset};
+    const phxscandirect::Bo b{true, boVram, boBound, boSize};
+    const int e = phxscandirect::bindCheck(q, b, l);
+    *err = e;
+    IOReturn ret = kIOReturnSuccess;
+    if (e != phxscandirect::kOk) {
+        OSIncrementAtomic64(&gScanDirectRefused);
+        gScanDirectLastErr = e;
+        ret = e == phxscandirect::kErrOff ? kIOReturnUnsupported : e == phxscandirect::kErrNotOwner ? kIOReturnNotPermitted
+            : e == phxscandirect::kErrSlotUsed ? kIOReturnNoResources : kIOReturnBadArgument;
+    } else {
+        scan.slotUsed[slot] = true;
+        scan.slotDirect[slot] = true;
+        *vramOff = phxscanlay::slotOff(scan.lay, slot);
+        scan.slotMc[slot] = scan.fbBase + *vramOff;
+        *mc = scan.slotMc[slot];
+        scan.lastCallAbs = mach_absolute_time();
+        OSIncrementAtomic64(&gScanDirectBinds);
+    }
+    IOLockUnlock(scanLock);
+    return ret;
+}
+
+// b162: whether [pa, pa + len) touches one of the GPU's own BARs (0, 2, 5). doBoImportHost refuses such pages: the GPU
+// must reach its VRAM through local-VRAM PTEs, never through a system-memory PTE pointing at its own BAR (Linux's userptr
+// the same way: amdgpu_ttm_tt_get_user_pages -> hmm_range_fault, whose hmm_vma_walk_test refuses VM_IO / VM_PFNMAP).
+bool PhxBringup::physInOwnBars(uint64_t pa, uint64_t len) const {
+    using phxscandirect::overlaps;
+    if (fbAperPhys && overlaps(pa, len, fbAperPhys, fbBarLen > fbAperLen ? fbBarLen : fbAperLen)) return true;
+    if (mmio && overlaps(pa, len, mmio->getPhysicalAddress(), mmio->getLength())) return true;
+    if (doorbellMap && overlaps(pa, len, doorbellMap->getPhysicalAddress(), doorbellMap->getLength())) return true;
+    return false;
+}
+
 IOReturn PhxBringup::scanPresent(const void *who, uint32_t slot, uint64_t out[3]) {
     if (!scanLock || !gScanOn)
         return kIOReturnUnsupported;
@@ -347,6 +435,8 @@ IOReturn PhxBringup::scanStatus(const void *who, phxn_scan_status *st) {
     if (scan.owner == who) scan.lastCallAbs = mach_absolute_time();
     if (scan.acquired) scanPollLocked();
     const uint64_t earliest = scanEarliest();
+    const uint64_t earliest1 = gP0OdmActive ? scanEarliest1() : earliest;   // b162: HUBP1 under ODM 2:1
+    const bool pending1 = gP0OdmActive && (rreg(kHubpreq0FlipControl + kHubpreq1Delta) & 0x100);
     st->acquired = scan.acquired && scan.owner == who;
     // 10-bit HDR: tells the plugin to copy l10r as it is
     if (mmio && (rreg(kHubp0SurfaceConfig) & 0x7f) == PHXN_SCAN_FMT_ARGB2101010) st->flags |= PHXN_SCANST_FMT10;
@@ -373,7 +463,12 @@ IOReturn PhxBringup::scanStatus(const void *who, phxn_scan_status *st) {
         const bool reuse = !pend && !inuse && !front;
         if (reuse && k == gScanGhost)
             OSIncrementAtomic64(&gScanReusableGhost);
-        o.flags = (pend ? PHXN_SCANSLOT_PENDING : 0) | (inuse ? PHXN_SCANSLOT_INUSE : 0) | (reuse ? PHXN_SCANSLOT_REUSABLE : 0);
+        // b162: Linux's flip-complete test whatever debug.phxscan_latchfix says: the latched front counts as on screen,
+        // and under ODM 2:1 HUBP1 too (its EARLIEST_INUSE; a flip it has not taken keeps scan.pending, scanPollLocked)
+        const bool inuse1 = earliest1 == scan.slotMc[k] || (pending1 && scan.pending == k);
+        const bool writ = phxscandirect::writable(pend, inuse || inuse1, scan.front == k);
+        o.flags = (pend ? PHXN_SCANSLOT_PENDING : 0) | (inuse ? PHXN_SCANSLOT_INUSE : 0) | (reuse ? PHXN_SCANSLOT_REUSABLE : 0) |
+                  (scan.slotDirect[k] ? PHXN_SCANSLOT_DIRECT : 0) | (writ ? PHXN_SCANSLOT_WRITABLE : 0);
     }
     IOLockUnlock(scanLock);
     return kIOReturnSuccess;
@@ -388,7 +483,7 @@ IOReturn PhxBringup::scanRelease(const void *who, uint64_t out[2]) {
         const bool ok = scanRestoreLocked();
         if (out) { out[0] = ok; out[1] = scanPlane(); }
         scan.owner = nullptr;
-        for (uint32_t k = 0; k < PHXN_SCAN_MAX_SLOTS; k++) scan.slotUsed[k] = false;
+        for (uint32_t k = 0; k < PHXN_SCAN_MAX_SLOTS; k++) scan.slotUsed[k] = scan.slotDirect[k] = false;
     }
     IOLockUnlock(scanLock);
     return kIOReturnSuccess;

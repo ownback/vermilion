@@ -238,3 +238,109 @@ Expected: `present` gpu_us 0.5-0.9 ms (unverified). If it is near 1 ms, fix 1 is
 - The GPU part of the present copy: only the CPU's copy+wait is measured, and in the next boot under desktop load.
 - The effect of fixes 1-5: none built. This branch's change is built and host-tested only. `hw-safety-reviewer`
   passed the plugin diff (only timestamp packets RADV also emits on Linux; flip and latch unchanged).
+
+## 8. Fix 1 built (2026-11-25, branch `ownback/ws-vram-scanout`)
+
+Built and host-tested only. Nothing installed, nothing booted. Everything below about hardware behaviour is
+(unverified).
+
+**What it does.** With CDCOPY on and the switch file `/Library/GPUBundles/nvmtl/ws-direct` present, GPU present stops
+copying CoreDisplay's display surface into a slot. The two display surfaces ("CoreDisplay Scanout" IOSurfaces) are
+drawn straight into slots 0 and 1 of the kext's large layout (VRAM 256 and 288 MiB, `PhxScanLayout.h`), and the
+present flips HUBP0 to the surface's slot. Slot 2 is the bounce, for when CoreDisplay must write the surface that is
+still on screen.
+
+**How it differs from the section 4 sketch.** The IOSurfaces keep their host pages, and PhxAccel is unchanged.
+VermilionBoot b162's new selector `PHXN_SEL_SCAN_DIRECT` (22) rebinds the GPU PTEs of the plugin's own host import
+of a surface onto the slot's VRAM. It uses local-VRAM PTEs (`vmMapVram`), the mechanism `SCAN_REGISTER` already uses
+for the slots. So the GPU reads and writes the surface in VRAM, and the CPU-side pages go stale while it is bound.
+`scanUnbind` puts the PTEs back onto the pages. This needs no RADV rebuild, no VermilionAccel change and no new
+register write. The kext adds 7 register reads and no writes.
+
+| Condition (section 4 review) | Where |
+|---|---|
+| 1. The two fixed large slots | `scanDirectSlot` (`phx_scan.cpp`) binds slot 0 or 1 of the caller's own large acquisition only. Pitch, size, format and offset must equal the slot's (`PhxScanDirect.h` `bindCheck`, every branch in `tests/kext/scan_direct_test.cpp`). |
+| 2. BAR size at runtime | `barCoversSlots`: BAR0 as assigned *and* the mapped aperture must reach 352 MiB. With BAR0 at 256 MiB, `PHXN_SCANQ_DIRECT_OK` stays clear and the plugin keeps the copy. The same gate requires the large layout, no TMZ or DCC and VMID 0 on HUBP0, and on HUBP1 under ODM 2:1 (reads only). |
+| 3. No host imports of BAR pages | `doBoImportHost` walks the prepared segments and refuses with `kIOReturnNotPermitted` any that touch BAR0, BAR2 or BAR5 (`physInOwnBars`). Linux's userptr refuses them too: `amdgpu_ttm_tt_get_user_pages` → `hmm_range_fault` → `hmm_vma_walk_test` refuses VM_IO and VM_PFNMAP. |
+| 4. Linux's flip-complete test before a write | The kext's `PHXN_SCANSLOT_WRITABLE` is `writable(pending, inuse, front)`: Linux's `hubp2_is_flip_pending` (FLIP_PENDING, EARLIEST_INUSE against the slot), the latched front counting as on screen, and HUBP1 ORed in under ODM 2:1 (Linux `dc_plane_get_status` over every pipe). The plugin gates every command buffer that writes a bound surface (`nvmtl_vk_scanout_write_gate`, from `nvmtlSubmitWithEvents`). The gate takes all of the command buffer's surfaces at once and holds until all are writable. A blocked surface bounces to slot 2 at once, or after 50 ms if a pending flip may still free it. After 250 ms the gate falls out to the copy path. Writes committed before the bind are counted (`g_sd_ungated`), and no flip happens while any are unfinished. |
+| 5. Flip away before free | While bound, the plugin holds a reference on each surface and its texture, so CoreDisplay can't free the pages or the BO. A new pair (BGRA/l10r swap, HDR toggle, mode change), the switch file removed, a fault or a timeout all end direct mode the same way: drain (an empty submit's fence, 1 s limit), copy each slot back onto its pages, then `release`. `release` flips HUBP0 back to console A and verifies it, then rebinds the PTEs, and only then are the references dropped. A process exit takes the existing `scanRelease` on client close. The kext's watchdog restores the console if `debug.phxscan_direct=0` is set while a slot is bound. |
+
+**Linux functions mirrored.** The flip is today's three writes (`scanFlipLocked`: `FLIP_CONTROL`,
+`PRIMARY_SURFACE_ADDRESS_HIGH`, `PRIMARY_SURFACE_ADDRESS`), a subset of `hubp3_program_surface_flip_and_addr`. Under
+ODM 2:1 it also writes HUBPREQ1, as since b131. The latch and the writable test follow `hubp2_is_flip_pending` and
+`dc_plane_get_status` / `dcn10_update_pending_status`.
+
+**hw-safety-reviewer.**
+1. First pass, on the first two commits: "OK with changes", no hardware hazard. The changes:
+   - HUBP1 in the flip test under ODM;
+   - HUBP1's TMZ, DCC and VMID;
+   - the count dropped before the present;
+   - no flip while a newer write runs;
+   - the hmm citation.
+
+   It also noted that `vkDeviceWaitIdle` had no limit. All of this is in `d3e7aba`.
+2. Re-check: **OK**. Its notes:
+   - The CHANGELOG over-claimed REUSABLE. Fixed: the copy path's REUSABLE still ignores HUBPREQ1's EARLIEST_INUSE, as
+     since b131.
+   - A command buffer writing both surfaces could hold itself up. Fixed in `c9d9131`: one gate per command buffer.
+   - Quarantined command-buffer parts (-2) lower the counts early. Accepted: the 250 ms fallback bounds it, and it
+     only affects the display.
+
+**Kill switches.** Remove the file (the next present copies back and releases), or set `sysctl
+debug.phxscan_direct=0` (the kext refuses new binds, and the watchdog gives the console back). Either way the copy
+path is what runs.
+
+**Known costs (display only).**
+- While bound, the IOSurface pages are stale for CPU readers: screenshots, the flicker probe, PhxAMDFB's CPU copy, and
+  the console after a watchdog restore. PhxAccel's copy into console A is already skipped while HUBP0 scans a
+  GPU-present slot.
+- A start may hold the first frames while the pair is found (2 s at most).
+- Writes at 10-bit (l10r) go through the same slots. The format must match HUBP0's, or it stays on the copy.
+
+**Binaries.**
+- VermilionBoot b162 (b161, the XTX board gate on main, plus this). SHA-256
+  `86d2c3b27ed3a2eea16c66bdd13d4c747e8c684a4b6b903ce3d4e6826f32fd9c`.
+- NVMTLDriver cdhash `1c15df79e4492aebecd1fbad37fd32a434b1f551`.
+
+Both are host builds at `d98b5f0`. Preflight passed, with the link gate informational for OpenCore kexts and its 3
+symbols already on main. Tests: `scan_direct_test` 81/81, `test_scan_direct` 51/51, and the other kext and plugin
+host tests pass.
+
+**Deploy (megamind with the owner; one EFI change per boot).**
+1. Boot 1: an EFI change with VermilionBoot b162 alone, `OC.prev` as the rollback, from the stage the machine boots
+   (`vermilion-trust-bar1g`, BAR0 1 GiB). Check:
+   - `sysctl debug.phxscan_layout` ends in `direct: switch 1, allowed 1, BAR0 1024 MiB ...`;
+   - the desktop behaves as before;
+   - b161's board gate passes.
+
+   The installed plugin doesn't call selector 22, so nothing else changes.
+2. Boot 2: install NVMTLDriver (the runbook's "Deploying a plugin ...": old binary to `~/vermilion-rollback/`), then
+   `PHXTRUST_KEEP=1 sh scripts/build/trust.sh`, then an EFI change with only `Kexts/VermilionTrust.kext`, one boot.
+   Without the switch file the plugin runs today's copy path: check that nothing changed.
+3. No restart: `sudo touch /Library/GPUBundles/nvmtl/ws-direct`. WindowServer's plugin reads it within 1 s.
+
+**Owner test.**
+1. Desktop: the log shows `ws gpu present: direct: ...` bind lines. The `direct:` part of `sysctl
+   debug.phxscan_layout` shows slots bound and binds > 0.
+2. Move windows and scroll: no tearing, no flicker, no stale frame.
+3. Maps fullscreen 3D, then the section 6 capture: the `present` copy+wait (0.93-1.05 ms) should be gone (unverified).
+4. Screenshot (Cmd-Shift-3): note whether it is current or stale. Stale is a known cost, to be fixed.
+5. An HDR toggle and a mode change: the log shows `direct scan-out ends ... copied back`, then the copy path or a new
+   bind, with no black screen.
+6. `rm` the file: copy path again, desktop current.
+
+**Rollback.**
+- Remove `ws-direct`, or `sysctl debug.phxscan_direct=0`. Both apply live.
+- The old NVMTLDriver from `~/vermilion-rollback/`: the kept list trusts it as `-previous`.
+- `EFI/OC.prev` for the kext or trust change.
+
+**Still unverified.**
+- All of the hardware behaviour:
+  - that the flip to a slot holding CoreDisplay's frame shows correctly at 1440p, at 240 Hz and with VRR;
+  - the gate's wait time (expected under a vblank);
+  - the bounce rate;
+  - the HUBP1 path under ODM 2:1;
+  - the BAR refusal not hitting any import used today (none should touch BAR pages);
+  - the Maps gain.
+- The plugin's handling of a WindowServer crash while bound: the kext's close path is the existing one, but it has not
+  been exercised with direct slots.

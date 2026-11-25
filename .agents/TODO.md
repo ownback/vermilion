@@ -619,6 +619,9 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   composited fullscreen app: **scan out CoreDisplay's display surfaces from VRAM** (no present copy; kext + plugin, L).
   `hw-safety-reviewer` set five conditions before it is built (finding section 4 fix 1: the large slots, the 1 GiB BAR
   check, no host import of BAR pages, Linux's flip-complete test, flip away before free). Then item 2.
+  **Built 2026-11-25** (branch `ownback/ws-vram-scanout`, VermilionBoot b162 + NVMTLDriver, switch file `ws-direct`,
+  hw-safety re-check OK; finding section 8). Not installed. Deploy: b162 alone (one boot), then plugin + VermilionTrust
+  (one boot), then the switch file live; owner test and rollback in section 8.
 - [ ] **1b. Narrow render-pass dependencies** (plugin, S-M): every pass has image-less ALL_COMMANDS / MEMORY_* entry
   and exit dependencies, likely an L2 flush per pass in RADV (unverified); ~0.4-0.5 ms of WindowServer's frame is
   the ~13 us per-pass floor. Measure RADV's flush bits per pass (or A/B `NVMTL_RP_K1=1`) before changing it.

@@ -16,12 +16,16 @@ static constexpr uint32_t kOtg0VTotalMin = 0x04FF0, kOtg0VTotalMax = 0x04FF1;   
 static constexpr uint32_t kOtg0TrigAManualTrig = 0x04FFA;   // OTG0_OTG_TRIGA_MANUAL_TRIG (Linux optc2_program_manual_trigger)
 static constexpr uint32_t kHubpreq0PrimaryAddr          = 0x3aca;   // HUBPREQ0_DCSURF_PRIMARY_SURFACE_ADDRESS
 static constexpr uint32_t kHubpreq0PrimaryAddrHigh      = 0x3acb;   // HUBPREQ0_DCSURF_PRIMARY_SURFACE_ADDRESS_HIGH
-static constexpr uint32_t kHubpreq0SurfaceControl       = 0x3ada;   // HUBPREQ0_DCSURF_SURFACE_CONTROL (bit 0 DCC)
+static constexpr uint32_t kHubpreq0VmidSettings0        = 0x3ac9;   // HUBPREQ0_VMID_SETTINGS_0 (VMID [3:0]; b162 reads it, Linux's 0)
+static constexpr uint32_t kHubpreq0SurfaceControl       = 0x3ada;   // HUBPREQ0_DCSURF_SURFACE_CONTROL (dcn_3_2_0_sh_mask.h: bit 0 PRIMARY_SURFACE_TMZ, bit 1 DCC_EN)
 static constexpr uint32_t kHubpreq0FlipControl          = 0x3adb;   // HUBPREQ0_DCSURF_FLIP_CONTROL (bit 1 immediate, bit 8 update pending)
 static constexpr uint32_t kHubpreq0SurfaceInuse         = 0x3ae0;   // HUBPREQ0_DCSURF_SURFACE_INUSE
 static constexpr uint32_t kHubpreq0SurfaceInuseHigh     = 0x3ae1;   // HUBPREQ0_DCSURF_SURFACE_INUSE_HIGH
 static constexpr uint32_t kHubpreq0EarliestInuse        = 0x3ae4;   // HUBPREQ0_DCSURF_SURFACE_EARLIEST_INUSE
 static constexpr uint32_t kHubpreq0EarliestInuseHigh    = 0x3ae5;   // HUBPREQ0_DCSURF_SURFACE_EARLIEST_INUSE_HIGH
+// HUBPREQ1 = HUBPREQ0 + 0xDC (dcn_3_2_0_offset.h: VMID_SETTINGS_0 0x6e5, SURFACE_CONTROL 0x6f6, FLIP_CONTROL 0x6f7,
+// EARLIEST_INUSE 0x700 / 0x701 against HUBPREQ0's 0x609 / 0x61a / 0x61b / 0x624 / 0x625): HUBP1 under ODM 2:1 (b131)
+static constexpr uint32_t kHubpreq1Delta                = 0xDC;
 static constexpr uint32_t kOdm0OptcInputGlobalControl   = 0x4f8a;   // ODM0_OPTC_INPUT_GLOBAL_CONTROL (underflow occurred 10, clear 12)
 static constexpr uint32_t kOtg0HTotal                   = 0x4fea;   // OTG0_OTG_H_TOTAL
 static constexpr uint32_t kOtg0VTotal                   = 0x4fef;   // OTG0_OTG_V_TOTAL

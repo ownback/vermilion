@@ -87,6 +87,11 @@ public:
     void scanQuery(phxn_scan_query *q);
     IOReturn scanAcquire(const void *who, uint64_t out[2]);
     IOReturn scanAllocSlot(const void *who, const phxn_scan_reg *r, uint32_t *slot, uint64_t *mc, uint64_t *vramOff);
+    // b162: direct scan-out (PhxScanDirect.h): slot 0 or 1 for a display surface's own BO; *err the bindCheck code
+    IOReturn scanDirectSlot(const void *who, uint32_t slot, const phxn_scan_reg *r, uint64_t boSize, bool boVram, bool boBound,
+                            uint64_t *mc, uint64_t *vramOff, int *err);
+    // b162: [pa, pa + len) touches one of the GPU's own BARs (0 framebuffer, 2 doorbells, 5 registers)
+    bool physInOwnBars(uint64_t pa, uint64_t len) const;
     IOReturn scanPresent(const void *who, uint32_t slot, uint64_t out[3]);
     IOReturn scanStatus(const void *who, phxn_scan_status *st);
     IOReturn scanRelease(const void *who, uint64_t out[2]);   // also when `who` closes; idempotent
@@ -111,6 +116,7 @@ private:
         uint64_t consoleMc, fbBase, slotMc[PHXN_SCAN_MAX_SLOTS];
         phxscanlay::Layout lay;       // b126: the slots' VRAM layout for this acquisition (PhxScanLayout.h)
         bool slotUsed[PHXN_SCAN_MAX_SLOTS];
+        bool slotDirect[PHXN_SCAN_MAX_SLOTS];   // b162: bound by PHXN_SEL_SCAN_DIRECT (a display surface's own BO)
         uint32_t front, pending, pitchPx, planeH;
         uint64_t presents, latched, replaced, refused, restores, watchdogRestores, lastCallAbs, frameExt;
         uint32_t frameLast, slotPresents[PHXN_SCAN_MAX_SLOTS], slotLatches[PHXN_SCAN_MAX_SLOTS];
@@ -119,6 +125,11 @@ private:
     IOLock *scanLock{nullptr};
     thread_call_t scanWatch{nullptr};
     uint64_t scanEarliest() const { return (static_cast<uint64_t>(rreg(kHubpreq0EarliestInuseHigh) & 0xffff) << 32) | rreg(kHubpreq0EarliestInuse); }
+    // b162: HUBP1's, which scans the right half of the same surface under ODM 2:1 (gP0OdmActive)
+    uint64_t scanEarliest1() const;
+    // b162: TMZ / DCC (SURFACE_CONTROL) and VMID of every HUBP scanning the plane, ORed: HUBP0, and HUBP1 under ODM 2:1
+    uint32_t scanSurfCtlAll() const;
+    uint32_t scanVmidAll() const;
     uint64_t scanPlane() const { return (static_cast<uint64_t>(rreg(kHubpreq0PrimaryAddrHigh) & 0xffff) << 32) | rreg(kHubpreq0PrimaryAddr); }
     uint64_t scanFrameLocked();
     void scanPollLocked();
@@ -509,6 +520,7 @@ private:
         uint8_t *kva;             // the kernel's view of the BO; NULL for host imports, which the kernel never reads
         bool host;
         uint32_t scanSlot{0};     // scanout: slot k + 1 this BO is rebound onto (its GPU maps point at that VRAM), 0 = none
+        bool scanDirect{false};   // b162: bound by PHXN_SEL_SCAN_DIRECT (its pages are a display surface's; they go stale while bound)
         uint64_t scanVram{0};
         uint64_t freeSeq{0};      // freed by the client, released once the GPU retires this seqno (b52); 0 = live
         uint64_t vram{0};         // b156: a VRAM-backed BO's pool offset (md is a 4 KiB anchor, kva NULL); 0 = system pages

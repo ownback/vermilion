@@ -46,7 +46,16 @@ enum {
     PHXN_SEL_SCAN_PRESENT  = 12,  /* in [0] slot [1] flags (0)   out [0] present id [1] target frame [2] 0 */
     PHXN_SEL_SCAN_STATUS   = 13,  /* struct out: phxn_scan_status (256 B); a call is the keep-alive */
     PHXN_SEL_SCAN_RELEASE  = 14,  /* out [0] console restore verified [1] plane MC after; idempotent */
-    PHXN_SEL_BOIMPORTHOST = 21,    /* ABI 1.9: in [0] host VA [1] size [2] flags 0 [3] GPU VA 0 -> out [0] handle [1] size [2] 0 [3] bits */
+    PHXN_SEL_BOIMPORTHOST = 21,    /* ABI 1.9: in [0] host VA [1] size [2] flags 0 [3] GPU VA 0 -> out [0] handle [1] size [2] 0 [3] bits
+                                      (b162: refused for pages of the GPU's own BARs) */
+    /* kext b162: direct scan-out (PhxScanDirect.h). Selector 22 because RADV's radv_darwin_n48n_call passes 22..26 as
+       they are (Cobalt64's instance-2 SCANX numbers, never implemented by this kext), so the plugin needs no RADV
+       change. in [0] slot (0 or 1); struct in phxn_scan_reg (32 B: the BO the display surface is drawn through, offset 0,
+       HUBP0's pitch, width, height and format) -> out [0] slot [1] slot MC. The BO's GPU maps then reach the slot's VRAM
+       (local PTEs) until the release, a watchdog restore's next acquire, or the BO's free (each restores the console
+       first). Root or WindowServer, debug.phxscan=1 and debug.phxscan_direct=1, only on the large layout with BAR0 over
+       the slots; scan_query.flags PHXN_SCANQ_DIRECT_OK says an acquire here would allow it. */
+    PHXN_SEL_SCAN_DIRECT = 22,
     PHXN_SEL_SURFGPUMARK = 30,     /* kext b95: in [0] IOSurface id [1] plane (NVRM_SS_PLANE_GPU_MARK | pending) -> out [0] NVAccel's
                                       nvSurfVram status (0 taken). WindowServer's composite pending/ready marks, forwarded to PhxAccel
                                       (nvrm-accel.cpp nvSurfGpuEscape) so its head-1 copy waits for the GPU (the head-1
@@ -274,9 +283,13 @@ static_assert(sizeof(struct phxn_info) == 192, "info is 192 B");
 #define PHXN_SCANQ_NATIVE      (1u << 1)
 #define PHXN_SCANQ_ACQUIRED    (1u << 2)
 #define PHXN_SCANQ_GEOM_OK     (1u << 3)
+#define PHXN_SCANQ_DIRECT_OK   (1u << 8)   /* b162: GEOM_OK, the large layout, BAR0 over the slots, HUBP0 linear without DCC / TMZ / VMID, debug.phxscan_direct=1 (bits 4..6 are Cobalt64's) */
 #define PHXN_SCANSLOT_PENDING  (1u << 0)
 #define PHXN_SCANSLOT_INUSE    (1u << 1)
 #define PHXN_SCANSLOT_REUSABLE (1u << 2)
+#define PHXN_SCANSLOT_DIRECT   (1u << 3)   /* b162: a display surface's BO is bound to this slot (PHXN_SEL_SCAN_DIRECT) */
+#define PHXN_SCANSLOT_WRITABLE (1u << 4)   /* b162: not pending, not EARLIEST_INUSE, not the latched front: the surface may be written */
+#define PHXN_SCAN_DIRECT_SLOTS 2u          /* b162: slots 0 and 1 only */
 #define PHXN_SCANST_RESTORING  (1u << 0)
 #define PHXN_SCANST_FMT10      (1u << 1)   /* b149: HUBP0 scans ARGB2101010 now (HDR): copy l10r as it is, no narrowing */
 /* VRAM byte offsets of the three slots for a frame up to 8 MiB (1920x1080x4): 24/32/40 MiB, between phxfb's B (16 MiB)

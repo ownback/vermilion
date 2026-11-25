@@ -316,6 +316,7 @@ say whether the path is accelerated or a fallback.
 | `tools/sensors/cpusensors.py` | CPU package temperature (Tctl) and power, from SMCProcessorAMD's SMC keys |
 | `tools/sensors/cpuclk.c` | effective core clock from dependent adds (macOS and Linux; affinity tags or `taskset` to pick a CCD) |
 | `tools/validation/bootcheck.sh` | one read-only report per boot: shutdown cause, new crash / stall / panic reports, daemon result, sleep settings, display mode, SMART (with sudo) |
+| `tools/validation/appcapture.sh` | one read-only capture of a running app (sudo): frames WindowServer showed per second, CPU time of the app and WindowServer, `sample` of both, the plugin's log, kext counters, SMU activity; `GPUTIME=1` adds GPU time per process ([Maps fullscreen](../.agents/findings/2026-11-25-maps-fullscreen-perf.md)) |
 | `tools/storage/nvmebench.sh` | NVMe / APFS throughput, latency, flush cost, SSD temperature, SMART (fio, smartctl; writes tens of GB per run: don't run it routinely). Pitfalls in its README |
 | `tools/storage/nvmeior.c` | IOReport `NVMe` group: power-state residency, Apple's bandwidth-throttle tiers |
 | `tools/audio/audioprobe.m`, `uacdesc.c` | CoreAudio devices, formats, latency; I/O-cycle jitter, dropouts; USB audio descriptors |

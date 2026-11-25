@@ -68,9 +68,14 @@ WindowServer), `SUCCESS at 17:06:44`, 240 Hz; #26's record unchanged (`fails=0 .
 Music no longer crashes but loads very slowly; Maps still crashes (17:14), now with plugin logs (os_log reaches the
 sandbox). Maps: ~7630 live buffers, tiny private buffers "REFUSED VRAM (RM refused it) -> -2" with 6144 MB free, RADV
 `bo create failed ... -12`, then a 256x256 texture nil ("VRAM full and no system-memory type takes it") and VectorKit
-aborts ("Metal returned null texture"): an allocation count limit, not VRAM size. Logs in
-`~/vermilion-captures/2026-11-25-maps/` (outside git). Agents: Maps allocation limit (`ownback/maps-alloc-limit`),
-Music slow load (`ownback/music-slow-load`). Note: in zsh `log` is a builtin, use `/usr/bin/log`.
+aborts ("Metal returned null texture"). Cause: the kext's 4095 BO handles per process, held by Managed buffers' VRAM
+copies (finding `2026-11-25-maps-allocation-limit.md`); #29 (merged) pools small device-local buffers, deploy next.
+Logs in `~/vermilion-captures/2026-11-25-maps/` (outside git). In zsh `log` is a builtin: use `/usr/bin/log`.
+Music after #25: no crash, but a slow first launch (`MusicUI bootstrap took: 32.374500 seconds`). The cause isn't in the
+plugin: Music's main thread waits 30.36 s on accountsd, which waits on a freshly started passd. passd retries the
+missing AppleSSE service (no T2 / Secure Enclave) 60 times, every 0.5 s. It happens once per boot, and it was there
+before #25 too: 32.32 s on 11-24 18:35, 1.32 s with passd warm at 19:28. The plugin's share is 0.36 s, off the main
+thread; the readbacks cost under 1 ms each. Finding `2026-11-25-music-slow-load.md`. Fix: platform side (TODO).
 
 Item 3: design on #24 (finding `2026-11-25-recovery-trap-design.md`). Step 1 (daemon and `navi31_up.sh` only, no
 EFI change, #26) installed 2026-11-25 under the lock, rollback in `~/vermilion-rollback/recovery-daemon-1`. **Live and passed**

@@ -168,6 +168,12 @@ PROJECT_KNOWLEDGE.
   RADV's own BOs still take a handle each; a process with ~4000 live textures fails as Maps did. Choose: pool small
   images in the plugin, or let the kext's `bos` / `maps` tables grow (an N48N ABI minor with RADV; the VA map table is
   GPU VM work: `hw-safety-reviewer`).
+- [ ] **Music's 30 s first launch: passd's Secure Element wait** (platform, not the plugin; finding
+  `2026-11-25-music-slow-load.md`). Every cold start of passd runs libAppleSSE's 60 x 0.5 s lookup for an `AppleSSE`
+  service that needs a T2. Music's account save waits for it through accountsd. First the owner test in the finding
+  (cold vs warm passd). Then: find what makes `PKSecureElement registerObserver:` run on a Mac without a Secure
+  Element, and report that from the platform (ryzentosh). Until then, a login agent that kickstarts passd is the
+  mitigation, unverified.
 - [ ] **Phase 2 item 2: the plugin's other `syslog()` calls** (`NVMTLX420.m`, `nvmtl_imgmem.c`, `nvmtl_pitch_align.c`,
   `NVMTLWSCapture.m`, `NVMTLHolders.m`, the ANGLE line in `NVMTLDevice.m`) still bypass `nvlog`: move them to the
   `org.vermilion.nvmtl` subsystem too.

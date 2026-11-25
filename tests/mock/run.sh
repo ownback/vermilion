@@ -1218,6 +1218,19 @@ if [ "$PAR" -gt 1 ]; then
 else
   for s in $TORUN; do sc_"$s"; done
 fi
+# The pre-hook suite (esp_flags.sh, and air_runtime_install.sh): its own script and fake EFI partitions, counted in here.
+# Only on a full run (no scenario names given).
+if [ -z "$*" ]; then
+  echo "== espflags_test.sh"
+  esp=$(bash "$HERE/espflags_test.sh" 2>&1); esprc=$?
+  printf '%s\n' "$esp" | grep -E '^(FAIL|    )' || true
+  espn=$(printf '%s\n' "$esp" | sed -n 's/^RESULT: \([0-9]*\) passed, \([0-9]*\) failed.*/\1 \2/p')
+  if [ -n "$espn" ] && [ $esprc = 0 ]; then
+    PASSN=$((PASSN + ${espn% *})); echo "PASS  espflags_test.sh (${espn% *} checks)"
+  else
+    FAILN=$((FAILN+1)); FAILED="$FAILED espflags_test.sh"; echo "FAIL  espflags_test.sh (exit $esprc)"; printf "%s\n" "$esp" | tail -15
+  fi
+fi
 echo "-----------------------------------------------------------"
 echo "RESULT: $PASSN passed, $FAILN failed${FAILED:+ (failed:$FAILED)}"
 [ $FAILN = 0 ] && echo "ALL GREEN — daemon logic verified without a single reboot." || true

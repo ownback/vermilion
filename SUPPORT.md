@@ -50,7 +50,7 @@ doesn't yet). *Refused by the code* and *from the code* are what the source says
 | System sleep | not supported (keep it off) |
 | SIP | relaxed (`0x0A03`) |
 | Kext approval | one **Allow** click for VermilionAccel at the install and after each update of it: a known step ([INSTALL.md](INSTALL.md#23-the-allow-click-a-known-step)) |
-| Gatekeeper | the release package is unsigned: **Open Anyway** in System Settings > Privacy & Security ([INSTALL.md](INSTALL.md#21-the-release-route-not-available-yet)) |
+| Gatekeeper | the release package is unsigned: **Open Anyway** in System Settings > Privacy & Security ([INSTALL.md](INSTALL.md#21-the-release-route-preview-unverified)) |
 
 ## Machine
 

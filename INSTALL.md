@@ -5,10 +5,11 @@
 For people who want to run Vermilion on their own machine. Read the whole page before you start.
 
 > [!CAUTION]
-> **There is no finished installer yet.** Parts marked **(not available yet)** describe the first release this
-> project is building, `0.1.0-preview` ([docs/RELEASE.md](docs/RELEASE.md)). What works today is the manual install, which only the
-> [reference machine](docs/REFERENCE-MACHINES.md) has run, last done from scratch on 2026-11-19. Use it only if you can
-> recover a Mac that doesn't boot to a picture.
+> **There is no tested installer yet.** The release package and the OpenCore zip of `0.1.0-preview`
+> ([docs/RELEASE.md](docs/RELEASE.md)) are built by scripts and CI, but no release is published and nobody has run the
+> package on a real Mac (*unverified*); parts marked **(not available yet)** don't exist. What has run is the manual
+> install, which only the [reference machine](docs/REFERENCE-MACHINES.md) has done, last from scratch on 2026-11-19.
+> Use any of it only if you can recover a Mac that doesn't boot to a picture.
 
 ## 1. Before you start
 
@@ -52,21 +53,36 @@ target is "copy the kexts, merge one config snippet, run one package".
 
 ## 2. Install
 
-### 2.1 The release route (not available yet)
+### 2.1 The release route (preview, unverified)
 
-The first release is `0.1.0-preview`, for the RX 7900 XTX only.
+The first release is `0.1.0-preview`, for the RX 7900 XTX only. The scripts and CI that build it exist; no release is
+published yet and the package has not been run on a real Mac (*unverified*).
 
 1. Download the release's `Vermilion-<version>-OpenCore.zip` and `Vermilion-<version>.pkg` from GitHub Releases and
-   check them against `SHA256SUMS`.
-2. Copy the kexts from the zip into `EFI/OC/Kexts` and merge the zip's `config-snippet.plist` (section 3) into your
-   `config.plist`. Run `ocvalidate`.
+   check them against `SHA256SUMS` (`shasum -a 256 -c SHA256SUMS` in the download folder).
+2. Copy the three kexts of the zip's `Kexts` folder into `EFI/OC/Kexts` and merge the zip's `config-snippet.plist`
+   (section 3) into your `config.plist`. Run `ocvalidate`.
 3. Open the package. It is not signed with an Apple Developer ID, so Gatekeeper blocks it the first time: open
    System Settings > Privacy & Security, scroll to Security, and click **Open Anyway** next to the package's name
-   (*unverified* on 26.7.1 with this package: it isn't built yet). Do this only after the `SHA256SUMS` check of
-   step 1: the checksum is what tells you the package is the project's.
-4. The package checks your macOS build and GPU and installs the Metal driver and VermilionAccel. No AMD firmware is
-   in it: its post-install script runs in macOS and downloads the firmware from linux-firmware (you need a network
-   connection, or point it at a linux-firmware copy), and checks every file.
+   (*unverified* on 26.7.1). Or, in Terminal, `sudo installer -pkg Vermilion-<version>.pkg -target /` (*unverified*:
+   it should not show Gatekeeper's dialog). Do this only after the `SHA256SUMS` check of step 1: the checksum is
+   what tells you the package is the project's.
+4. The package checks your macOS build (25G241) and your GPU (an RX 7900 XTX, PCI revision `0xC8`, and no other
+   `1002:744c` card) and refuses otherwise, changing nothing. The installer window only says that the install
+   failed; the reason is in `/var/log/install.log`. When the checks pass it:
+   - copies every file it is about to replace to `/Library/Application Support/Vermilion/rollback/<time>/`;
+   - installs the Metal driver (`/Library/GPUBundles`), VermilionAccel (`/Library/Extensions`), `phxctl`, `mesboot`,
+     `spirv-val`, `vermilion-uninstall` and `vermilion-firmware` (`/usr/local`);
+   - installs the boot daemon, its scripts and the first-boot flags into your `~/gpu`, and writes the LaunchDaemon
+     `local.phxboot` (it does not start it: it runs at the next boot);
+   - downloads AMD's firmware from linux-firmware, at the commit pinned in the package, into `~/gpu/fw/navi31` and
+     checks every file (MD5 and SHA-256); no firmware is inside the package. Without a network the install still
+     finishes, with a warning, and the GPU stays on the basic display until you run `sudo vermilion-firmware` (or
+     `sudo vermilion-firmware --from <linux-firmware checkout>`);
+   - installs the AIR reader (LLVM) into the Metal driver bundle.
+
+   It never writes the system volume, NVRAM or the EFI partition, and it does not change Software Update or sleep:
+   set those as section 1 says.
 5. Approve VermilionAccel (the Allow click, section 2.3), then restart.
 
 On the reference machine's exact parts, the [ryzentosh](https://github.com/ownback) EFI will contain all of step 2
@@ -137,11 +153,16 @@ AMD_Vanilla kernel patches, SMBIOS (make your own; never reuse someone else's se
 - **Vermilion:** the kexts in OpenCore and the Metal driver must come from the same version: VermilionTrust holds the
   exact fingerprints (cdhashes) of the Metal driver, the translator and RADV it lets load. Update both, then restart
   once. Keep the previous `EFI/OC` folder (for example as `EFI/OC.prev`) until the new version has run for a few boots.
-- The release package will check the versions and refuse a mismatch *(not available yet)*.
+- The release package does not yet check that the loaded VermilionTrust is the one of its own release *(not available
+  yet)*: update both, then restart once.
 
 ## 6. Uninstall
 
-The release package will install `vermilion-uninstall` *(not available yet)*. Today, in this order
+If you installed the release package, run `sudo vermilion-uninstall` (*unverified*: never run on a real Mac). It stops
+the daemon, puts the login-window value and the display overrides back, removes what the package installed, restores
+the files it replaced from the rollback folders, keeps the firmware (`--purge` removes it), forgets the package, and
+prints what is left for you: the Auxiliary Kernel Collection rebuild (`kmutil`; `--rebuild-kc` runs it, *unverified*)
+and the OpenCore entries (step 7 below). For a manual install, do it by hand, in this order
 ([docs/INSTALL.md](docs/INSTALL.md) section 9 has every command):
 
 1. Stop the boot daemon: remove `/Library/LaunchDaemons/local.phxboot.plist`, `/var/db/phxboot.pending` and the NVRAM

@@ -1,0 +1,104 @@
+#!/bin/sh
+# SPDX-License-Identifier: MIT
+# postinstall of Vermilion-<version>.pkg (docs/RELEASE.md). Runs as root after the payload is laid down. In order:
+#   1. the boot daemon, bring-up scripts, tools and flags into the desktop user's ~/gpu (the layout the scripts read
+#      today: tools/phxctl/recovery_install.sh puts the same files there), a rollback copy of each replaced file first;
+#   2. the LaunchDaemon local.phxboot (written, not loaded: launchd starts it at the next boot);
+#   3. AMD's firmware, fetched from linux-firmware at the commit pinned in fw.lock (md5 and SHA-256 checked);
+#      the package contains none. A failed fetch is a warning: the install stays, the GPU stays on the basic display;
+#   4. the AIR reader (libLLVM + libzstd) into the Metal driver bundle, through air_runtime_install.sh;
+#   5. the shared shader cache folders, the first-boot flags (only those that are not there), the install marker.
+# It never touches the system volume, NVRAM, the EFI partition or Software Update, and it does not start the daemon.
+# VERMILION_FETCH=<command> replaces the firmware step (tests); VERMILION_FW_FROM=<dir> makes it offline.
+HERE=$(cd "$(dirname "$0")" && pwd)
+. "$HERE/lib.sh"
+VERSION=$(cat "$LIBEXEC/VERSION" 2>/dev/null || echo unknown)
+
+[ "$(id -u)" = 0 ] || [ "${VERMILION_NOCHOWN:-0}" = 1 ] || fail "run as root"
+U=$(console_user); [ -n "$U" ] || fail "no desktop user (the preinstall check passed, so the login changed during the install)"
+UH=$(user_home "$U"); H=$R$UH
+[ -n "$UH" ] && [ -d "$H" ] || fail "home folder of $U not found"
+UID_=$(id -u "$U" 2>/dev/null || echo 501); GID_=$(id -g "$U" 2>/dev/null || echo 20); UO=$UID_:$GID_
+RB=$(rb_current)
+if [ -z "$RB" ] || [ ! -d "$RB" ]; then mkdir -p "$SUPPORT/rollback"; rb_new; fi
+G=$H/gpu
+chown_() { [ "${VERMILION_NOCHOWN:-0}" = 1 ] || chown "$@"; }
+put() {   # put <src file> <dst file> <mode>: keep the old one in the rollback folder, then move the new one in
+  rb_keep "$2"
+  mkdir -p "$(dirname "$2")"
+  cp "$1" "$2.vnew" && chmod "$3" "$2.vnew" && chown_ "$UO" "$2.vnew" && mv -f "$2.vnew" "$2" || fail "could not install $2"
+}
+say "installing for user $U ($UH)"
+
+# 1. ~/gpu: every file of the payload's gpu/ folder, at the same relative path
+mkdir -p "$G/phxctl" "$G/fw"; chown_ "$UO" "$G" "$G/phxctl" "$G/fw"
+( cd "$LIBEXEC/gpu" && find . -type f | sed 's|^\./||' | sort ) >"$SUPPORT/.gpu-files"
+while IFS= read -r f; do
+  put "$LIBEXEC/gpu/$f" "$G/$f" 755
+done <"$SUPPORT/.gpu-files"
+rm -f "$SUPPORT/.gpu-files"
+say "$UH/gpu: daemon, bring-up scripts and tools installed"
+
+# 2. LaunchDaemon (a template with @PHX_ROOT@ and @PHX_USER@)
+LD=$R/Library/LaunchDaemons/local.phxboot.plist
+mkdir -p "$(dirname "$LD")"
+rb_keep "$LD"
+sed -e "s|@PHX_ROOT@|$UH/gpu|g" -e "s|@PHX_USER@|$U|g" "$LIBEXEC/local.phxboot.plist.in" >"$LD.vnew" || fail "could not render the LaunchDaemon"
+if command -v plutil >/dev/null 2>&1; then plutil -lint "$LD.vnew" >/dev/null || { rm -f "$LD.vnew"; fail "the rendered LaunchDaemon does not lint"; }; fi
+chmod 644 "$LD.vnew"; chown_ 0:0 "$LD.vnew"; mv -f "$LD.vnew" "$LD"
+say "LaunchDaemon local.phxboot written (it starts at the next boot)"
+
+# 3. firmware
+rb_keep "$G/fw/navi31"
+FETCH=${VERMILION_FETCH:-"sh $LIBEXEC/firmware/fetch_firmware.sh"}
+[ -z "${VERMILION_FW_FROM:-}" ] || FETCH="$FETCH --from $VERMILION_FW_FROM"
+FW_OK=1
+if $FETCH "$G/fw/navi31"; then say "firmware: all files match fw.lock"
+else
+  FW_OK=0
+  echo "Vermilion: WARNING: the firmware could not be fetched (network, or a file that does not match fw.lock)." >&2
+  echo "Vermilion: The rest is installed. Until the firmware is in $UH/gpu/fw/navi31 the GPU stays on the basic display." >&2
+  echo "Vermilion: Later, with a network connection, run: sudo vermilion-firmware   (or: sudo vermilion-firmware --from <linux-firmware checkout>)" >&2
+fi
+chown_ -R "$UO" "$G/fw"
+
+# 4. AIR reader
+if [ -f "$LIBEXEC/air-runtime-src/libLLVM.dylib" ]; then
+  sh "$LIBEXEC/tools/air_runtime_install.sh" "$LIBEXEC/air-runtime-src" "$R" || fail "the AIR reader was not installed. Run vermilion-uninstall to undo this install"
+  rm -rf "$LIBEXEC/air-runtime-src"
+else
+  say "AIR reader: already installed (no copy in the package)"
+fi
+
+# 5. caches, first-boot flags, marker
+GB=$R/Library/GPUBundles
+for c in aircache spvcache; do
+  [ -e "$GB/nvmtl/$c" ] || printf 'N %s\n' "$GB/nvmtl/$c" >>"$RB/MANIFEST"
+  mkdir -p "$GB/nvmtl/$c"; chown_ 88:0 "$GB/nvmtl/$c"; chmod 755 "$GB/nvmtl/$c"
+done
+for fl in phxboot-sdma phxboot-cg phxboot-uclk=456; do   # the first-boot set of docs/XTX.md (recovery_install.sh's default)
+  name=${fl%%=*}
+  [ ! -e "$G/$name" ] || continue
+  printf 'N %s\n' "$G/$name" >>"$RB/MANIFEST"
+  case $fl in *=*) printf '%s\n' "${fl#*=}" >"$G/$name" ;; *) : >"$G/$name" ;; esac
+  chown_ "$UO" "$G/$name"; chmod 644 "$G/$name"
+done
+{ echo "version $VERSION"; echo "date $(date '+%F %T')"; echo "user $U"; } >"$SUPPORT/installed"
+sync
+
+cat <<EOF
+
+Vermilion $VERSION is installed.$([ $FW_OK = 1 ] || echo " (Firmware is still missing: see the warning above.)")
+
+Next, in this order:
+  1. Allow the kext. Open System Settings > Privacy & Security, scroll to Security, click Allow next to the message
+     about blocked system software, enter your password, and restart when macOS asks. Until then VermilionAccel
+     does not load and you stay on the basic display. After every update that changes this kext, click Allow again.
+  2. Make sure the OpenCore part is in place: the kexts and snippet of Vermilion-<version>-OpenCore.zip
+     (INSTALL.md section 3). One EFI change per boot.
+  3. Do not log in for about 3 minutes after the restart; /var/log/phxboot.log tells what happened.
+  4. Software Update must not install macOS by itself and the Mac must not sleep (INSTALL.md section 1): this
+     package does not change either setting. To undo this install: sudo vermilion-uninstall
+Rollback copies of every replaced file: $RB
+EOF
+exit 0

@@ -169,7 +169,13 @@ rec_when(){ local left=$(( $(rec_need) - REC_C - 1 ))
 # background (PHXBOOT_NOTICE_FG=1, the mocks: in the foreground), so a daemon that keeps running (the safe desktop)
 # goes on; notice_join waits for it before an exit, since launchd ends the job's other processes when the daemon exits.
 # Shown through launchctl asuser + sudo -u, so it runs in the user's session as the user (unverified on hardware).
-NOTICE=${PHXBOOT_NOTICE:-/var/db/phxboot.notice}; NOTICEPID=""
+NOTICE=${PHXBOOT_NOTICE:-/var/db/phxboot.notice}; NOTICEPID=""; NOTICED=0
+# A restart after a failure (the bring-up watchdog's, m2_fail's, the hang watch's) comes before most logins, and the next
+# boot drops this boot's notice. So such a boot also leaves one sentence for the next boot in $NOTICE_NEXT. The next boot
+# takes it at its start (after the Safe Mode exit: Safe Mode leaves it) and shows it after login unless it has a notice
+# of its own (which then says more); a warm refusal words its own with it. One boot only: not shown, it is dropped then.
+NOTICE_NEXT=${PHXBOOT_NOTICE_NEXT:-/var/db/phxboot.notice-next}; CARRY=""
+RESTARTED="Your Mac restarted because graphics acceleration failed to start."
 notice_show(){ local u="" uid t=0 w=${PHXBOOT_NOTICE_WAIT:-900}
   while [ $t -lt $w ]; do u=$(who 2>/dev/null | awk '$2=="console"{print $1; exit}'); [ -n "$u" ] && break; sleep 3; t=$((t+3)); done
   [ -n "$u" ] || { echo "notice: nobody logged in within ${w}s: not shown (kept in $NOTICE)"; return 0; }
@@ -178,10 +184,13 @@ notice_show(){ local u="" uid t=0 w=${PHXBOOT_NOTICE_WAIT:-900}
   if launchctl asuser "$uid" sudo -u "$u" /usr/bin/osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title "Graphics"' -e 'end run' "$(cat "$NOTICE" 2>/dev/null)" >/dev/null 2>&1
   then rm -f "$NOTICE"; echo "notice: $(date '+%T') shown to $u"
   else echo "notice: $(date '+%T') could not be shown to $u (osascript failed): kept in $NOTICE"; fi; }
-notice(){ printf '%s\n' "$1" >"$NOTICE"; sync; echo "notice: $1"
+notice(){ NOTICED=1; printf '%s\n' "$1" >"$NOTICE"; sync; echo "notice: $1"
   if [ "${PHXBOOT_NOTICE_FG:-0}" = 1 ]; then notice_show; else notice_show & NOTICEPID=$!; fi; }
 notice_join(){ [ -n "$NOTICEPID" ] && wait "$NOTICEPID" 2>/dev/null; NOTICEPID=""; return 0; }
-leave(){ release; notice_join; exit 0; }   # an exit before or instead of the desktop: the hold off, the notice shown
+notice_next(){ printf '%s\n' "$1" >"$NOTICE_NEXT"; sync; echo "notice for the next boot: $1"; }   # right before a restart
+notice_carry(){ [ -n "$CARRY" ] && [ "$NOTICED" = 0 ] && notice "$CARRY"; CARRY=""; return 0; }   # the last boot's, if none
+bye(){ notice_carry; notice_join; exit 0; }   # an exit before or instead of the desktop: the notice shown
+leave(){ release; bye; }                      # the same, with the hold off
 CLAIMED=0   # 1 once mesboot claim ran: PhxAMDFB and NMXAccel may be up, Metal may be on the GPU
 # revert to a safe GOP boot: drop the panel/arm, consume the one-shots, reboot.
 # The clean-shutdown TERM trap is dropped first: the TERM of the reboot below must not run it (it would log a clean
@@ -191,9 +200,9 @@ m2_fail(){ trap - TERM; echo "FAIL ($1): reverting to GOP"; b21_on "FAIL: the ne
            if [ "$CLAIMED" = 1 ]; then apps_only; sysctl -w debug.phxagdc=0 >/dev/null 2>&1; fi
            oneshots_off
            # a stuck squat (below) would come straight back here: stay up instead; the next boot runs the safe desktop
-           [ "${SQUAT:-0}" = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" || { echo "stuck squat: no reboot after the failure (it would come back to the squat)"
+           [ "${SQUAT:-0}" = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" "$RESTARTED" || { echo "stuck squat: no reboot after the failure (it would come back to the squat)"
              notice "Graphics acceleration failed to start this time. Your Mac will try again when it restarts."; leave; }; }
-           shutdown -r now; exit 0; }
+           notice_next "$RESTARTED"; shutdown -r now; exit 0; }
 # Login-window guard (11-04): a WindowServer without Metal (the first
 # one of every boot until the restart below, or the only one of a GOP boot) aborts in QuartzCore CA::OGL push_surface when
 # loginwindow draws the Memoji lock-screen avatar. SHOWFULLNAME true (name + password fields) avoids the avatar. loginwindow
@@ -260,6 +269,8 @@ else al_off "daemon start";  echo "b21guard: off (~/gpu/phxboot-b21guard = 0): S
 # Safe Mode (Shift at startup; XNU's -x, kern.safeboot 1): no bring-up, no kmutil load, nothing armed, the record and the
 # in-progress mark left for the next normal boot. A Mac in Safe Mode runs without its third-party drivers too.
 if [ "$(sysctl -n kern.safeboot 2>/dev/null)" = 1 ]; then echo "safe mode (kern.safeboot 1): no bring-up, nothing armed this boot"; exit 0; fi
+if [ -e "$NOTICE_NEXT" ]; then CARRY=$(head -1 "$NOTICE_NEXT" 2>/dev/null); rm -f "$NOTICE_NEXT"; sync
+  echo "notice: the last boot left one for this boot (shown after login unless this boot has its own): $CARRY"; fi
 # Squat detection (11-02): poll until PhxFBSquatter (squat boot) or an
 # IOFramebuffer (IONDRV/GOP boot) appears, up to 60 s. The old one-shot check ran before the squatter attached on fast
 # boots (no -v: the daemon starts ~4 s after the kernel), read 0, and wait_fb then waited 90 s for a framebuffer the
@@ -355,7 +366,9 @@ if [ -e "$NVSTUCK" ]; then
   else rm -f "$NVSTUCK" "$SAFEF"; sync; echo "nvstuck: not a squat boot: phxfb-squat is clear"; fi
 fi
 # a squat boot's way back to IONDRV. On a stuck squat it returns 1 instead, and the caller goes on without a reboot.
-squat_reboot(){ [ $STUCK = 1 ] && return 1; echo pending > "$NVSTUCK"; nvram -d phxfb-squat; sync; echo "$1"; shutdown -r now; exit 0; }
+# $2: the notice for the boot after the reboot (after a failure)
+squat_reboot(){ [ $STUCK = 1 ] && return 1; echo pending > "$NVSTUCK"; nvram -d phxfb-squat; sync; echo "$1"
+  [ -z "${2:-}" ] || notice_next "$2"; shutdown -r now; exit 0; }
 headless(){ REC_L=skip; rec_save "headless"
   echo "stuck squat: $1: no desktop attempt and no reboot this boot (the screen stays dark; ssh and T3 still reach the machine). The next boot tries the safe desktop again: restart once. Do not Reset NVRAM, it deletes phxfb-squat"; release; exit 0; }
 # the record: the last boot's outcome first (an unfinished attempt, or one more clean fallback boot)
@@ -371,14 +384,14 @@ fi
 if [ -e "$OFF" ]; then
   echo "kill switch present (~/gpu/phxboot-off, the owner's switch: this daemon never sets it)"; release
   rm -f "$MARK"; sync   # an unfinished attempt is counted above, once
-  REC_L=skip; [ $SQUAT = 1 ] || { rec_save "kill switch"; exit 0; }
+  REC_L=skip; [ $SQUAT = 1 ] || { rec_save "kill switch"; bye; }
   rec_save "kill switch"; squat_reboot "squat boot with the kill switch on: rebooting onto IONDRV"
   SAFE=1; WHY="the kill switch is on"
 elif [ $HUNG = 1 ]; then
   echo "previous attempt did not finish -> GOP (one-shots cleared; counted in $FAILS, fails=$REC_F)"
   oneshots_off
   REC_L=skip; rec_save "no attempt this boot"
-  [ $SQUAT = 1 ] || exit 0
+  [ $SQUAT = 1 ] || bye
   squat_reboot "squat boot: rebooting onto IONDRV"
   SAFE=1; WHY="the last startup did not finish"
 elif [ $STUCK = 1 ] && [ "$REC_F" -gt 0 ] && [ "$REC_C" -lt "$(rec_need)" ]; then
@@ -422,7 +435,7 @@ for i in $(seq 1 60); do ioreg -l | grep -q '"phx-build"' && break; sleep 1; don
 [ $SQUAT = 1 ] || wait_fb    # a squat boot has no framebuffer until PhxAMDFB starts at claim
 # A GOP boot without PhxBringup, or (below) whose NMXAccel did not start, is no clean fallback boot: its plain path
 # failed, and the full desktop would fail the same way. It is no failed desktop attempt either (fails stays).
-ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not loaded"; REC_L=skip; rec_save "PhxBringup not loaded: no clean fallback boot"; echo "PhxBringup not loaded"; exit 0; }
+ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not loaded"; REC_L=skip; rec_save "PhxBringup not loaded: no clean fallback boot"; echo "PhxBringup not loaded"; bye; }
 
 # bring-up + claim (needed for Metal either way)
 # PhxAMDFB takes the panel at start only with phxfb-boot set (it clears it at once)
@@ -479,7 +492,9 @@ desk_used(){ [ -e "$DESKTOP" ] || return 0
 case "$UPOUT" in *"refused: warm GPU ("*)
   upfail_end; desk_used keep; REC_L=skip; rec_save "warm GPU refused"
   echo "warm GPU: bring-up refused, no Metal this boot ($([ $SQUAT = 1 ] && echo 'a squat boot: no display without the claim, the screen stays dark; ssh and T3 reach the machine' || echo 'firmware display')); power the machine off fully, then boot macOS. Nothing was written to the GPU: not counted as a failed attempt, no reboot"
-  notice "The graphics card was still running from another operating system. Shut down (don't restart), then turn the computer on again to get graphics acceleration back."
+  # after a restart that followed a failure, the GPU is warm from that boot's own bring-up, not from another system
+  if [ -n "$CARRY" ]; then notice "$RESTARTED Shut down (don't restart), then turn the computer on again to get graphics acceleration back."
+  else notice "The graphics card was still running from another operating system. Shut down (don't restart), then turn the computer on again to get graphics acceleration back."; fi
   leave;; esac
 if [ $UPOK = 0 ]; then
   upfail_end; desk_used; REC_B=$(inc "$REC_B"); REC_L=skip; rec_fail "bring-up failed"
@@ -493,9 +508,13 @@ if [ $UPOK = 0 ]; then
     echo pending > "$NVSTUCK"; nvram -d phxfb-squat; sync
     echo "squat boot: phxfb-squat cleared, no reboot by the daemon: the bring-up watchdog restarts the machine onto IONDRV within 3 min"
   elif [ $SQUAT = 1 ]; then
-    squat_reboot "squat boot: rebooting onto IONDRV after the failed bring-up"
+    squat_reboot "squat boot: rebooting onto IONDRV after the failed bring-up" "$RESTARTED"
   fi
-  if [ "$REC_B" -ge 2 ]; then notice "Graphics acceleration failed to start again. Your Mac will start without it next time, then try again."
+  # the watchdog's restart comes before most logins: the next boot gets the notice too
+  if echo "$UPOUT" | grep -q 'watchdog is still armed'; then notice_next "$RESTARTED"
+    if [ "$REC_B" -ge 2 ]; then notice "Graphics acceleration failed to start again. Your Mac will restart by itself within 3 minutes."
+    else notice "Graphics acceleration failed to start. Your Mac will restart by itself within 3 minutes."; fi
+  elif [ "$REC_B" -ge 2 ]; then notice "Graphics acceleration failed to start again. Your Mac will start without it next time, then try again."
   else notice "Graphics acceleration failed to start. Your Mac will try again at the next startup."; fi
   leave
 fi
@@ -890,6 +909,7 @@ else
   fi
 fi
 echo "done $(date '+%T')"
+notice_carry   # the last boot's notice when this one has none (in the background: watch_hangs below never returns)
 
 # WP6 (10-27): with $G/phxboot-vcn present, after "done": bring VCN0 up (vcn_up.sh, its own log in $G/vcnup/boot.log),
 # let the kext adopt its ring (debug.phxvcn=1) and turn MMHUB VM on (debug.phxmmvm=1) so VCN can decode for apps.
@@ -1018,8 +1038,8 @@ watch_hangs(){ local base n now first=0 wsp p c silent=0 it=0
     now=$(date +%s); [ $first = 0 ] && first=$now
     if [ $((n-base)) -ge 2 ]; then
       echo "$(date '+%F %T') WindowServer hung $((n-base))x on GPU: reverting to GOP"; b21_on "revert to GOP after the hangs"; gpu_dump "WindowServer hung $((n-base))x"; rec_fail "WindowServer hung $((n-base))x"; oneshots_off   # the mark is already gone (SUCCESS)
-      [ $SQUAT = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" || { echo "stuck squat: staying up after the hangs (no reboot can leave the squat)"; return; }; }
-      shutdown -r now; return
+      [ $SQUAT = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" "$RESTARTED" || { echo "stuck squat: staying up after the hangs (no reboot can leave the squat)"; return; }; }
+      notice_next "$RESTARTED"; shutdown -r now; return
     fi
     [ $((now-first)) -gt 300 ] && { base=$(ls "$DR" 2>/dev/null | grep -c '^WindowServer-.*\.ips$'); silent=0; first=0; }
   done; }

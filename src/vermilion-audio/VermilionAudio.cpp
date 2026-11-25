@@ -7,8 +7,8 @@
 // a table of 12 supported controllers (0x2c bytes each: vendor, device, quirks). Navi 31's ab30 is not in it, so the
 // probe returns nothing even when a personality matches. When AppleGFXHDA loads, this plugin rewrites the device ID of
 // one entry, 1002:ab20, to ab30, keeping that entry's quirks (the same as Navi 21's ab28, which Apple supports on the
-// Mac Pro). It patches only when the machine has a 1002:ab30 function, no 1002:ab20 one, and its GPU (1002:744c) is an RX 7900 XTX
-// (PCI revision 0xc8, PhxGpuId.h); on any other board AppleGFXHDA stays as Apple ships it.
+// Mac Pro). It patches only when the machine has a 1002:ab30 function, no 1002:ab20 one, and its GPU (1002:744c) is an
+// RX 7900 XTX (PCI revision 0xc8, PhxGpuId.h); on any other board AppleGFXHDA stays as Apple ships it.
 //
 // Then, with the ATI codec 1002:aa01, AppleGFXHDAFunctionGroupFactory::createAppleHDAFunctionGroup and
 // AppleGFXHDAWidgetFactory::createAppleHDAWidget pick their classes by the controller's device ID: for ab20-ab38 a bit

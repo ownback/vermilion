@@ -50,7 +50,7 @@ The plan is [PLAN-parity-week.md](PLAN-parity-week.md).
 - **Shell:** in zsh, `log` is a builtin; use `/usr/bin/log`.
 - **sudo:** see memory `sudo-access`.
 
-## Running delegates (branch: scope)
+## Running delegates
 | Branch | Scope |
 |---|---|
 | `plugin-release-parity` | A2 + A3: release build, NVIDIA removal, Metal feature answers |
@@ -58,7 +58,7 @@ The plan is [PLAN-parity-week.md](PLAN-parity-week.md).
 | `webgl-cache-gva` | A5 + A6: WebGL cache, decoder via AppleGVA |
 | `kernel-bringup-design` | B1 |
 | `own-modeset-design` | B2 |
-| `accel-trust-parity` | B3 + B4 |
+| `accel-trust-parity` | B3 + B4 (the owner dropped B3 afterwards: see [decisions.md](decisions.md), release decisions) |
 | `release-readiness` | C1 |
 | `display-parity` | C2 |
 | `hang-video-parity` | C3 |

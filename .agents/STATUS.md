@@ -77,7 +77,10 @@ VermilionTrust binary, `OC.prev` = change 35 (also `~/vermilion-rollback/EFI-OC.
 passed** on the boot of 2026-11-25 17:52 (all of these; `SUCCESS at 17:54:33`). Owner: Maps no longer crashes.
 `tests/plugin/test_private_pool_gpu.m` (owner's OK) all passed: 12000 Managed + 4000 Private buffers, the 256x256
 texture, bytes kept, reused ranges zero; `debug.phxvm` handles refusals 0 before and after. Open: Maps fullscreen
-is very slow (owner); agent on `ownback/maps-fullscreen-perf`. `debug.phxvm` shows `VRAM placed as GTT (vis full) 150`.
+is very slow (owner: "choppy"); agent on `ownback/maps-fullscreen-perf`. Captures 18:48-18:54 with the owner panning
+(`~/vermilion-captures/2026-11-25-appcap/`): window 70-125 frames/s with the GPU at 94-98 % and ~200 W; fullscreen
+mean 135 frames/s (60-190 per second), GPU 50-95 %; fullscreen with Maps in `debug.phxbo_vram_proc` (VRAM placement
+confirmed) mean 144: system memory is not the main cause. Uneven frame pacing and a near-saturated GPU are the leads.
 passd: the owner chose the honest "SSE not supported" `AppleSSE` kext (finding on #30); new private repo
 ownback/ryzentosh-sse with its own thread; it hands the kext to the megamind for an EFI change.
 Logs in `~/vermilion-captures/2026-11-25-maps/` (outside git). In zsh `log` is a builtin: use `/usr/bin/log`.

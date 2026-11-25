@@ -6815,11 +6815,12 @@ int nvmtl_vk_image_write_region_level_layer(nvk_queue *q, nvk_image *img, const 
         // submit without waiting; queue order + the SHADER_READ barrier above order the copy before any later
         // draw that samples this image, and the handle is finished before a readback, destroy or re-upload.
         if (nvmtl_vk_submit_begin_at(c, &au->infl, "tex upload async")) { nvmtl_vk_buffer_destroy(&au->stage); free(au); return -1; }
-        if (!nvmtl_asyncup_list(img, au, bytes)) { g_texup_sync++; return 0; }   // the table filled meanwhile: it was waited for
+        unsigned pend_n; size_t pend_bytes;
+        if (!nvmtl_asyncup_list(img, au, bytes, &pend_n, &pend_bytes)) { g_texup_sync++; return 0; }   // refused: it was waited for
         const unsigned long long n = ++g_texup_async;
         if (n <= 4 || n % 4096 == 0)
             nvlog("async texture upload #%llu: %ux%u level %u submitted without a wait (%u pending, %zu KB; %llu took the sync path)",
-                  n, w, h, level, g_uptab.n, g_uptab.bytes >> 10, (unsigned long long)g_texup_sync);
+                  n, w, h, level, pend_n, pend_bytes >> 10, (unsigned long long)g_texup_sync);
         return 0;
     }
     return nvmtl_vk_submit_wait(c);

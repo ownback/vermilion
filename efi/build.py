@@ -8,10 +8,10 @@ instead of a hand-edited plist. SMBIOS serials are generated once per machine wi
 ~/.config/vermilion/smbios-<machine>.json (mode 0600), never in git.
 
 Usage (Linux or macOS; needs python3, iasl for the ACPI tables):
-  efi/build.py build   [--machine b650e-i-xtx] [--stage <stage>] [--placeholder-smbios]
-                       (without --stage: the profile's default_stage, the everyday EFI)
+  efi/build.py build   [--machine b650e-i-xtx] --stage <stage> [--placeholder-smbios]
+                       (--stage is required: a default would silently pick the wrong EFI; `stages` lists them)
   efi/build.py smbios  [--machine b650e-i-xtx]           generate the SMBIOS file if it does not exist
-  efi/build.py install --esp /boot [--stage ...]         copy EFI/OC onto an EFI partition (root; keeps EFI/OC.prev)
+  efi/build.py install --esp /boot --stage <stage>       copy EFI/OC onto an EFI partition (root; keeps EFI/OC.prev)
   efi/build.py acpi-dump [--machine ...]                 save this machine's DSDT for the DSDT fix (Linux, root)
   efi/build.py stages  [--machine ...]                   print what each stage contains
 
@@ -567,7 +567,7 @@ def main():
         p = sub.add_parser(name)
         p.add_argument("--machine", default="b650e-i-xtx")
         if name in ("build", "install"):
-            p.add_argument("--stage", help="a stage of the machine profile (default: its default_stage)")
+            p.add_argument("--stage", help="a stage of the machine profile (required; `efi/build.py stages` lists them)")
         if name == "build":
             p.add_argument("--placeholder-smbios", action="store_true",
                            help="use Sample.plist's dummy serials (for tests; never boot this)")
@@ -581,7 +581,11 @@ def main():
                            help="also write EFI/BOOT/BOOTx64.efi (USB sticks only; on the internal disk it is Limine's)")
     args = ap.parse_args()
     if getattr(args, "stage", "") is None:
-        args.stage = load_json(HERE / "machines" / f"{args.machine}.json").get("default_stage", "install")
+        machine = load_json(HERE / "machines" / f"{args.machine}.json")
+        default = machine.get("default_stage")
+        names = ", ".join(f"{n} (everyday)" if n == default else n for n in machine["stages"])
+        ap.error(f"{args.cmd} needs --stage <stage>; there is no default (the wrong stage is the wrong EFI). "
+                 f"Stages of {args.machine}: {names}")
     if args.cmd == "build":
         build(args)
     elif args.cmd == "install":

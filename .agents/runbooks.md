@@ -223,7 +223,8 @@ that directory, so it runs once and never again at a later boot. Read the log af
 ## OpenCore EFI install from Linux (2026-11-18, first install)
 
 Superseded for everyday changes by "Building and installing the EFI on the Mac itself" below. From Linux, the
-`efi/build.py install --esp /boot` step does step 1. The EFI partition is shared with Limine (`/boot` on Linux). Steps:
+`efi/build.py install --esp /boot --stage <stage>` step does step 1. The EFI partition is shared with Limine (`/boot`
+on Linux). Steps:
 
 1. Copy the EFI to `/boot/EFI/OC`. Never touch `EFI/BOOT/BOOTX64.EFI` (Limine's fallback) or `EFI/limine`.
 2. Add a firmware boot entry, without changing the boot order:
@@ -270,9 +271,9 @@ sudo mkdir -p /private/tmp/efi && sudo diskutil mount -mountPoint /private/tmp/e
 git clone https://github.com/acpica/acpica.git ~/.local/src/acpica && git -C ~/.local/src/acpica checkout 446be4382 \
   && make -C ~/.local/src/acpica -j8 iasl && cp ~/.local/src/acpica/generate/unix/bin/iasl ~/.local/bin/
 sh scripts/build/kext.sh && PHXTRUST_KEEP=1 sh scripts/build/trust.sh                    # build/VermilionBoot.kext, VermilionTrust.kext
-PATH=$HOME/.local/bin:$PATH python3 efi/build.py build                                     # the profile's default stage (vermilion-trust)
+PATH=$HOME/.local/bin:$PATH python3 efi/build.py build --stage vermilion-trust             # --stage is required; the everyday stage
 sudo diff -rq /private/tmp/efi/EFI/OC build/efi/b650e-i-xtx-vermilion-trust/EFI/OC           # only the intended files
-sudo python3 efi/build.py install --esp /private/tmp/efi                                    # keeps EFI/OC.prev
+sudo python3 efi/build.py install --esp /private/tmp/efi --stage vermilion-trust            # keeps EFI/OC.prev
 ```
 
 `config.plist` always differs from a `--placeholder-smbios` build in `PlatformInfo` only. `build/efi/` contains the

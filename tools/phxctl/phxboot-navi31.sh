@@ -14,7 +14,8 @@
 # so that boot is the desktop-arm boot. SUCCESS re-arms phxfb-squat for the next boot only while $AUTO exists; any
 # failure (or kill switch / unfinished previous attempt) on a squat boot reboots, and the next boot comes up on IONDRV.
 #
-# Fail-safes: kill switch $OFF; unfinished boot (MARK) -> GOP; any failure -> m2_fail reverts to GOP. NO forced
+# Fail-safes: kill switch $OFF (the owner's); unfinished boot (MARK, from the bring-up on) -> GOP; any failure -> m2_fail
+# reverts to GOP; the record $FAILS brings the full desktop back by itself after clean fallback boots. NO forced
 # WindowServer kickstart (that wedged the GPU). Exactly ONE killall -9 WindowServer, only at 0 users, only at the end.
 # Install layout (docs/INSTALL.md): the box tools live in ~/gpu of the desktop user, PHX_USER. The LaunchDaemon plist
 # (local.phxboot.plist.in) sets PHX_USER; without it the owner of this script is taken (the install copies it as that user).
@@ -25,8 +26,8 @@ fi
 G=${PHXBOOT_G:-${PHX_UHOME:-}/gpu}; export HOME=${PHXBOOT_HOME:-${PHX_UHOME:-}}
 LOG=${PHXBOOT_LOG:-/var/log/phxboot.log}; MARK=${PHXBOOT_MARK:-/var/db/phxboot.pending}
 OFF=${PHXBOOT_OFF:-$G/phxboot-off}; DESKTOP=${PHXBOOT_DESKTOP:-$G/phxboot-desktop}
-# Failure marker (11-02): every revert to GOP leaves it; while it exists a GOP boot does NOT re-arm
-# phxfb-squat (no reboot loop after a real failure). Remove it by hand (or a SUCCESS boot removes it).
+# Failure marker of the daemons before 2026-11-25 (11-02: every revert to GOP left it, removed only by hand or a SUCCESS).
+# The record $FAILS replaces it; one left by an earlier daemon is taken over at the start and removed.
 FAILF=${PHXBOOT_FAILF:-$G/phxboot-failed}
 ALLOW=${PHXBOOT_ALLOW:-/Library/GPUBundles/nvmtl-allow.txt}; DR=${PHXBOOT_DR:-/Library/Logs/DiagnosticReports}
 MB=${PHXBOOT_MB:-/usr/local/sbin/mesboot}; AUTO=${PHXBOOT_AUTO:-$G/phxboot-auto}
@@ -123,16 +124,72 @@ release(){ sysctl -w debug.phxfb_hold=0 >/dev/null 2>&1; }
 apps_only(){ printf '# phxboot: Metal for test tools only\n' > "$ALLOW"; }
 DENY="mediaanalysisd photoanalysisd Spotlight Dock"   # NotificationCenter allowed again 2026-10-26 (BIG_PAGE fix); iconservicesagent allowed 2026-10-26: its "?" icons were cold shader compiles, not broken rendering
 all_apps(){ { printf '# phxboot: Metal for every app%s\n' "$1"; for d in $DENY; do printf -- '-%s\n' "$d"; done; printf '*\n'; [ -z "$2" ] || printf '%s\n' "$2"; } > "$ALLOW"; }
-# revert to a safe GOP boot: drop the panel/arm, consume the one-shots, reboot.
-# The clean-shutdown TERM trap is dropped first: the TERM of the reboot below must not run it (it would log a clean
-# shutdown and re-arm phxfb-squat after a failure).
 # the one-shots of a desktop attempt off: PhxAMDFB's panel take-over, the squat for the next boot, the in-progress mark,
 # the desktop arm file
 oneshots_off(){ nvram -d phxfb-boot; nvram -d phxfb-squat; rm -f "$MARK" "$DESKTOP"; sync; }
-m2_fail(){ trap - TERM; echo "FAIL ($1): reverting to GOP"; b21_on "FAIL: the next boot is GOP"; touch "$FAILF"; apps_only; sysctl -w debug.phxagdc=0 >/dev/null 2>&1
+# Failure record (2026-11-25, phase 2 item 3 step 1; .agents/findings/2026-11-25-recovery-trap-design.md). Root-owned,
+# next to the in-progress mark, written only by this daemon. It replaces the daemon's own latches: the kill switch $OFF
+# it used to create after an unfinished attempt (now the owner's switch alone) and $FAILF (taken over once, below).
+#   fails=  failed or unfinished attempts in a row (a full SUCCESS sets 0)
+#   clean=  fallback boots (safe desktop, GOP) that finished since the last failure; counted at the next boot's start,
+#           when no in-progress mark is left, so a fallback that froze does not count
+#   bfail=  bring-up failures in a row (navi31_up.sh without "navi31 up:"; a hang in the bring-up counts too)
+#   skipped=1 the last boot skipped the bring-up (bfail >= 2): this boot tries again
+#   last=   what the last boot ran: full, safe, gop or skip (no bring-up, or one that failed)
+# The return: with fails > 0 the next boot after REC_NEED clean fallback boots tries the full desktop again. REC_NEED is
+# 1, and 3 once 3 attempts in a row failed. One clean boot shows that the machine and the plain path work; the failures
+# seen so far on the XTX machine (the 2026-11-24 freeze, the HDR freeze) did not repeat on the next attempt. A failure
+# that does repeat then costs every second boot, and after 3 in a row every fourth, never every boot and never a manual
+# rm. No path here adds a reboot: a failed retry falls back the same way as the first failure.
+FAILS=${PHXBOOT_FAILS:-/var/db/phxboot.fails}
+REC_F=0; REC_C=0; REC_B=0; REC_S=0; REC_L=none; REC_SAVED=""
+rec_num(){ case "$1" in [0-9]|[0-9][0-9]) echo "$1";; *) echo 0;; esac; }
+rec_load(){ local k v
+  [ -r "$FAILS" ] || return 0
+  while IFS='=' read -r k v; do
+    case "$k" in fails) REC_F=$(rec_num "$v");; clean) REC_C=$(rec_num "$v");; bfail) REC_B=$(rec_num "$v");;
+      skipped) REC_S=$(rec_num "$v");; last) case "$v" in full|safe|gop|skip) REC_L=$v;; esac;; esac
+  done <"$FAILS"
+  REC_SAVED=$(rec_text); }
+rec_text(){ printf 'fails=%s clean=%s bfail=%s skipped=%s last=%s' "$REC_F" "$REC_C" "$REC_B" "$REC_S" "$REC_L"; }
+rec_save(){ local t; t=$(rec_text); [ "$t" = "$REC_SAVED" ] && return 0
+  printf '%s\n' $t >"$FAILS.new" && mv -f "$FAILS.new" "$FAILS"; sync; REC_SAVED=$t; echo "record: $t ($1)"; }
+rec_need(){ if [ "$REC_F" -ge 3 ]; then echo 3; else echo 1; fi; }
+inc(){ local v=$(( $1 + 1 )); [ $v -gt 99 ] && v=99; echo $v; }
+rec_fail(){ REC_F=$(inc "$REC_F"); REC_C=0; rec_save "$1"; }   # a failed attempt
+# when the full desktop comes back, said from this boot's point of view (this boot, once it finishes, is one more clean one)
+rec_when(){ local left=$(( $(rec_need) - REC_C - 1 ))
+  if [ $left -le 0 ]; then echo "at the next startup"; elif [ $left = 1 ]; then echo "after 1 more startup"; else echo "after $left more startups"; fi; }
+# Notice (2026-11-25): one plain sentence to the user after login, as a notification of the logged-in user (no dialog,
+# nothing waits for it), and its "notice:" line here. $NOTICE holds it until it was shown; one left from an earlier boot
+# is dropped at the start (it was about that boot). Waits up to PHXBOOT_NOTICE_WAIT s (900) for a console user, in the
+# background on a boot whose daemon keeps running (the safe desktop); notice_join waits for it before an exit, since
+# launchd ends the job's other processes when the daemon exits. Shown through launchctl asuser + sudo -u, so it runs in
+# the user's session as the user (unverified on hardware).
+NOTICE=${PHXBOOT_NOTICE:-/var/db/phxboot.notice}; NOTICEPID=""
+notice_show(){ local u="" uid t=0 w=${PHXBOOT_NOTICE_WAIT:-900}
+  while [ $t -lt $w ]; do u=$(who 2>/dev/null | awk '$2=="console"{print $1; exit}'); [ -n "$u" ] && break; sleep 3; t=$((t+3)); done
+  [ -n "$u" ] || { echo "notice: nobody logged in within ${w}s: not shown (kept in $NOTICE)"; return 0; }
+  uid=$(id -u "$u" 2>/dev/null) || { echo "notice: no uid for '$u': not shown (kept in $NOTICE)"; return 0; }
+  sleep 3   # the desktop of the login first
+  if launchctl asuser "$uid" sudo -u "$u" /usr/bin/osascript -e 'on run argv' -e 'display notification (item 1 of argv) with title "Graphics"' -e 'end run' "$(cat "$NOTICE" 2>/dev/null)" >/dev/null 2>&1
+  then rm -f "$NOTICE"; echo "notice: $(date '+%T') shown to $u"
+  else echo "notice: $(date '+%T') could not be shown to $u (osascript failed): kept in $NOTICE"; fi; }
+notice(){ printf '%s\n' "$1" >"$NOTICE"; sync; echo "notice: $1"
+  if [ "${PHXBOOT_NOTICE_FG:-0}" = 1 ]; then notice_show; else notice_show & NOTICEPID=$!; fi; }
+notice_join(){ [ -n "$NOTICEPID" ] && wait "$NOTICEPID" 2>/dev/null; NOTICEPID=""; return 0; }
+leave(){ release; notice_join; exit 0; }   # an exit before or instead of the desktop: the hold off, the notice shown
+CLAIMED=0   # 1 once mesboot claim ran: PhxAMDFB and NMXAccel may be up, Metal may be on the GPU
+# revert to a safe GOP boot: drop the panel/arm, consume the one-shots, reboot.
+# The clean-shutdown TERM trap is dropped first: the TERM of the reboot below must not run it (it would log a clean
+# shutdown and re-arm phxfb-squat after a failure). The Metal allow list and debug.phxagdc=0 only after the claim: before
+# it nothing runs on the GPU and the oid does not exist (PhxAMDFB registers it at the end of its start).
+m2_fail(){ trap - TERM; echo "FAIL ($1): reverting to GOP"; b21_on "FAIL: the next boot is GOP"; rec_fail "FAIL: $1"
+           if [ "$CLAIMED" = 1 ]; then apps_only; sysctl -w debug.phxagdc=0 >/dev/null 2>&1; fi
            oneshots_off
            # a stuck squat (below) would come straight back here: stay up instead; the next boot runs the safe desktop
-           [ "${SQUAT:-0}" = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" || { echo "stuck squat: no reboot after the failure (it would come back to the squat)"; release; exit 0; }; }
+           [ "${SQUAT:-0}" = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" || { echo "stuck squat: no reboot after the failure (it would come back to the squat)"
+             notice "Graphics acceleration failed to start this time. Your Mac will try again when it restarts."; leave; }; }
            shutdown -r now; exit 0; }
 # Login-window guard (11-04): a WindowServer without Metal (the first
 # one of every boot until the restart below, or the only one of a GOP boot) aborts in QuartzCore CA::OGL push_surface when
@@ -196,6 +253,10 @@ b21_off(){ b21_ok || return 0
   else echo "b21guard: $(date '+%T') OFF FAILED: SHOWFULLNAME reads '$now', not the user's '$o' (rc $rc): name + password this login, the user's value kept in $B21ORIG"; fi; }
 if b21_ok; then b21_on "daemon start"
 else al_off "daemon start";  echo "b21guard: off (~/gpu/phxboot-b21guard = 0): SHOWFULLNAME not managed$([ -e "$B21ORIG" ] && echo " (a guard ON left by an earlier boot stays: the user's value '$(cat "$B21ORIG")' is in $B21ORIG)")"; fi
+[ -e "$NOTICE" ] && { rm -f "$NOTICE"; echo "notice: one from an earlier boot was never shown: dropped"; }
+# Safe Mode (Shift at startup; XNU's -x, kern.safeboot 1): no bring-up, no kmutil load, nothing armed, the record and the
+# in-progress mark left for the next normal boot. A Mac in Safe Mode runs without its third-party drivers too.
+if [ "$(sysctl -n kern.safeboot 2>/dev/null)" = 1 ]; then echo "safe mode (kern.safeboot 1): no bring-up, nothing armed this boot"; exit 0; fi
 # Squat detection (11-02): poll until PhxFBSquatter (squat boot) or an
 # IOFramebuffer (IONDRV/GOP boot) appears, up to 60 s. The old one-shot check ran before the squatter attached on fast
 # boots (no -v: the daemon starts ~4 s after the kernel), read 0, and wait_fb then waited 90 s for a framebuffer the
@@ -277,43 +338,83 @@ echo "squat boot (PhxFBSquatter holds IOFramebuffer, no IONDRV console): $SQUAT 
 # stick (STUCK=1): no reboot can help, so the recovery runs a SAFE desktop on the squat instead, the plain path (CPU copy
 # at the boot mode: no pipe-0 mode list, GPU present, flip, M7, b15, VCN). A safe attempt that does not finish leaves
 # the next boot headless (dark, reachable over the network), never a loop; the boot after that tries the safe desktop
-# again. `rm ~/gpu/phxboot-off ~/gpu/phxboot-failed` gives the full desktop back. The squat itself is the intended state
-# (phxfb-squat is set from Linux): never Reset NVRAM, which deletes it (CLAUDE.md, hard rule 1). The first boot without a
-# squat removes $NVSTUCK and $SAFEF.
+# again. The full desktop comes back by itself after the clean fallback boots the record asks for ($FAILS, above). The
+# squat itself is the intended state (phxfb-squat is set from Linux): never Reset NVRAM, which deletes it (CLAUDE.md,
+# hard rule 1). The first boot without a squat removes $NVSTUCK and $SAFEF.
 NVSTUCK=${PHXBOOT_NVSTUCK:-$G/phxboot-nvstuck}; SAFEF=${PHXBOOT_SAFEF:-$G/phxboot-safe}
-STUCK=0; SAFE=0; HUNG=0; [ -e "$MARK" ] && HUNG=1
+# the in-progress mark holds the stage the unfinished attempt was in: bringup, claim or desktop (empty: a daemon before
+# 2026-11-25, which set it only for the desktop attempt)
+STUCK=0; SAFE=0; HUNG=0; HUNGAT=""; WHY=""
+[ -e "$MARK" ] && { HUNG=1; HUNGAT=$(tr -dc 'a-z' <"$MARK" 2>/dev/null | head -c 12); }
 if [ -e "$NVSTUCK" ]; then
   if [ $SQUAT = 1 ]; then STUCK=1; echo stuck > "$NVSTUCK"; sync
-    echo "nvstuck: still a squat boot after a reboot meant to clear phxfb-squat: macOS cannot clear it (OpenCore DisableVariableWrite); no reboot this boot; the desktop runs on the squat (after a failure: rm ~/gpu/phxboot-off ~/gpu/phxboot-failed for the full one); do not Reset NVRAM, it deletes phxfb-squat"
+    echo "nvstuck: still a squat boot after a reboot meant to clear phxfb-squat: macOS cannot clear it (OpenCore DisableVariableWrite); no reboot this boot; the desktop runs on the squat (after a failure a fallback boot first, then the full desktop again by itself: $FAILS); do not Reset NVRAM, it deletes phxfb-squat"
   else rm -f "$NVSTUCK" "$SAFEF"; sync; echo "nvstuck: not a squat boot: phxfb-squat is clear"; fi
 fi
 # a squat boot's way back to IONDRV. On a stuck squat it returns 1 instead, and the caller goes on without a reboot.
 squat_reboot(){ [ $STUCK = 1 ] && return 1; echo pending > "$NVSTUCK"; nvram -d phxfb-squat; sync; echo "$1"; shutdown -r now; exit 0; }
-headless(){ echo "stuck squat: $1: no desktop attempt and no reboot this boot (the screen stays dark; ssh and T3 still reach the machine). The next boot tries the safe desktop again: restart once. Do not Reset NVRAM, it deletes phxfb-squat"; release; exit 0; }
+headless(){ REC_L=skip; rec_save "headless"
+  echo "stuck squat: $1: no desktop attempt and no reboot this boot (the screen stays dark; ssh and T3 still reach the machine). The next boot tries the safe desktop again: restart once. Do not Reset NVRAM, it deletes phxfb-squat"; release; exit 0; }
+# the record: the last boot's outcome first (an unfinished attempt, or one more clean fallback boot)
+rec_load
+if [ -e "$FAILF" ]; then [ "$REC_F" -ge 1 ] || REC_F=1; REC_C=0; rm -f "$FAILF"; sync; rec_save "$FAILF of an earlier daemon taken over"; fi
+if [ $HUNG = 1 ]; then
+  REC_F=$(inc "$REC_F"); REC_C=0; [ "$HUNGAT" = bringup ] && REC_B=$(inc "$REC_B")
+  rec_save "the last boot's attempt did not finish (stage ${HUNGAT:-desktop})"
+elif [ "$REC_F" -gt 0 ] && { [ "$REC_L" = safe ] || [ "$REC_L" = gop ]; }; then
+  REC_C=$(inc "$REC_C"); rec_save "the last boot's $REC_L fallback finished"
+fi
 # a squat boot has no display until we arm, so every early exit on one must reboot (back to IONDRV) instead
 if [ -e "$OFF" ]; then
-  echo "kill switch present"; release
-  [ $SQUAT = 1 ] || exit 0
-  squat_reboot "squat boot with the kill switch on: rebooting onto IONDRV"
-  SAFE=1
+  echo "kill switch present (~/gpu/phxboot-off, the owner's switch: this daemon never sets it)"; release
+  rm -f "$MARK"; sync   # an unfinished attempt is counted above, once
+  REC_L=skip; [ $SQUAT = 1 ] || { rec_save "kill switch"; exit 0; }
+  rec_save "kill switch"; squat_reboot "squat boot with the kill switch on: rebooting onto IONDRV"
+  SAFE=1; WHY="the kill switch is on"
 elif [ $HUNG = 1 ]; then
-  echo "previous attempt did not finish -> GOP (kill switch on, one-shots cleared)"; touch "$OFF"
+  echo "previous attempt did not finish -> GOP (one-shots cleared; counted in $FAILS, fails=$REC_F)"
   oneshots_off
+  REC_L=skip; rec_save "no attempt this boot"
   [ $SQUAT = 1 ] || exit 0
   squat_reboot "squat boot: rebooting onto IONDRV"
-  SAFE=1
-elif [ $STUCK = 1 ] && [ -e "$FAILF" ]; then
-  echo "stuck squat after a failed attempt ($FAILF)"; SAFE=1
+  SAFE=1; WHY="the last startup did not finish"
+elif [ $STUCK = 1 ] && [ "$REC_F" -gt 0 ] && [ "$REC_C" -lt "$(rec_need)" ]; then
+  echo "stuck squat after a failed attempt (fails=$REC_F, clean fallback boots $REC_C of $(rec_need))"; SAFE=1; WHY="an attempt failed"
+elif [ "$REC_F" -gt 0 ] && [ $SQUAT = 1 ]; then
+  echo "record: $REC_C clean fallback boot(s) after $REC_F failed attempt(s): the full desktop again"
 fi
 if [ $SAFE = 1 ]; then
   rm -f "$MARK"
   [ $HUNG = 1 ] && [ -e "$SAFEF" ] && headless "the safe desktop did not finish last boot"
+fi
+# Loop guard: a bring-up that fails inside bringup_navi31.sh leaves its 3-minute watchdog armed (kept: rule 1), which
+# restarts the machine, and the next boot would run the same bring-up again. After 2 failed bring-ups in a row one boot
+# skips it (nothing touches the GPU, so no watchdog and no restart) and the boot after that tries again: never more than
+# 2 restarts in a row by themselves.
+if [ "$REC_B" -ge 2 ] && [ "$REC_S" = 0 ]; then
+  REC_S=1; REC_L=skip; rec_save "bring-up skipped"; rm -f "$MARK" "$DESKTOP"; sync
+  echo "bring-up skipped: it failed on the last $REC_B startups ($FAILS): nothing touches the GPU this boot (no bring-up watchdog, no restart); the next startup tries again$([ $SQUAT = 1 ] && echo '; a squat boot: the screen stays dark (ssh and T3 reach the machine)')"
+  notice "Graphics acceleration is off for this startup because it failed to start the last $REC_B times. Your Mac will try again at the next startup."
+  leave
+fi
+REC_S=0
+# when the safe desktop gives way to the full one (a function: bash 3.2 misreads a case pattern's ")" inside "$(...)")
+full_when(){ case "$WHY" in *kill*) echo "once ~/gpu/phxboot-off is removed";; *) rec_when;; esac; }
+# the safe desktop's notice after login (after "safe desktop up")
+safe_notice(){ case "$WHY" in
+  *kill*) notice "The display is in basic mode because graphics acceleration is turned off (the file phxboot-off in the gpu folder).";;
+  *finish*) notice "The display is in basic mode because the last startup didn't finish. Your Mac will try the full mode again $(rec_when).";;
+  *) if [ "$REC_F" -ge 3 ]; then notice "The display is in basic mode because graphics failed to start fully $REC_F times in a row. Your Mac will try the full mode again $(rec_when)."
+     else notice "The display is in basic mode because graphics failed to start fully last time. Your Mac will try the full mode again $(rec_when)."; fi;; esac; }
+if [ $SAFE = 1 ]; then
   touch "$SAFEF"; sync
-  echo "safe desktop on the stuck squat: CPU copy at the boot mode (no pipe-0 modes, GPU present, flip, M7, b15, VCN); rm $OFF and $FAILF for the full desktop"
+  echo "safe desktop on the stuck squat: CPU copy at the boot mode (no pipe-0 modes, GPU present, flip, M7, b15, VCN); why: $WHY; the full desktop again $(full_when)"
 fi
 
 DESK=0; { [ -e "$DESKTOP" ] || [ $SQUAT = 1 ]; } && DESK=1
 echo "desktop-arm: $DESK (phxboot-desktop file or squat boot)"
+if [ $SAFE = 1 ]; then REC_L=safe; elif [ $DESK = 1 ]; then REC_L=full; else REC_L=gop; fi; rec_save "this boot: $REC_L"
+[ $REC_L = full ] && rm -f "$SAFEF"   # a full attempt: a hang of this one (from its bring-up on) is not the safe desktop's
 for i in $(seq 1 60); do ioreg -l | grep -q '"phx-build"' && break; sleep 1; done
 [ $SQUAT = 1 ] || wait_fb    # a squat boot has no framebuffer until PhxAMDFB starts at claim
 ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not loaded"; echo "PhxBringup not loaded"; exit 0; }
@@ -324,15 +425,50 @@ ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not l
 # PhxAccel lives in the AuxKC, which does not always load it at boot
 kmutil showloaded 2>/dev/null | grep -q org.vermilion.accel || kmutil load -p "$ACCEL" 2>&1 | tail -2
 echo "== bring-up + claim =="
-UPOUT=$(bash "$G/phxctl/navi31_up.sh" 2>&1); echo "$UPOUT" | tail -4
-UPOK=0; echo "$UPOUT" | grep -q "navi31 up:" && UPOK=1   # the GPU came up: navi31_up.sh's last line
+# The in-progress mark from here on (before 2026-11-25 it was set only after the claim): a hang in the bring-up, the
+# claim or the desktop attempt leaves it, and the next boot counts it as an unfinished attempt. A clean shutdown or
+# restart meanwhile (launchd's TERM) is not one: the trap clears the mark.
+echo bringup >"$MARK"; sync
+trap 'echo "clean shutdown (TERM) at $(date "+%T") before the desktop attempt: in-progress mark cleared"; rm -f "$MARK"; sync
+      b21_on "shutdown (TERM) before the desktop attempt"; exit 0' TERM
+UPOUT=$(bash "$G/phxctl/navi31_up.sh" 2>&1); UPRC=$?; echo "$UPOUT" | tail -4
+UPOK=0; [ $UPRC = 0 ] && echo "$UPOUT" | grep -q "navi31 up:" && UPOK=1   # the GPU came up: navi31_up.sh's last line
 echo "$UPOUT" | grep -m1 '^sOS check:'   # C2PMSG_81 before the power-up, at every boot (is a warm restart cold?)
-# A warm GPU (PSP sOS already running): bringup_navi31.sh wrote nothing and refused. No claim, no Metal on it: a desktop
-# boot reverts to GOP (m2_fail), any other boot stays on the firmware display. Only a full power-off makes it cold again.
-case "$UPOUT" in *"refused: warm GPU"*)
-  [ $DESK = 1 ] && m2_fail "warm GPU: bring-up refused; power the machine off fully, then boot macOS"
-  echo "warm GPU: bring-up refused, no Metal this boot (firmware display); power the machine off fully, then boot macOS"
-  release; exit 0;; esac
+# A bring-up that did not end with "navi31 up:" claims nothing: no Metal on a GPU without working queues, no PhxAMDFB.
+# The one-shots set for this boot are taken back (phxfb-boot), no Metal allow list or debug.phxagdc write (nothing runs
+# on the GPU, the oid does not exist), and no reboot by the daemon except a non-stuck squat boot's way back to IONDRV.
+upfail_end(){ trap - TERM; rm -f "$MARK"; [ $DESK = 1 ] && nvram -d phxfb-boot; sync; }
+# A warm GPU (PSP sOS already running): bringup_navi31.sh wrote nothing and refused. That is not a driver failure: the
+# record stays as it was and nothing reboots (a restart keeps the GPU warm). Only a full power-off makes it cold again.
+# On a squat boot the screen stays dark until the kext can hand the display back in the same boot (plan step 3).
+# The other refusal, "warm GPU check failed: C2PMSG_81 unreadable", wrote nothing either, but it means phxctl or
+# PhxBringup doesn't answer: a failure that repeats, so it takes the failure path below (counted, the loop guard),
+# where "shut down fully" would be the wrong advice.
+case "$UPOUT" in *"refused: warm GPU ("*)
+  upfail_end; REC_L=skip; rec_save "warm GPU refused"
+  echo "warm GPU: bring-up refused, no Metal this boot ($([ $SQUAT = 1 ] && echo 'a squat boot: no display without the claim, the screen stays dark; ssh and T3 reach the machine' || echo 'firmware display')); power the machine off fully, then boot macOS. Nothing was written to the GPU: not counted as a failed attempt, no reboot"
+  notice "The graphics card was still running from another operating system. Shut down (don't restart), then turn the computer on again to get graphics acceleration back."
+  leave;; esac
+if [ $UPOK = 0 ]; then
+  upfail_end; REC_B=$(inc "$REC_B"); REC_L=skip; rec_fail "bring-up failed"
+  echo "bring-up failed: no claim, no Metal this boot ($(echo "$UPOUT" | grep -m1 '^navi31 not up:' || echo "navi31_up.sh rc $UPRC without 'navi31 up:'"))"
+  # A failure inside bringup_navi31.sh leaves its watchdog armed: it gives the PSP, SMU and RLC their 3 minutes, so the
+  # daemon doesn't restart sooner (hw-safety review 2026-11-25); a non-stuck squat boot only clears the squat, so that
+  # restart lands on IONDRV. After it (watchdog cancelled) the squat boot's way back to IONDRV is the restart at once.
+  if [ $SQUAT = 1 ] && [ $STUCK = 1 ]; then
+    echo "stuck squat: no display this boot (no claim) and no reboot by the daemon; a bring-up watchdog that is still armed restarts the machine"
+  elif [ $SQUAT = 1 ] && echo "$UPOUT" | grep -q 'watchdog is still armed'; then
+    echo pending > "$NVSTUCK"; nvram -d phxfb-squat; sync
+    echo "squat boot: phxfb-squat cleared, no reboot by the daemon: the bring-up watchdog restarts the machine onto IONDRV within 3 min"
+  elif [ $SQUAT = 1 ]; then
+    squat_reboot "squat boot: rebooting onto IONDRV after the failed bring-up"
+  fi
+  if [ "$REC_B" -ge 2 ]; then notice "Graphics acceleration failed to start again. Your Mac will start without it next time, then try again."
+  else notice "Graphics acceleration failed to start. Your Mac will try again at the next startup."; fi
+  leave
+fi
+[ "$REC_B" = 0 ] || { REC_B=0; rec_save "bring-up up"; }
+echo claim >"$MARK"; sync
 # Idle power: clock gating and the UCLK pin right after the GPU is up, not only after `done`: without them the card sat at
 # ~110 C hotspot / 260 W for the ~2 min of the boot; the late calls below re-apply them after
 # vcn_boot.
@@ -587,19 +723,19 @@ nohdr_boot(){ { [ -e "$G/phxboot-nohdr" ] || [ $SAFE = 1 ]; } || return 0
   else echo "hdr: no debug.phxfb0_hdr (PhxAccel before HDR): nothing to turn off"; fi; }
 nohdr_boot
 WS0=$(wspid)                 # the first WindowServer (up since boot; it read com.apple.windowserver before this daemon ran)
-"$MB" claim 2>&1
+"$MB" claim 2>&1; CLAIMED=1
 sysctl -w debug.phxbos_flush=0 >/dev/null 2>&1
 for i in $(seq 1 20); do ioreg -rc NMXAccel -d0 | grep -q NMXAccel && break; sleep 1; done
 if ! ioreg -rc NMXAccel -d0 | grep -q NMXAccel; then
   [ $DESK = 1 ] && m2_fail "NMXAccel did not start"
-  echo "NMXAccel did not start (apps-only this boot)"; release; exit 0
+  trap - TERM; rm -f "$MARK"; sync
+  echo "NMXAccel did not start (apps-only this boot)"; leave
 fi
 echo "NMXAccel up"
 
 if [ $DESK = 1 ]; then
   rm -f "$DESKTOP"            # one-shot: exactly one desktop attempt per arm
-  [ $SAFE = 1 ] || rm -f "$SAFEF"   # a full attempt: a hang of this one is not the safe desktop's
-  touch "$MARK"; sync         # in-progress: a hang before we finish -> next boot reverts
+  echo desktop >"$MARK"; sync   # in-progress (since the bring-up): a hang before we finish -> next boot reverts
   # a clean restart or shutdown (launchd sends TERM; a hang never does) is not a failed attempt: clear the mark and
   # re-arm the next boot as SUCCESS would, so a restart from the login window during the watch keeps acceleration
   trap 'echo "clean shutdown (TERM) at $(date "+%T") during the desktop attempt: in-progress mark cleared"; rm -f "$MARK"; disp_log
@@ -701,18 +837,23 @@ if [ $DESK = 1 ]; then
   [ $DARK = 1 ] || echo "SUCCESS at $(date '+%T'): WindowServer pid $(pgrep -x WindowServer), frames=$(sysctl -n debug.nvaccel_iop_ok 2>/dev/null) -- accelerated desktop survived"
   # the session's shutdown TERM: login-window guard ON for the next boot's first loginwindow, then die of the TERM as before
   trap 'b21_on "shutdown (TERM)"; trap - TERM; kill -TERM $$' TERM; rm -f "$MARK"
-  if [ $SAFE = 1 ]; then echo "safe desktop up (the stuck squat stays: $OFF / $FAILF kept, nothing re-armed)"
-  else rm -f "$FAILF"
+  if [ $SAFE = 1 ]; then echo "safe desktop up (the stuck squat stays, nothing re-armed; why: $WHY; the full desktop again $(full_when))"
+    safe_notice   # in the background: the daemon keeps running (watch_hangs)
+  else
+    [ $DARK = 1 ] || { REC_F=0; REC_C=0; REC_B=0; rec_save "SUCCESS"; }
     if [ -e "$AUTO" ]; then rearm "phxboot-auto present"; fi; fi
   sync
 else
+  trap - TERM; rm -f "$MARK"; sync   # the GOP boot's bring-up and claim finished
   release; all_apps " (WindowServer stays on firmware framebuffer)" ""
   echo "no desktop arm: GOP + Metal for apps"
-  # a GOP boot with phxboot-auto (no kill switch, no unfinished MARK: both exit earlier) re-arms the next boot unless a
-  # failure marker says the last accelerated attempt failed (11-02: one lost NVRAM write kept every boot GOP)
+  # a GOP boot with phxboot-auto (no kill switch, no unfinished MARK: both exit earlier) re-arms the next boot unless the
+  # record says the last accelerated attempt failed and this GOP boot is not yet the last clean fallback boot it asks for
+  # (11-02: one lost NVRAM write kept every boot GOP; 2026-11-25: no manual rm, it re-arms by itself)
   if [ -e "$AUTO" ]; then
-    if [ -e "$FAILF" ]; then echo "phxfb-squat NOT re-armed: the last accelerated attempt failed ($FAILF; rm it to resume)"
-    else rearm "GOP boot, phxboot-auto present"; fi
+    if [ "$REC_F" -gt 0 ] && [ $((REC_C + 1)) -lt "$(rec_need)" ]; then echo "phxfb-squat NOT re-armed: the last accelerated attempt failed ($FAILS: fails=$REC_F, this is clean fallback boot $((REC_C + 1)) of $(rec_need); it re-arms by itself $(rec_when))"
+    else gopnote=""; [ "$REC_F" -gt 0 ] && gopnote=", clean fallback boot $((REC_C + 1)) of $(rec_need) after $REC_F failed attempt(s)"
+      rearm "GOP boot, phxboot-auto present$gopnote"; fi
   fi
 fi
 echo "done $(date '+%T')"
@@ -843,10 +984,11 @@ watch_hangs(){ local base n now first=0 wsp p c silent=0 it=0
     n=$((n+base)); [ $n -gt $base ] || continue
     now=$(date +%s); [ $first = 0 ] && first=$now
     if [ $((n-base)) -ge 2 ]; then
-      echo "$(date '+%F %T') WindowServer hung $((n-base))x on GPU: reverting to GOP"; b21_on "revert to GOP after the hangs"; gpu_dump "WindowServer hung $((n-base))x"; touch "$FAILF"; oneshots_off   # the mark is already gone (SUCCESS)
+      echo "$(date '+%F %T') WindowServer hung $((n-base))x on GPU: reverting to GOP"; b21_on "revert to GOP after the hangs"; gpu_dump "WindowServer hung $((n-base))x"; rec_fail "WindowServer hung $((n-base))x"; oneshots_off   # the mark is already gone (SUCCESS)
       [ $SQUAT = 1 ] && { squat_reboot "squat boot: rebooting onto IONDRV" || { echo "stuck squat: staying up after the hangs (no reboot can leave the squat)"; return; }; }
       shutdown -r now; return
     fi
     [ $((now-first)) -gt 300 ] && { base=$(ls "$DR" 2>/dev/null | grep -c '^WindowServer-.*\.ips$'); silent=0; first=0; }
   done; }
 [ "${PHXBOOT_NO_WATCH:-0}" = 1 ] || { [ $DESK = 1 ] && watch_hangs; }
+notice_join   # a notice still waiting for a login (the daemon has nothing else to do)

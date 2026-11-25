@@ -62,7 +62,7 @@ EOF
   cat >"$BIN/navi31_up.sh" <<'EOF'
 #!/bin/bash
 echo "== bring-up (PSP, SMU, RLC, RS64, doorbells, MEC)"; echo "sOS check: C2PMSG_81=0x00000000 (cold)"
-echo "navi31 bring-up: PSP/SMU/RLC/MES/KIQ queues ok"; exit 0
+echo "navi31 bring-up: PSP/SMU/RLC/MES/KIQ queues ok"; echo "navi31 up: compute + gfx queues ready"; exit 0
 EOF
   cat >"$BIN/sysctl" <<'EOF'
 #!/bin/bash
@@ -167,7 +167,7 @@ case "${1:-}" in
         [ "$oid" = "${SIM_SYSCTL_FAIL:-}" ] && { echo "sysctl: $2: Operation not permitted" >&2; exit 1; }
         echo "${2#*=}" >"$st/val.$oid"; echo "$oid: 0 -> ${2#*=}";;
       esac; exit 0;;
-  -n) case "${2:-}" in debug.phxagdc) echo "${SIM_AGDC:-1}";; debug.nvaccel_iop_ok) echo 128;; kern.bootargs) echo "${SIM_BOOTARGS:-keepsyms=1}";;
+  -n) case "${2:-}" in kern.safeboot) echo "${SIM_SAFEBOOT:-0}";; debug.phxagdc) echo "${SIM_AGDC:-1}";; debug.nvaccel_iop_ok) echo 128;; kern.bootargs) echo "${SIM_BOOTARGS:-keepsyms=1}";;
         debug.phxhotplug|debug.phxhotplug0|debug.phxgamma) rd "$st/val.$2" 0; echo "$RV";;
         debug.phxih_vram|debug.phxih|debug.phxeopirq|debug.phxirq|debug.phxwait_irq|debug.phxbo_vram|debug.phxbo_vram_proc|debug.phxgl) rd "$st/val.$2" 0; echo "$RV";;
         debug.phxbo_vram_selftest) if [ -e "$st/val.$2" ]; then echo "${SIM_BOVRAM_ST:-1}"; else echo 0; fi;; debug.phxwait_step_us) rd "$st/val.$2" 50; echo "$RV";;
@@ -184,7 +184,10 @@ exit 0
 EOF
   cat >"$BIN/who" <<'EOF'
 #!/bin/bash
-[ -n "${SIM_USERS:-}" ] && printf '%s\n' "$SIM_USERS"; exit 0
+[ -n "${SIM_USERS:-}" ] && printf '%s\n' "$SIM_USERS"
+# 2026-11-25: SIM_LOGIN_AFTER_KILL=<user> = that user logs in at the console once WindowServer restarted (the notice)
+[ -n "${SIM_LOGIN_AFTER_KILL:-}" ] && [ -e "${SIM_STATE:-/tmp}/killed" ] && echo "$SIM_LOGIN_AFTER_KILL console  Nov 25 11:43"
+exit 0
 EOF
   cat >"$BIN/killall" <<'EOF'
 #!/bin/bash
@@ -257,6 +260,11 @@ EOF
 st="${SIM_STATE:-/tmp}"
 case "${1:-}" in showloaded) [ -e "$st/accel" ] && echo "  160 0 org.vermilion.accel (0.1)";; load) echo "kmutil $*" >>"$st/kmutil.log"; : >>"$st/accel";; esac
 exit 0
+EOF
+  cat >"$BIN/id" <<'EOF'
+#!/bin/bash
+[ "${1:-}" = -u ] && [ -n "${2:-}" ] && { echo 501; exit 0; }
+exec /usr/bin/id "$@"
 EOF
   cat >"$BIN/phxctl" <<'EOF'
 #!/bin/bash
@@ -349,6 +357,7 @@ world() {   # world: a fresh fake root + default-healthy SIM_* config
   SIM_P0_OLD=0           # 11-20 p0modes
   SIM_P0ODM="" SIM_P0_DARK=0   # 11-23 display check
   SIM_TERM_LATE="" SIM_SHUTDOWN_TERM=0
+  SIM_SAFEBOOT=0 SIM_LOGIN_AFTER_KILL="" SIM_SLEEP_REST=""   # 2026-11-25 recovery without the manual rm
   # 11-03 first-WindowServer fix: its model off, no silent crashes, the watch after `done` off
   SIM_WSMODEL=0 SIM_WS_SILENT="" SIM_WS_LATE_SILENT="" SIM_WS_LATE_LOGOUT="" SIM_DEFAULTS_FAIL="" SIM_WS_REWRITE=0 SIM_SHUTDOWN_W15=0 SIM_RESAVE="" SIM_OFFER_GATE=0 SIM_OFFER_LATE="" SIM_HEAD0_SINGLE=0 SIM_NO_SOLO=0 SIM_AOCBOOT1_RC=0; NOWATCH=1; WATCHMAX=""
   X_DEFAULTS=""; X_PREFS_ORIG=0; X_PREFS=""
@@ -397,14 +406,14 @@ boot() {
   ( export SIM_STATE=$ST SIM_DR=$FR/Library/Logs/DiagnosticReports \
            SIM_BRINGUP SIM_CLAIM SIM_NMXACCEL SIM_PHXFB SIM_FB SIM_METAL SIM_AGDC SIM_USERS SIM_CRASH_PER_STEP SIM_TERM_IN_WATCH SIM_WS_NORESTART SIM_SQUAT SIM_SQUAT_LATE SIM_AGDC_LATE \
            SIM_BOOTARGS SIM_SYSCTL_FAIL SIM_GAMMA_BUSY SIM_CDPREF SIM_NO_RESYNC SIM_RESYNC_ID SIM_NMODES SIM_AOCBOOT_RC \
-           SIM_TERM_LATE SIM_SHUTDOWN_TERM SIM_MARK="$FR/var/db/phxboot.pending" \
+           SIM_TERM_LATE SIM_SHUTDOWN_TERM SIM_MARK="$FR/var/db/phxboot.pending" SIM_SAFEBOOT SIM_LOGIN_AFTER_KILL SIM_SLEEP_REST \
            SIM_WSMODEL SIM_WS_SILENT SIM_WS_LATE_SILENT SIM_WS_LATE_LOGOUT SIM_DEFAULTS_FAIL SIM_WS_REWRITE SIM_SHUTDOWN_W15 SIM_RESAVE SIM_OFFER_GATE SIM_OFFER_LATE SIM_HEAD0_SINGLE SIM_NO_SOLO SIM_AOCBOOT1_RC SIM_DPW_NOOID SIM_DPW_L2_EINVAL SIM_HP0_NOOID SIM_LW_BROKEN_AT_TERM SIM_LW_FAIL SIM_LAUNCHCTL_FAIL SIM_WAITSTEP_NOOID SIM_IRQWAIT_NOOID SIM_BOVRAM_NOOID SIM_BOVRAM_ST SIM_GL_NOOID SIM_AUDIO_NOOID SIM_VRRMIN_NOOID SIM_P0_OLD SIM_P0ODM SIM_P0_DARK
     export PATH="$BIN:$MOCK_SHIMPATH$MOCK_SYSPATH"   # macOS: $BIN:/usr/bin:/bin:/usr/sbin:/sbin (lib/portable.sh)
     env PHXBOOT_G="$FR/gpu" PHXBOOT_HOME="$FR" PHXBOOT_LOG="$LOGF" PHXBOOT_MARK="$FR/var/db/phxboot.pending" \
         PHXBOOT_OFF="$FR/gpu/phxboot-off" PHXBOOT_DESKTOP="$FR/gpu/phxboot-desktop" \
         PHXBOOT_ALLOW="$FR/Library/GPUBundles/nvmtl-allow.txt" PHXBOOT_DR="$FR/Library/Logs/DiagnosticReports" \
         PHXBOOT_MB="$FR/usr/local/sbin/mesboot" PHXBOOT_NO_WATCH=$NOWATCH PHXBOOT_WATCH_MAX="$WATCHMAX" PHXBOOT_RUNAS="" \
-        PHXBOOT_WSPTMP="$W" PHXBOOT_PLISTBUDDY="$MOCK_PB" PHXBOOT_LOGCMD="$BIN/log" PHXBOOT_DISPOVR_WAIT="${DISPOVR_WAIT:-10}" PHXBOOT_PHXCTL="$BIN/phxctl" PHXBOOT_HANGDIR="$W/hang" PHXBOOT_DARKF="$FR/var/db/phxboot.darkrestart" PHXBOOT_PTWALK="$W/none.sh" PHXBOOT_AUTO="$FR/gpu/phxboot-auto" PHXBOOT_LWDOM="$FR/Library/Preferences/com.apple.loginwindow" PHXBOOT_KCPASSWORD="$FR/etc/kcpassword" PHXBOOT_LWRAN="$FR/var/run/com.apple.loginwindow.didRunThisBoot" \
+        PHXBOOT_WSPTMP="$W" PHXBOOT_PLISTBUDDY="$MOCK_PB" PHXBOOT_LOGCMD="$BIN/log" PHXBOOT_DISPOVR_WAIT="${DISPOVR_WAIT:-10}" PHXBOOT_PHXCTL="$BIN/phxctl" PHXBOOT_FAILS="$FR/var/db/phxboot.fails" PHXBOOT_NOTICE="$FR/var/db/phxboot.notice" PHXBOOT_NOTICE_FG=1 PHXBOOT_NOTICE_WAIT=6 PHXBOOT_HANGDIR="$W/hang" PHXBOOT_DARKF="$FR/var/db/phxboot.darkrestart" PHXBOOT_PTWALK="$W/none.sh" PHXBOOT_AUTO="$FR/gpu/phxboot-auto" PHXBOOT_LWDOM="$FR/Library/Preferences/com.apple.loginwindow" PHXBOOT_KCPASSWORD="$FR/etc/kcpassword" PHXBOOT_LWRAN="$FR/var/run/com.apple.loginwindow.didRunThisBoot" \
         PHXBOOT_GPUPRESENT="$FR/Library/GPUBundles/nvmtl/ws-gpu-present" PHXBOOT_WSASYNC="$FR/Library/GPUBundles/nvmtl/ws-gpu-present-async" \
         bash "$DAEMON" )
 }
@@ -628,10 +637,16 @@ sc_aocrate_user() {     rate_world 144; SIM_USERS="user console"; expect_log 'a 
 sc_nodesk_no_boot_arm(){ world; DESK=0; expect_log 'no desktop arm'; expect_nonvram 'set phxfb-boot'; expect_no_killall; expect_no_reboot; go nodesk_no_boot_arm; }
 
 sc_nodesk_rearm() {     world; DESK=0; AUTOF=1; expect_log 'no desktop arm'; expect_log 're-armed for the next boot \(GOP boot'; expect_nvram 'set phxfb-squat=1'; expect_no_killall; expect_no_reboot; go nodesk_rearm; }
-sc_nodesk_failed() {    world; DESK=0; AUTOF=1; touch "$FR/gpu/phxboot-failed"; expect_log 'NOT re-armed: the last accelerated attempt failed'; expect_nonvram 'set phxfb-squat'; expect_no_killall; expect_no_reboot; go nodesk_failed; }
+# 2026-11-25: the record decides, not ~/gpu/phxboot-failed: after 3 failures in a row a GOP boot re-arms only as the 3rd
+# clean fallback boot (here the 2nd); after fewer, the first clean GOP boot re-arms (nodesk_failed_rearm)
+sc_nodesk_failed() {    world; DESK=0; AUTOF=1; rec_set fails=3 clean=0 last=gop; expect_log 'NOT re-armed: the last accelerated attempt failed .*fails=3, this is clean fallback boot 2 of 3; it re-arms by itself after 1 more startup'
+                        expect_nonvram 'set phxfb-squat'; expect_rec clean=1; expect_no_killall; expect_no_reboot; go nodesk_failed; }
+sc_nodesk_failed_rearm(){ world; DESK=0; AUTOF=1; touch "$FR/gpu/phxboot-failed"; expect_log 'record: .*phxboot-failed of an earlier daemon taken over'
+                        expect_log 're-armed for the next boot \(GOP boot, phxboot-auto present, clean fallback boot 1 of 1 after 1 failed attempt'; expect_nvram 'set phxfb-squat=1'
+                        expect_nofile "$FR/gpu/phxboot-failed"; expect_rec fails=1; expect_rec last=gop; expect_no_reboot; go nodesk_failed_rearm; }
 sc_nodesk_noauto() {    world; DESK=0; expect_log 'no desktop arm'; expect_nonvram 'set phxfb-squat'; expect_nolog 're-armed'; go nodesk_noauto; }
-sc_fail_marks() {       world; DESK=0; SIM_SQUAT=1; AUTOF=1; SIM_METAL=0; expect_log 'FAIL'; expect_reboot; expect_file "$FR/gpu/phxboot-failed"; go fail_marks; }
-sc_success_clears() {   world; DESK=0; SIM_SQUAT=1; AUTOF=1; touch "$FR/gpu/phxboot-failed"; expect_log 'SUCCESS'; expect_log 're-armed .*phxboot-auto present'; expect_nofile "$FR/gpu/phxboot-failed"; go success_clears; }
+sc_fail_marks() {       world; DESK=0; SIM_SQUAT=1; AUTOF=1; SIM_METAL=0; expect_log 'FAIL'; expect_reboot; expect_nofile "$FR/gpu/phxboot-failed"; expect_rec fails=1; expect_rec clean=0; go fail_marks; }
+sc_success_clears() {   world; DESK=0; SIM_SQUAT=1; AUTOF=1; touch "$FR/gpu/phxboot-failed"; expect_log 'SUCCESS'; expect_log 're-armed .*phxboot-auto present'; expect_nofile "$FR/gpu/phxboot-failed"; expect_rec fails=0; go success_clears; }
 sc_squat_late() {       world; DESK=0; SIM_SQUAT=1; SIM_SQUAT_LATE=5; SIM_FB=0; AUTOF=1; expect_log 'squat boot .*: 1 \(decided by PhxFBSquatter after 5s\)'; expect_log 'SUCCESS'; expect_killall; expect_no_reboot; go squat_late; }
 sc_fb_first() {         world; DESK=0; AUTOF=1; expect_log 'squat boot .*: 0 \(decided by IOFramebuffer after 0s\)'; expect_log 'no desktop arm'; go fb_first; }
 sc_squat_neither() {    world; DESK=0; SIM_FB=0; expect_log 'squat boot .*: 0 \(decided by neither in 60s\)'; go squat_neither; }
@@ -944,7 +959,8 @@ sc_stuck_metal_fail() { world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxbo
 sc_stuck_crash() {      world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-off"; SIM_CRASH_PER_STEP=1
                         expect_log 'WindowServer crashed/hung'; expect_log 'stuck squat: no reboot after the failure'; expect_no_reboot; go stuck_crash; }
 sc_stuck_failf() {      world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-failed"
-                        expect_log 'stuck squat after a failed attempt'; expect_log 'safe desktop up'; expect_file "$FR/gpu/phxboot-failed"; expect_no_reboot; go stuck_failf; }
+                        expect_log 'stuck squat after a failed attempt \(fails=1, clean fallback boots 0 of 1\)'; expect_log 'safe desktop up .*the full desktop again at the next startup'
+                        expect_nofile "$FR/gpu/phxboot-failed"; expect_rec fails=1; expect_rec last=safe; expect_no_reboot; go stuck_failf; }
 sc_stuck_full() {       world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-safe"
                         expect_nolog 'safe desktop'; expect_log 'SUCCESS'; expect_nofile "$FR/gpu/phxboot-safe"; expect_no_reboot; go stuck_full; }
 # 11-20 Adaptive Sync: on by default (no write); ~/gpu/phxboot-novrr and the safe desktop write debug.phxfb0_vrr=0 before the claim
@@ -979,16 +995,114 @@ sc_hdr_safe() {         world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxbo
 # prints what the real pair prints, tests/mock/bringup_warm_test.sh checks the pair). The daemon claims nothing: a desktop
 # boot reverts to GOP (m2_fail), a GOP boot stays on the firmware display, a stuck squat stays up without a reboot.
 warm_stub(){ printf '#!/bin/bash\necho "== bring-up (PSP, SMU, RLC, RS64, doorbells, MEC)"\necho "== sOS alive? (C2PMSG_81 sign of life, C2PMSG_58 version) =="\necho "refused: warm GPU (PSP sOS running, C2PMSG_81=0x00000001): no firmware loaded, nothing written; shut the machine down fully (power off), then boot macOS"\necho "bring-up failed"\nexit 1\n' >"$FR/gpu/phxctl/navi31_up.sh"; chmod +x "$FR/gpu/phxctl/navi31_up.sh"; }
-sc_warm_desk() {        world; warm_stub; expect_log 'FAIL \(warm GPU: bring-up refused'; expect_nolog 'claim: |NMXAccel up|SUCCESS'; expect_nvram '-d phxfb-boot'
-                        expect_file "$FR/gpu/phxboot-failed"; expect_no_killall; expect_reboot; go warm_desk; }
+# 2026-11-25 (phase 2 item 3 step 1): the refusal is not a failed attempt: no m2_fail, no record change, no Metal allow
+# list or debug.phxagdc write on the untouched GPU, no reboot (a restart keeps the GPU warm); one notice
+sc_warm_desk() {        world; warm_stub; expect_log 'warm GPU: bring-up refused, no Metal this boot \(firmware display\).*not counted as a failed attempt, no reboot'
+                        expect_nolog 'FAIL|claim: |NMXAccel up|SUCCESS'; expect_nvram '-d phxfb-boot'; expect_nonvram '-d phxfb-squat'; expect_writes 'debug.phxagdc' 0; no_allow
+                        expect_log 'notice: The graphics card was still running from another operating system'; expect_rec fails=0; expect_rec last=skip
+                        expect_nofile "$FR/gpu/phxboot-failed"; X_NOMARK=1; expect_no_killall; expect_no_reboot; go warm_desk; }
 sc_warm_nodesk() {      world; DESK=0; warm_stub; expect_log 'warm GPU: bring-up refused, no Metal this boot'; expect_nolog 'claim: |NMXAccel|FAIL'
                         expect_no_killall; expect_no_reboot; go warm_nodesk; }
-sc_warm_squat() {       world; DESK=0; SIM_SQUAT=1; AUTOF=1; warm_stub; expect_log 'FAIL \(warm GPU'; expect_log 'squat boot: rebooting onto IONDRV'
-                        expect_nolog 'claim: |NMXAccel up'; expect_nvram '-d phxfb-squat'; expect_nonvram 'set phxfb-squat'; expect_no_killall; expect_reboot; go warm_squat; }
+sc_warm_squat() {       world; DESK=0; SIM_SQUAT=1; AUTOF=1; warm_stub; expect_log 'warm GPU: bring-up refused, no Metal this boot \(a squat boot: no display without the claim'
+                        expect_nolog 'FAIL|rebooting onto IONDRV|claim: |NMXAccel up'; expect_nonvram '-d phxfb-squat'; expect_nonvram 'set phxfb-squat'; expect_writes 'debug.phxagdc' 0; no_allow
+                        expect_nofile "$FR/gpu/phxboot-nvstuck"; expect_rec fails=0; X_NOMARK=1; expect_no_killall; expect_no_reboot; go warm_squat; }
 sc_warm_stuck() {       world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-failed"; warm_stub
-                        expect_log 'FAIL \(warm GPU'; expect_log 'stuck squat: no reboot after the failure'; expect_nolog 'claim: |NMXAccel up'; expect_no_reboot; go warm_stuck; }
+                        expect_log 'warm GPU: bring-up refused'; expect_nolog 'FAIL|claim: |NMXAccel up'; expect_writes 'debug.phxagdc' 0; no_allow
+                        expect_rec fails=1; expect_rec clean=0; X_NOMARK=1; expect_no_reboot; go warm_stuck; }
 # a cold GPU: the check's value is logged at every boot (does a warm macOS restart leave the sOS running?), nothing else changes
 sc_sos_logged() {       world; expect_log '^sOS check: C2PMSG_81=0x00000000 \(cold\)$'; expect_nolog 'warm GPU'; expect_log 'SUCCESS'; go sos_logged; }
+# 2026-11-25 phase 2 item 3 step 1: recovery without the manual rm. The record /var/db/phxboot.fails (fails, clean, bfail,
+# skipped, last) replaces the daemon-made kill switch and ~/gpu/phxboot-failed; a bring-up that did not end with
+# "navi31 up:" claims nothing; the in-progress mark is set before the bring-up; Safe Mode exits; one notice after login.
+REC_T(){ echo "$FR/var/db/phxboot.fails"; }
+rec_set(){ local kv; : >"$(REC_T)"; for kv in fails=0 clean=0 bfail=0 skipped=0 last=none "$@"; do echo "$kv" >>"$(REC_T)"; done
+           awk -F= '{v[$1]=$2; if(!($1 in o)){o[$1]=n++; k[n-1]=$1}} END{for(i=0;i<n;i++) print k[i]"="v[k[i]]}' "$(REC_T)" >"$(REC_T).t" && mv "$(REC_T).t" "$(REC_T)"; }
+expect_rec(){ expect_cmd "grep -qx '$1' \"\$FR/var/db/phxboot.fails\""; }   # expect_rec <key=value>: the record holds it after the run
+no_allow(){ expect_cmd '[ ! -e "$FR/Library/GPUBundles/nvmtl-allow.txt" ]'; }   # the Metal allow list was not written
+keep1(){ cp "$W/boot1.log" "$W/boot1.$1.log"; }   # keep a boot1 log under a number (boot1 overwrites it)
+upfail_stub(){ printf '#!/bin/bash\necho "== bring-up (PSP, SMU, RLC, RS64, doorbells, MEC)"\necho "sOS check: C2PMSG_81=0x00000000 (cold)"\necho "%s"\necho "navi31 not up: %s (%s)"\nexit 1\n' "$1" "$1" "$2" >"$FR/gpu/phxctl/navi31_up.sh"; chmod +x "$FR/gpu/phxctl/navi31_up.sh"; }
+up_ok_stub(){ cp "$BIN/navi31_up.sh" "$FR/gpu/phxctl/navi31_up.sh"; }
+WDARM="the bring-up watchdog is still armed: a restart within 3 min"; WDOFF="the bring-up watchdog is cancelled: no restart"
+# the kill switch stays the owner's: an unfinished attempt is counted in the record, no ~/gpu/phxboot-off is made
+sc_rec_no_killswitch(){ world; touch "$FR/var/db/phxboot.pending"; expect_log 'previous attempt did not finish -> GOP \(one-shots cleared; counted in .*phxboot.fails, fails=1\)'
+                        expect_nofile "$FR/gpu/phxboot-off"; expect_rec fails=1; expect_rec last=skip; X_NOMARK=1; expect_no_reboot; go rec_no_killswitch; }
+# a freeze on a stuck squat: one safe desktop, then the full desktop again by itself (no rm)
+sc_rec_return() {       world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; touch "$FR/var/db/phxboot.pending"; boot1; keep1 1
+                        expect_cmd 'grep -q "safe desktop up" "$W/boot1.1.log"'; expect_cmd 'grep -q "the full desktop again at the next startup" "$W/boot1.1.log"'
+                        expect_log 'record: .*clean=1 .*the last boot.s safe fallback finished'; expect_log 'record: 1 clean fallback boot\(s\) after 1 failed attempt\(s\): the full desktop again'
+                        expect_nolog 'safe desktop|kill switch'; expect_log 'SUCCESS at'; expect_rec fails=0; expect_rec last=full; expect_nofile "$FR/gpu/phxboot-off"
+                        expect_killall; expect_no_reboot; go rec_return; }
+# after 3 failures in a row: 3 clean safe desktop boots, then the full desktop
+sc_rec_backoff() {      world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; rec_set fails=3 last=full
+                        boot1; keep1 1; boot1; keep1 2; boot1; keep1 3
+                        expect_cmd 'grep -q "stuck squat after a failed attempt (fails=3, clean fallback boots 0 of 3)" "$W/boot1.1.log"'
+                        expect_cmd 'grep -q "the full desktop again after 2 more startups" "$W/boot1.1.log"'
+                        expect_cmd 'grep -q "clean fallback boots 1 of 3" "$W/boot1.2.log"'; expect_cmd 'grep -q "clean fallback boots 2 of 3" "$W/boot1.3.log"'
+                        expect_cmd 'grep -q "the full desktop again at the next startup" "$W/boot1.3.log"'
+                        expect_nolog 'safe desktop'; expect_log 'SUCCESS at'; expect_rec fails=0; expect_no_reboot; go rec_backoff; }
+# the retry fails again: the safe desktop again, no reboot (a stuck squat stays up); then the return after one more clean boot
+sc_rec_retry_fails() {  world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; rec_set fails=1 clean=0 last=safe; SIM_METAL=0; boot1; keep1 1; SIM_METAL=1
+                        expect_cmd 'grep -q "FAIL (Metal device never came up)" "$W/boot1.1.log"'; expect_cmd 'grep -q "stuck squat: no reboot after the failure" "$W/boot1.1.log"'
+                        expect_cmd 'grep -q "record: fails=2 clean=0 .*last=full (FAIL: Metal device never came up)" "$W/boot1.1.log"'
+                        expect_log 'stuck squat after a failed attempt \(fails=2, clean fallback boots 0 of 1\)'; expect_log 'safe desktop up'; expect_rec fails=2; expect_rec last=safe
+                        expect_no_reboot; go rec_retry_fails; }
+# 11-25 an old ~/gpu/phxboot-failed is taken over into the record once and removed
+sc_rec_oldfailf() {     world; DESK=0; SIM_SQUAT=1; touch "$FR/gpu/phxboot-failed"; SIM_METAL=0; expect_log 'record: fails=1 .*phxboot-failed of an earlier daemon taken over'
+                        expect_rec fails=2; expect_nofile "$FR/gpu/phxboot-failed"; expect_reboot; go rec_oldfailf; }
+# a bring-up that fails (not the refusal) claims nothing: no claim, no NMXAccel, no allow list, no debug.phxagdc
+sc_upfail_desk() {      world; upfail_stub "KIQ test failed" "$WDOFF"; expect_log 'bring-up failed: no claim, no Metal this boot \(navi31 not up: KIQ test failed \(the bring-up watchdog is cancelled'
+                        expect_nolog 'claim: |NMXAccel|SUCCESS|FAIL \('; expect_nvram '-d phxfb-boot'; expect_writes 'debug.phxagdc' 0; no_allow
+                        expect_log 'notice: Graphics acceleration failed to start. Your Mac will try again at the next startup.'
+                        expect_rec fails=1; expect_rec bfail=1; expect_rec last=skip; X_NOMARK=1; expect_no_killall; expect_no_reboot; go upfail_desk; }
+sc_upfail_nodesk() {    world; DESK=0; upfail_stub "scheduler failed" "$WDOFF"; expect_log 'bring-up failed: no claim'; expect_nolog 'claim: |NMXAccel|no desktop arm'
+                        expect_rec bfail=1; X_NOMARK=1; expect_no_reboot; go upfail_nodesk; }
+sc_upfail_stuck() {     world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; upfail_stub "bring-up failed" "$WDARM"
+                        expect_log 'navi31 not up: bring-up failed \(the bring-up watchdog is still armed'; expect_log 'stuck squat: no display this boot \(no claim\) and no reboot by the daemon'
+                        expect_nolog 'claim: |NMXAccel'; expect_rec bfail=1; X_NOMARK=1; expect_no_killall; expect_no_reboot; go upfail_stuck; }
+sc_upfail_squat() {     world; DESK=0; SIM_SQUAT=1; AUTOF=1; upfail_stub "compute queue failed" "$WDOFF"; expect_log 'squat boot: rebooting onto IONDRV after the failed bring-up'
+                        expect_nvram '-d phxfb-squat'; expect_nolog 'claim: |NMXAccel'; expect_file "$FR/gpu/phxboot-nvstuck"; expect_rec fails=1; expect_reboot; go upfail_squat; }
+# a failure inside bringup_navi31.sh (its watchdog still armed) on a non-stuck squat: the squat cleared, the watchdog's
+# restart left to the watchdog (no restart by the daemon), so the PSP / SMU / RLC keep their 3 minutes
+sc_upfail_squat_armed(){ world; DESK=0; SIM_SQUAT=1; AUTOF=1; upfail_stub "bring-up failed" "$WDARM"; expect_log 'squat boot: phxfb-squat cleared, no reboot by the daemon: the bring-up watchdog restarts'
+                        expect_nvram '-d phxfb-squat'; expect_nolog 'claim: |NMXAccel|rebooting onto IONDRV'; expect_cmd 'grep -qx pending "$FR/gpu/phxboot-nvstuck"'; expect_rec bfail=1; X_NOMARK=1; expect_no_reboot; go upfail_squat_armed; }
+# the other refusal (C2PMSG_81 unreadable: phxctl / PhxBringup don't answer) is a failed bring-up, not the warm one
+sc_upfail_unreadable(){ world; printf '#!/bin/bash\necho "refused: warm GPU check failed: C2PMSG_81 unreadable (PhxBringup service not found): no firmware loaded, nothing written"\necho "bring-up failed"\necho "navi31 not up: bring-up failed (nothing written by the power-up, no bring-up watchdog)"\nexit 1\n' >"$FR/gpu/phxctl/navi31_up.sh"
+                        expect_log 'bring-up failed: no claim'; expect_nolog 'warm GPU: bring-up refused|claim: |NMXAccel|notice: The graphics card'; expect_rec bfail=1; expect_rec fails=1; X_NOMARK=1; expect_no_reboot; go upfail_unreadable; }
+# the loop guard: the bring-up failed twice (its watchdog restarted the machine): the third boot does not touch the GPU,
+# the fourth tries again
+sc_upfail_loop() {      world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; upfail_stub "bring-up failed" "$WDARM"; boot1; keep1 1; boot1; keep1 2
+                        expect_cmd 'grep -q "record: .*bfail=2 .*bring-up failed" "$W/boot1.2.log"'; expect_cmd 'grep -q "Your Mac will start without it next time, then try again" "$W/boot1.2.log"'
+                        expect_log 'bring-up skipped: it failed on the last 2 startups .*no bring-up watchdog, no restart.*the screen stays dark'; expect_nolog '== bring-up|claim: '
+                        expect_log 'notice: Graphics acceleration is off for this startup because it failed to start the last 2 times'
+                        expect_rec skipped=1; expect_rec last=skip; expect_no_reboot; go upfail_loop; }
+sc_upfail_retry() {     world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; rec_set fails=2 bfail=2 last=skip; boot1; keep1 1
+                        expect_cmd 'grep -q "bring-up skipped" "$W/boot1.1.log"'; expect_cmd '! grep -q "== bring-up" "$W/boot1.1.log"'
+                        expect_log '== bring-up \+ claim =='; expect_log 'record: .*bfail=0 .*\(bring-up up\)'; expect_log 'safe desktop up'; expect_rec skipped=0; expect_no_reboot; go upfail_retry; }
+# a hang in the bring-up (the mark says bringup): counted as unfinished and as a failed bring-up
+sc_bringup_hang() {     world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; echo bringup >"$FR/var/db/phxboot.pending"
+                        expect_log 'record: fails=1 clean=0 bfail=1 .*did not finish \(stage bringup\)'; expect_log 'safe desktop up'; expect_rec bfail=0; expect_rec fails=1; expect_no_reboot; go bringup_hang; }
+# the mark is set before the bring-up (with its stage), and cleared by a clean shutdown before the desktop attempt
+sc_mark_early() {       world; printf '#!/bin/bash\ncat "$SIM_MARK" >"$SIM_STATE/mark_at_up" 2>/dev/null\necho "sOS check: C2PMSG_81=0x00000000 (cold)"\necho "navi31 up: compute + gfx queues ready"\n' >"$FR/gpu/phxctl/navi31_up.sh"
+                        expect_cmd '[ "$(cat "$ST/mark_at_up")" = bringup ]'; expect_log 'SUCCESS'; X_NOMARK=1; go mark_early; }
+sc_term_bringup() {     world; DESK=0; SIM_NMXACCEL=0; SIM_TERM_LATE=1; SIM_SLEEP_REST=0.1; expect_log 'clean shutdown \(TERM\) at .* before the desktop attempt: in-progress mark cleared'
+                        expect_nolog 'NMXAccel did not start'; X_NOMARK=1; expect_no_reboot; go term_bringup; }
+# Safe Mode: nothing at all (no bring-up, no kmutil load), the mark left for the next normal boot
+sc_safeboot() {         world; SIM_SAFEBOOT=1; touch "$FR/var/db/phxboot.pending"; expect_log 'safe mode \(kern.safeboot 1\): no bring-up'; expect_nolog '== bring-up|squat boot|record:'
+                        expect_cmd '[ ! -e "$ST/kmutil.log" ]'; expect_file "$FR/var/db/phxboot.pending"; expect_no_killall; expect_no_reboot; go safeboot; }
+# m2_fail before the claim (PhxBringup not loaded): no Metal allow list, no debug.phxagdc; after it both, as before
+sc_m2fail_noclaim() {   world; SIM_BRINGUP=0; expect_log 'FAIL \(PhxBringup not loaded\)'; no_allow; expect_writes 'debug.phxagdc' 0; expect_rec fails=1; expect_reboot; go m2fail_noclaim; }
+sc_m2fail_claimed() {   world; SIM_METAL=0; expect_log 'FAIL \(Metal device never came up\)'; expect_cmd 'grep -q "test tools only" "$FR/Library/GPUBundles/nvmtl-allow.txt"'
+                        expect_writes '^-w debug.phxagdc=0$' 1; expect_rec fails=1; expect_reboot; go m2fail_claimed; }
+# the notice: shown once to the console user after login (launchctl asuser + osascript), or kept when nobody logs in
+sc_notice_safe() {      world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; touch "$FR/var/db/phxboot.pending"; SIM_LOGIN_AFTER_KILL=mockuser
+                        expect_log "notice: The display is in basic mode because the last startup didn't finish. Your Mac will try the full mode again at the next startup."
+                        expect_log 'notice: .* shown to mockuser'; expect_cmd 'grep -q "^launchctl asuser 501 sudo -u mockuser /usr/bin/osascript .*display notification .*the last startup didn.t finish" "$ST/launchctl.log"'
+                        expect_nofile "$FR/var/db/phxboot.notice"; expect_order 'safe desktop up' 'notice: The display'; expect_no_reboot; go notice_safe; }
+sc_notice_nologin() {   world; DESK=0; SIM_SQUAT=1; echo stuck >"$FR/gpu/phxboot-nvstuck"; rec_set fails=1 last=full
+                        expect_log 'notice: The display is in basic mode because graphics failed to start fully last time'; expect_log 'notice: nobody logged in within 6s: not shown'
+                        expect_file "$FR/var/db/phxboot.notice"; expect_cmd '! grep -q asuser "$ST/launchctl.log"'; go notice_nologin; }
+sc_notice_none() {      world; SIM_LOGIN_AFTER_KILL=mockuser; expect_log 'SUCCESS'; expect_nolog 'notice:'; expect_cmd '! grep -q asuser "$ST/launchctl.log"'; go notice_none; }
+sc_notice_stale() {     world; echo "old" >"$FR/var/db/phxboot.notice"; expect_log 'notice: one from an earlier boot was never shown: dropped'; expect_nofile "$FR/var/db/phxboot.notice"; go notice_stale; }
 # 11-23 thread 01: the display check. A latched engine after the WindowServer restart = dark: an engine capture, one clean
 # restart (no SUCCESS); a second dark boot in a row stays up; a fall-back to 144 is reported, still SUCCESS; a clean boot
 # removes the dark-restart record.
@@ -1005,7 +1119,7 @@ sc_disp_log_once() {    world; SIM_P0ODM=fb; expect_cmd '[ "$(grep -c "^engine r
 sc_disp_clears() {      world; echo "dark at earlier" >"$FR/var/db/phxboot.darkrestart"; expect_log 'SUCCESS'; expect_no_reboot; X_NOFILE="$FR/var/db/phxboot.darkrestart"; go disp_clears; }
 sc_disp_dark_auto() {   world; SIM_P0ODM=dark; DESK=0; SIM_SQUAT=1; AUTOF=1; expect_log 'recovery: one clean restart now'; expect_reboot; expect_nolog 'SUCCESS'
                         expect_nvram 'set phxfb-squat=1'; X_NOMARK=1; go disp_dark_auto; }
-ALL="disp_ok disp_dark disp_dark_again disp_pipe0_dark disp_fellback disp_log_once disp_clears disp_dark_auto squat_late fb_first squat_neither nodesk_rearm nodesk_failed nodesk_noauto fail_marks success_clears squat_happy squat_noauto squat_killswitch squat_mark squat_metal_fail squat_user squat_crash nodesk_no_boot_arm happy metal_stderr_guard metal_fail phxfb_fail nmxaccel_fail user_logged killswitch mark_recovery not_desktop crash_loop ws_norestart agdc_fail agdc_never agdc_late vcn_off vcn_up vcn_fail b15_off b15_on b15_missing b15_nodesk idledpm_off idledpm_on idledpm_missing idledpm_b15 idledpm_nodesk bovram_off bovram_on bovram_stfail bovram_ws bovram_bad bovram_empty bovram_oldkext bovram_nodesk gl_off gl_on gl_oldkext gl_fail gl_nodesk audio_off audio_on audio_dcfail audio_noplugin audio_missing audio_nodesk m7_off m7_on m7_light_fail m7_bind_fail m7_missing m7_no_late_smu m7_phase_ok_smu m7_light_fail_vcn aoc_off aoc_modes aoc_144flag term_in_watch squat_term_in_watch hotplug_off hotplug_on hotplug_bootarg hotplug_bootarg_like hotplug_fail hotplug_nohead1 hotplug_nom7 hotplug_nodesk gamma_off gamma_on gamma_pref_true gamma_pref_absent gamma_nocdpref gamma_busy gamma_busy_stuck gamma_fail gamma_nohead1 gamma_nodesk flags_both flags_term aocrate_off aocrate_144 aocrate_144_space aocrate_60 aocrate_last_60 aocrate_last_144 aocrate_last_none aocrate_last_bad aocrate_nolist aocrate_aoc144flag aocrate_nob15flags aocrate_nohead1 aocrate_unaligned aocrate_nom7 aocrate_old_accel aocrate_nmodes aocrate_b15_gone aocrate_set_fail aocrate_resync_bad aocrate_nodesk aocrate_user term_late_watch squat_term_late_watch term_late_restart term_late_arm squat_crash_shutdown_term ws_crash_oldkext gate_fix gate_session_race gate_cold_twice gate_bootarg gate_no_list gate_open_fails gate_resync_opens gate_late_oid gate_noresync_rate v4_race_repro v4_leftover v4_leftover_import_fail v4_leftover_moved dispovr_off dispovr_on dispovr_missing dispovr_fail dispovr_hang dispovr_real dispovr_real_twice one_aoc one_aoc_m7off one_aoc_no_solo one_aoc_refused one_aoc_noflag one_aoc_resync_bad two_unaligned_no_solo one_acer silent_crash_loop silent_crash_once late_silent late_logout dpwatch_off dpwatch_on dpwatch_empty dpwatch_l2 dpwatch_l2_old dpwatch_nooid dpwatch_badflag dpwatch_bootarg dpwatch_nodesk dpwatch_events dpwatch_fail_ev dpwatch_quiet dpwatch_unarmed_ev hp0_off hp0_on hp0_l2 hp0_badflag hp0_nooid hp0_bootarg hp0_nodesk hp0_fail b21_start b21_happy b21_user_true b21_user_false b21_gop b21_metal_fail b21_crash_loop b21_late_revert b21_shutdown b21_term_nocfp_false b21_term_nocfp_true b21_attempt_term b21_flag_off b21_flag_off_left b21_two_boots b21_off_fails prehook_desktop prehook_fail prehook_hang cdcopy_off cdcopy_on cdcopy_noasync cdcopy_nogp cdcopy_lcfail cdcopy_nodesk wstiled_off wstiled_on wstiled_lcfail wstiled_nodesk waitstep_off waitstep_on waitstep_empty waitstep_space waitstep_edges waitstep_low waitstep_high waitstep_bad waitstep_octal waitstep_huge waitstep_nooid waitstep_fail waitstep_nodesk waitstep_gp irqwait_off irqwait_on irqwait_fail irqwait_nooid irqwait_nodesk p0modes_off p0modes_on p0modes_oldkext p0modes_fail al_off al_on al_marker_stuck al_user_marker al_user_in al_nokc al_metal_fail al_shutdown al_b21off squat_kill_pending stuck_loop stuck_safe_hung stuck_after_headless stuck_cleared stuck_metal_fail stuck_crash stuck_failf stuck_full vrr_default vrr_off vrr_safe vrrmin_default vrrmin_on vrrmin_space vrrmin_edid vrrmin_bad vrrmin_low vrrmin_high vrrmin_octal vrrmin_empty vrrmin_nooid vrrmin_safe hdr_default hdr_off hdr_safe warm_desk warm_nodesk warm_squat warm_stuck sos_logged"
+ALL="upfail_squat_armed upfail_unreadable rec_no_killswitch rec_return rec_backoff rec_retry_fails rec_oldfailf upfail_desk upfail_nodesk upfail_stuck upfail_squat upfail_loop upfail_retry bringup_hang mark_early term_bringup safeboot m2fail_noclaim m2fail_claimed notice_safe notice_nologin notice_none notice_stale nodesk_failed_rearm disp_ok disp_dark disp_dark_again disp_pipe0_dark disp_fellback disp_log_once disp_clears disp_dark_auto squat_late fb_first squat_neither nodesk_rearm nodesk_failed nodesk_noauto fail_marks success_clears squat_happy squat_noauto squat_killswitch squat_mark squat_metal_fail squat_user squat_crash nodesk_no_boot_arm happy metal_stderr_guard metal_fail phxfb_fail nmxaccel_fail user_logged killswitch mark_recovery not_desktop crash_loop ws_norestart agdc_fail agdc_never agdc_late vcn_off vcn_up vcn_fail b15_off b15_on b15_missing b15_nodesk idledpm_off idledpm_on idledpm_missing idledpm_b15 idledpm_nodesk bovram_off bovram_on bovram_stfail bovram_ws bovram_bad bovram_empty bovram_oldkext bovram_nodesk gl_off gl_on gl_oldkext gl_fail gl_nodesk audio_off audio_on audio_dcfail audio_noplugin audio_missing audio_nodesk m7_off m7_on m7_light_fail m7_bind_fail m7_missing m7_no_late_smu m7_phase_ok_smu m7_light_fail_vcn aoc_off aoc_modes aoc_144flag term_in_watch squat_term_in_watch hotplug_off hotplug_on hotplug_bootarg hotplug_bootarg_like hotplug_fail hotplug_nohead1 hotplug_nom7 hotplug_nodesk gamma_off gamma_on gamma_pref_true gamma_pref_absent gamma_nocdpref gamma_busy gamma_busy_stuck gamma_fail gamma_nohead1 gamma_nodesk flags_both flags_term aocrate_off aocrate_144 aocrate_144_space aocrate_60 aocrate_last_60 aocrate_last_144 aocrate_last_none aocrate_last_bad aocrate_nolist aocrate_aoc144flag aocrate_nob15flags aocrate_nohead1 aocrate_unaligned aocrate_nom7 aocrate_old_accel aocrate_nmodes aocrate_b15_gone aocrate_set_fail aocrate_resync_bad aocrate_nodesk aocrate_user term_late_watch squat_term_late_watch term_late_restart term_late_arm squat_crash_shutdown_term ws_crash_oldkext gate_fix gate_session_race gate_cold_twice gate_bootarg gate_no_list gate_open_fails gate_resync_opens gate_late_oid gate_noresync_rate v4_race_repro v4_leftover v4_leftover_import_fail v4_leftover_moved dispovr_off dispovr_on dispovr_missing dispovr_fail dispovr_hang dispovr_real dispovr_real_twice one_aoc one_aoc_m7off one_aoc_no_solo one_aoc_refused one_aoc_noflag one_aoc_resync_bad two_unaligned_no_solo one_acer silent_crash_loop silent_crash_once late_silent late_logout dpwatch_off dpwatch_on dpwatch_empty dpwatch_l2 dpwatch_l2_old dpwatch_nooid dpwatch_badflag dpwatch_bootarg dpwatch_nodesk dpwatch_events dpwatch_fail_ev dpwatch_quiet dpwatch_unarmed_ev hp0_off hp0_on hp0_l2 hp0_badflag hp0_nooid hp0_bootarg hp0_nodesk hp0_fail b21_start b21_happy b21_user_true b21_user_false b21_gop b21_metal_fail b21_crash_loop b21_late_revert b21_shutdown b21_term_nocfp_false b21_term_nocfp_true b21_attempt_term b21_flag_off b21_flag_off_left b21_two_boots b21_off_fails prehook_desktop prehook_fail prehook_hang cdcopy_off cdcopy_on cdcopy_noasync cdcopy_nogp cdcopy_lcfail cdcopy_nodesk wstiled_off wstiled_on wstiled_lcfail wstiled_nodesk waitstep_off waitstep_on waitstep_empty waitstep_space waitstep_edges waitstep_low waitstep_high waitstep_bad waitstep_octal waitstep_huge waitstep_nooid waitstep_fail waitstep_nodesk waitstep_gp irqwait_off irqwait_on irqwait_fail irqwait_nooid irqwait_nodesk p0modes_off p0modes_on p0modes_oldkext p0modes_fail al_off al_on al_marker_stuck al_user_marker al_user_in al_nokc al_metal_fail al_shutdown al_b21off squat_kill_pending stuck_loop stuck_safe_hung stuck_after_headless stuck_cleared stuck_metal_fail stuck_crash stuck_failf stuck_full vrr_default vrr_off vrr_safe vrrmin_default vrrmin_on vrrmin_space vrrmin_edid vrrmin_bad vrrmin_low vrrmin_high vrrmin_octal vrrmin_empty vrrmin_nooid vrrmin_safe hdr_default hdr_off hdr_safe warm_desk warm_nodesk warm_squat warm_stuck sos_logged"
 make_fakes; make_world_tpl
 TORUN="${*:-$ALL}"
 echo "== phxboot mock harness :: daemon=$DAEMON"

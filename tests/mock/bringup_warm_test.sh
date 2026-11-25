@@ -11,6 +11,12 @@
 #   openfail   phxctl cannot open PhxBringup (its own message, no register line): refused as unreadable
 #   cold       C2PMSG_81 = 0 with STOP_AFTER=sos: the check passes, the watchdog is armed, the PSP bootloader runs
 #              and the sOS comes up (the cold path is unchanged up to there); "sOS check: ... (cold)" is printed
+# navi31_up.sh's last line (2026-11-25, phase 2 item 3 step 1): "navi31 not up: <step> (<watchdog>)" after any failure,
+# "navi31 up:" only when every step passed (the daemon claims the GPU only then):
+#   warm_notup the refusal: nothing written by the power-up, no watchdog
+#   nosos      the sOS never starts: bringup_navi31.sh leaves its watchdog armed, navi31_up.sh says so, exit 1
+#   kiqfail    the bring-up passes (a stub that cancels its watchdog), the KIQ test fails: "watchdog is cancelled"
+#   up         every step passes (stub bring-up, fake mesboot answers): "navi31 up:", no "not up" line, exit 0
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); TOOLS=$HERE/../../tools/phxctl
 . "$HERE/lib/portable.sh"
@@ -24,6 +30,7 @@ mk() {   # mk <C2PMSG_81 value> [error|openfail]: a fresh fake home with ~/gpu/p
   echo "$1" > "$R/0x16091"; echo 0x80000000 > "$R/0x16063"; echo 0x00000000 > "$R/0x1607a"
   [ "${2:-}" = error ] && : > "$R/error"
   [ "${2:-}" = openfail ] && : > "$R/openfail"
+  [ "${2:-}" = nosos ] && : > "$R/nosos"
   cat > "$W/bin/phxctl" <<EOS
 #!/bin/bash
 R=$R; echo "\$*" >> "$W/phxctl.log"
@@ -31,7 +38,8 @@ case "\$1" in
   regs) [ -e "\$R/openfail" ] && { echo "PhxBringup service not found" >&2; exit 1; }
         shift; for a in "\$@"; do a=\$(printf 0x%05x \$((a))); v=\$(cat "\$R/\$a" 2>/dev/null || echo 0x00000000)
           if [ -e "\$R/error" ]; then echo "\$a: (error) 0x00000000"; else echo "\$a: \$v"; fi; done ;;
-  wreg) [ "\$2" = 0x16063 ] && [ "\$((\$3))" = \$((0x20000)) ] && echo 0x00310035 > "\$R/0x16091" ;;   # the SOS command starts the sOS
+  wreg) [ -e "\$R/nosos" ] && exit 0
+        [ "\$2" = 0x16063 ] && [ "\$((\$3))" = \$((0x20000)) ] && echo 0x00310035 > "\$R/0x16091" ;;   # the SOS command starts the sOS
 esac
 exit 0
 EOS
@@ -39,7 +47,12 @@ EOS
 #!/bin/bash
 [ "\${1:-}" = -n ] && shift
 if [ "\${1:-}" = "$W/bin/phxctl" ]; then exec "\$@"; fi
-echo "\$*" >> "$W/sudo.log"; exit 0
+echo "\$*" >> "$W/sudo.log"
+# mesboot (navi31_up.sh's later steps): the success tokens only for the steps named in $W/mesok
+if [ "\${1:-}" = /usr/local/sbin/mesboot ] && grep -qx "\${2:-}" "$W/mesok" 2>/dev/null; then
+  case "\$2" in kiqres) echo "scratch0=0xdeadbeef";; schedkiq) echo "QUERY_SCHED_STATUS: OK";; cs) echo "testbuf=0xfeedf00d";; gfxq) echo "testbuf=0x6f7a6f7a";; esac
+fi
+exit 0
 EOS
   chmod +x "$W/bin/phxctl" "$W/bin/sudo"
 }
@@ -94,6 +107,47 @@ sc_cold() {
   echo "$OUT" | grep -qx 'sOS check: C2PMSG_81=0x00000000 (cold)' || { ok=0; why="$why no sOS check line;"; }
   res cold $ok "$why"
 }
-sc_warm; sc_readerr; sc_openfail; sc_cold
+stub_bringup() {   # a bring-up stub that passes (prints what bringup_navi31.sh prints at its end) and the mesboot steps that pass
+  printf '#!/bin/bash\necho "sOS check: C2PMSG_81=0x00000000 (cold)"\necho "== watchdog: reboot in 3 min unless cancelled =="\necho "watchdog cancelled rc=0"\n' >"$W/home/gpu/phxctl/bringup_navi31.sh"
+  printf '%s\n' "$@" >"$W/mesok"
+}
+last_is() { [ "$(echo "$OUT" | tail -1)" = "$1" ] || { ok=0; why="$why last line '$(echo "$OUT" | tail -1)';"; }; }
+sc_warm_notup() {
+  mk 0x00310035; run_up; ok=1; why=""
+  [ "$RC" = 1 ] || { ok=0; why="$why rc $RC!=1;"; }
+  last_is "navi31 not up: bring-up failed (nothing written by the power-up, no bring-up watchdog)"
+  nowrite || { ok=0; why="$why wrote to the GPU;"; }
+  res warm_notup $ok "$why"
+}
+sc_nosos() {
+  mk 0x00000000 nosos; run_up; ok=1; why=""
+  [ "$RC" = 1 ] || { ok=0; why="$why rc $RC!=1;"; }
+  echo "$OUT" | grep -q 'sOS did not start; leaving the watchdog armed' || { ok=0; why="$why no sOS failure line;"; }
+  echo "$OUT" | grep -q '^bring-up failed$' || { ok=0; why="$why no 'bring-up failed';"; }
+  last_is "navi31 not up: bring-up failed (the bring-up watchdog is still armed: a restart within 3 min)"
+  grep -q -- '-r +3' "$W/sudo.log" 2>/dev/null || { ok=0; why="$why watchdog not armed;"; }
+  grep -q 'killall' "$W/sudo.log" 2>/dev/null && { ok=0; why="$why watchdog cancelled;"; }
+  grep -q 'mesboot' "$W/sudo.log" 2>/dev/null && { ok=0; why="$why went on to the mesboot steps;"; }
+  echo "$OUT" | grep -q 'navi31 up:' && { ok=0; why="$why says up;"; }
+  res nosos $ok "$why"
+}
+sc_kiqfail() {
+  mk 0x00000000; stub_bringup gart mes; run_up; ok=1; why=""
+  [ "$RC" = 1 ] || { ok=0; why="$why rc $RC!=1;"; }
+  echo "$OUT" | grep -q '^KIQ test failed$' || { ok=0; why="$why no 'KIQ test failed';"; }
+  last_is "navi31 not up: KIQ test failed (the bring-up watchdog is cancelled: no restart)"
+  grep -q 'mesboot schedkiq\|mesboot cs' "$W/sudo.log" && { ok=0; why="$why went on after the KIQ;"; }
+  echo "$OUT" | grep -q 'navi31 up:' && { ok=0; why="$why says up;"; }
+  res kiqfail $ok "$why"
+}
+sc_up() {
+  mk 0x00000000; stub_bringup gart mes kiqres schedkiq cs gfxq; run_up; ok=1; why=""
+  [ "$RC" = 0 ] || { ok=0; why="$why rc $RC!=0;"; }
+  last_is "navi31 up: compute + gfx queues ready"
+  echo "$OUT" | grep -q 'navi31 not up' && { ok=0; why="$why a not-up line;"; }
+  echo "$OUT" | grep -qx 'sOS check: C2PMSG_81=0x00000000 (cold)' || { ok=0; why="$why no sOS check line;"; }
+  res up $ok "$why"
+}
+sc_warm; sc_readerr; sc_openfail; sc_cold; sc_warm_notup; sc_nosos; sc_kiqfail; sc_up
 echo "RESULT: $PASSN passed, $FAILN failed"
 [ $FAILN = 0 ]

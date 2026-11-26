@@ -65,7 +65,7 @@ bool PhxBringup::start(IOService *provider) {
     // b168: the GPU busy sampler (PhxGpuStats.h). A "once" call: one tick at a time, and busyStop's cancel-wait also
     // waits for a running tick (a plain call's cancel-wait doesn't when it cancelled a pending one).
     busyCall = thread_call_allocate_with_options(phxBusyTick, this, THREAD_CALL_PRIORITY_KERNEL, THREAD_CALL_OPTIONS_ONCE);
-    setProperty("phx-gpu-stats-fn", kOSBooleanTrue);   // b168: PhxAccel's statistics may call "phxGpuStats"
+    setProperty("phx-gpu-stats-fn", kOSBooleanTrue);   // b168: VermilionAccel's statistics may call "phxGpuStats"
     clearRing();   // navi31: also sets up fw_buf (needs fbMcBase and fbAperLen from above)
     setProperty("phx-fwbuf-mc", fwBufMc, 64);
     setProperty("phx-build", PHX_KEXT_BUILD, 32);

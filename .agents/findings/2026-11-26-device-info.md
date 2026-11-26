@@ -27,7 +27,8 @@ does: the table lies above the CPU-visible BAR. The kext checks the binary as `a
 byte-sum checksums, bounds), then parses it.
 
 The GC registers are read once GFX is up (`adoptQueue`), and only at the table's bases when those are this ASIC's known
-ones (GC 0x1260 / 0xA000, NBIO 0xD20).
+ones (GC 0x1260 / 0xA000, NBIO 0xD20). The window's two index writes (MM_INDEX_HI, MM_INDEX) are the only register
+writes; Linux makes them for the same read (section 7).
 
 | `phxn_devinfo` field (RADV `drm_amdgpu_info_device`) | Source | Linux's source |
 |---|---|---|
@@ -63,8 +64,9 @@ Each one is flagged in `phxn_devinfo.flags` and in `sysctl debug.phxdevinfo`:
   select. That select is a register write, and our kext doesn't send it today, so every active SA gets the table's CU
   count. On a fully enabled XTX the result is the same (96 CUs). Follow-up: the select as `gfx_v11_0_get_cu_info` does
   it, through hw-safety.
-- **VRAM type and width** (`VRAM_FROM_UMC`): Linux takes them from the VBIOS `vram_info` table. The kext's VBIOS parser
-  doesn't read that table yet. Follow-up: read it from `PhxVbios.h`.
+- **VRAM type and width** (`VRAM_FROM_UMC`): Linux takes them from the VBIOS `vram_info` table. The kext has no VBIOS
+  image at run time, and `PhxVbios.h` (the connector-table parser, not compiled into the kext) doesn't read that table.
+  Follow-up: a read-only way to the image, then `vram_info` in `PhxVbios.h`.
 - **Clocks and the timestamp clock** (`CLOCKS_DEFAULT`): Linux's values come from SMU DPM tables and the VBIOS, and
   firmware is their only source. The defaults are Mesa's `navi31` entry, a Linux dump of an XTX: sclk 500-2371 MHz,
   mclk 96-1249 MHz, counter 100 MHz.
@@ -153,11 +155,11 @@ Fixed after the review (kext b168, same build, not booted):
 
 Open, not GPU programming (TODO "Device info follow-ups"):
 
-1. **Medium, memory policy.** Hi BOs of processes not opted in to real VRAM are wired system memory. The global cap,
-   `max_mem / 2`, allows 16 GiB wired on 32 GB; before b168 it was 6 GiB per client, with no global cap. Linux TTM's 50%
+1. **Medium, memory policy.** Hi BOs of processes not opted in to real VRAM are wired system memory. The global cap
+   the review saw, `max_mem / 2`, allowed 16 GiB wired on 32 GB; before b168 it was 6 GiB per client, with no global cap. Linux TTM's 50%
    applies to pages it can swap, so it isn't the same limit. An app that sizes its pools from the ~23 GiB heap could
-   put macOS under memory pressure (unverified). **Decided 2026-11-26:** `max_mem / 4` (8 GiB on 32 GB, above the old
-   6 GiB per client): an app that trusts the working set fails an allocation sooner, which harms one app; memory
+   put macOS under memory pressure (unverified). **Decided 2026-11-26, and in the code:** `max_mem / 4` (8 GiB on
+   32 GB, above the old 6 GiB per client): an app that trusts the working set fails an allocation sooner, which harms one app; memory
    pressure from wired pages harms the whole system.
 2. **Low.** The cap check and the counter update aren't one atomic step, so concurrent creates can overshoot the cap
    by their sizes.

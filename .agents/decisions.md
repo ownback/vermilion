@@ -745,8 +745,8 @@ not the threat this guard answers: the machine lock and the review of every chan
 
 - RADV's device info comes from the kext (ABI 1.13), which reads what Linux amdgpu reads: the IP discovery table at
   the top of VRAM through the MM_INDEX window, the GC harvest registers and `GB_ADDR_CONFIG` at the table's bases (only
-  when they are this ASIC's), the NBIO revision strap, PCI config space. No register write and no firmware message of
-  our own. Mesa's `navi31` entry keeps only what is the driver's own on Linux too, and answers alone with an older kext.
+  when they are this ASIC's), the NBIO revision strap, PCI config space. The only register writes are the window's
+  two index writes (MM_INDEX_HI, MM_INDEX), which Linux makes for the same read; no firmware message. Mesa's `navi31` entry keeps only what is the driver's own on Linux too, and answers alone with an older kext.
   `navi31_xt` is gone ([finding](findings/2026-11-26-device-info.md)).
 - Values whose only source is firmware or the VBIOS (clocks, the timestamp clock, CP firmware versions, VRAM type and
   width) are flagged defaults, not hidden constants: each has a bit in `phxn_devinfo.flags`. The per-SA CU masks are

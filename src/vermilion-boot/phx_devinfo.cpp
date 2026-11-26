@@ -7,7 +7,8 @@
 // Every access here is a read: the discovery table through the MM_INDEX / MM_DATA window Linux reads it through
 // (mmIdxRead, under gMmIdxLock, inside the VRAM size), NBIO and GC registers Linux reads at probe and at GFX init
 // (each at the absolute dword the discovery table's base gives, and only when that base is the one this ASIC has),
-// fence words in VRAM through BAR0, and the registry.
+// fence words in VRAM through BAR0, and the registry. The only register writes are the window's two index writes
+// (MM_INDEX_HI, MM_INDEX), which Linux makes for the same read (amdgpu_device_mm_access).
 
 // The PCIe Link Capabilities dword IOPCIFamily publishes on a PCI device (max speed 3:0, max width 9:4); 0 = none.
 static uint32_t phxLinkCap(IORegistryEntry *e) {
@@ -21,10 +22,11 @@ static uint32_t phxRegVendor(IORegistryEntry *e) {
     return static_cast<uint32_t>(b[0] | (b[1] << 8));
 }
 // Linux's amdgpu_device_partner_bandwidth: the first bridge above the GPU that is not one of the card's own (ATI)
-// switch ports.
+// switch ports. Looks at most kPartnerMaxDepth entries up the service plane.
+static constexpr int kPartnerMaxDepth = 16;
 static uint32_t phxPartnerLinkCap(IOPCIDevice *gpu) {
     IORegistryEntry *e = gpu;
-    for (int depth = 0; depth < 16 && e; depth++) {
+    for (int depth = 0; depth < kPartnerMaxDepth && e; depth++) {
         e = e->getParentEntry(gIOServicePlane);
         IOPCIDevice *p = OSDynamicCast(IOPCIDevice, e);
         if (!p) continue;
@@ -59,7 +61,8 @@ void PhxBringup::devInfoEarly() {
     uint8_t *bin = static_cast<uint8_t *>(IOMallocZero(phxdev::kTmrSize));
     if (!bin) return;
     uint32_t got = 0;
-    for (uint32_t i = 0; i < 12; i += 4, got += 4) {   // the header first: signature and size say how much follows
+    // the header first: its signature and size say how much follows
+    for (uint32_t i = 0; i < phxdev::kBinaryPrefixBytes; i += 4, got += 4) {
         const uint32_t v = mmIdxRead(pos + i);
         memcpy(bin + i, &v, 4);
     }
@@ -80,8 +83,8 @@ void PhxBringup::devInfoEarly() {
           devDisc.numUmc, static_cast<unsigned long long>(devDisc.mallBytes >> 20));
 }
 
-// The GC harvest registers and GB_ADDR_CONFIG, once the GFX block is up (gfx_v11_0_gpu_early_init / _setup_rb /
-// _get_tcc_info read them; none needs an SE / SA select). Only on the layout the discovery table confirmed.
+// The GC harvest registers and GB_ADDR_CONFIG, once the GFX block is up (Linux's get_gb_addr_config, gfx_v11_0_setup_rb
+// and gfx_v11_0_get_tcc_info read them; none needs an SE / SA select). Only on the layout the discovery table confirmed.
 void PhxBringup::devInfoGc() {
     if (devGc.read || !mmio || !gpuReady() || !phxdev::basesKnown(devDisc)) return;
     phxdev::GcRegs g{};
@@ -132,13 +135,15 @@ uint64_t PhxBringup::vramHiTotal() const { return vramDevTotal() - kVisTotal; }
 uint64_t PhxBringup::hiSysCap() const { return max_mem / 4; }
 
 // ---- the busy sampler (PhxGpuStats.h) ---------------------------------------------------------------------------------
+static constexpr int kBusyMinUs = 500, kBusyMaxUs = 100000;   // debug.phxgpu_busy_us: the periods it takes (or 0 = off)
+static constexpr int kBusyStopTries = 4;                      // busyStop: cancel-wait and free attempts
 static int gGpuBusyUs = static_cast<int>(phxbusy::kDefPeriodUs);
 static int phxGpuBusySysctl SYSCTL_HANDLER_ARGS {
-    (void)oidp; (void)arg1; (void)arg2;
+    (void)arg1; (void)arg2;
     int v = gGpuBusyUs;
     const int e = sysctl_handle_int(oidp, &v, 0, req);
     if (e || !req->newptr) return e;
-    if (v != 0 && (v < 500 || v > 100000)) return EINVAL;
+    if (v != 0 && (v < kBusyMinUs || v > kBusyMaxUs)) return EINVAL;
     gGpuBusyUs = v;
     return 0;
 }
@@ -210,7 +215,7 @@ void PhxBringup::busyStop() {
     if (gpuLock) IOLockUnlock(gpuLock);
     thread_call_t c = busyCall;
     if (!c) return;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < kBusyStopTries; i++) {
         thread_call_cancel_wait(c);
         if (thread_call_free(c)) { busyCall = nullptr; return; }
     }

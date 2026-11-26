@@ -70,7 +70,7 @@ IOReturn PhxBringup::callPlatformFunction(const OSSymbol *functionName, bool wai
         if (param4) *static_cast<uint32_t *>(param4) = src;
         return edidFetch(static_cast<uint8_t *>(param1), static_cast<uint32_t *>(param2), static_cast<int32_t *>(param3), src);
     }
-    if (functionName && functionName->isEqualTo(PHX_GPU_STATS_FN)) {   // b168: PhxAccel's PerformanceStatistics
+    if (functionName && functionName->isEqualTo(PHX_GPU_STATS_FN)) {   // b168: VermilionAccel's PerformanceStatistics
         phx_gpu_stats *st = static_cast<phx_gpu_stats *>(param1);
         if (!st || st->version != PHX_GPU_STATS_VERSION || st->size != sizeof(phx_gpu_stats))
             return kIOReturnBadArgument;

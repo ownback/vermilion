@@ -153,7 +153,7 @@ mode setting).
 | Games | slow (Horizon 292 vs 4370 fps on Linux) | Phase 4 | A17 |
 | Music, Maps | works, slow (crashes fixed by #25, #29; Maps choppy, tiles late: #31 live, WindowServer composite cost open; Music's 30 s first launch: passd, login agent + ryzentosh-sse) | Phase 2 item 2 | A7, A8 |
 | GPU hang or lost GPU | missing recovery | Phase 2 item 7 | A6 |
-| GPU name, VRAM size, Activity Monitor GPU history | broken / missing | Install `ownback/device-info` (name, 24 GiB working set, `Device Utilization %`); per-process GPU time is C5 | A2-A4 |
+| GPU name, VRAM size, Activity Monitor GPU history | broken / missing | Install `ownback/device-info` (name, a working set of about 23.4 GiB, `Device Utilization %`; unverified); per-process GPU time is C5 | A2-A4 |
 | Metal feature answers vs a real AMD Mac | not standard (untested claims, some wrong answers) | Conformance pass | A16 |
 | RADV device info (canned profile, constants) | not standard (rule 3) | Install `ownback/device-info` (ABI 1.13: discovery table + GC harvest registers; flagged defaults left, [finding](findings/2026-11-26-device-info.md) section 3) | A19 |
 | VermilionAccel from the AuxKC (Allow click) | not standard (ROADMAP list) | Load from OpenCore (L; dependencies outside the Boot KC) | A20 |

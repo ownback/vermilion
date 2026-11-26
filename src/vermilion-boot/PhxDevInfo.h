@@ -3,13 +3,15 @@
 //
 // Kernel-free: tests/kext/devinfo_test.cpp builds synthetic IP discovery tables and register values on a host.
 //
-// Sources, all read-only (no register write of our own, no SMU, PSP or DAL message):
+// Sources. Every access is a read, except that the MM_INDEX / MM_DATA window needs its two index writes (MM_INDEX_HI,
+// MM_INDEX), which Linux makes for the same read. No other register write, no SMU, PSP or DAL message:
 //   - the IP discovery table: 10 KiB at the top of VRAM minus 64 KiB, where the firmware leaves it at power-on. Linux
 //     reads it there at probe (amdgpu_discovery_read_binary_from_mem: pos = (RCC_CONFIG_MEMSIZE << 20) - 64 KiB,
 //     DISCOVERY_TMR_SIZE 10 KiB) through amdgpu_device_mm_access, the MM_INDEX / MM_DATA window the kext already reads
 //     VRAM beyond BAR0 with (PhxBringup::mmIdxRead, b82). It gives the IP versions and register bases, the GC config
 //     (SE, SA, CU, RB, TCC, GPRs, wave limits, caches), the UMC count and the MALL size.
-//   - GC harvest registers, after the GFX bring-up (Linux reads them in gfx_v11_0_hw_init after the RLC autoload):
+//   - GC harvest registers, after the GFX bring-up (Linux reads them in gfx_v11_0_hw_init after the RLC autoload:
+//     get_gb_addr_config, and gfx_v11_0_setup_rb / gfx_v11_0_get_tcc_info from gfx_v11_0_constants_init):
 //     CC_GC_SA_UNIT_DISABLE / GC_USER_SA_UNIT_DISABLE, CC_RB_BACKEND_DISABLE / GC_USER_RB_BACKEND_DISABLE,
 //     CGTS_TCC_DISABLE / CGTS_USER_TCC_DISABLE and GB_ADDR_CONFIG; NBIO's RCC_CONFIG_MEMSIZE and the revision strap
 //     (soc21_common_early_init, nbio_v4_3_get_rev_id).
@@ -45,13 +47,18 @@ constexpr uint32_t kHarvestTableSignature = 0x56524148u;     // "HARV"
 constexpr uint32_t kVcnInfoTableId = 0x004E4356u;            // "VCN"
 constexpr uint32_t kMallInfoTableId = 0x4C4C414Du;           // "MALL"
 enum : unsigned { kTabIpDiscovery = 0, kTabGc = 1, kTabHarvest = 2, kTabVcn = 3, kTabMall = 4, kTables = 6 };
+// Sizes in bytes of discovery.h's packed structs
+constexpr size_t kBinaryPrefixBytes = 12;   // binary_header up to its table list: signature, version, checksum, size
+constexpr unsigned kIpHeaderBytes = 80;     // ip_discovery_header with die_info[16] and the v4 flags byte
+constexpr unsigned kInfoHeaderBytes = 12;   // gpu_info_header / the VCN and MALL table headers: id, version, size
+constexpr unsigned kHarvestEntries = 32;    // harvest_table: an 8-byte header, then 32 x {hw_id, instance, reserved}
+constexpr unsigned kHarvestBytes = 8 + kHarvestEntries * 4;
 // amdgpu_discovery.h
 constexpr uint64_t kTmrOffset = 64u << 10;   // DISCOVERY_TMR_OFFSET: the table starts this far below the top of VRAM
 constexpr uint32_t kTmrSize = 10u << 10;     // DISCOVERY_TMR_SIZE: what Linux reads
 constexpr unsigned kHwIdMax = 300, kHwipMaxInstance = 44;   // amdgpu_discovery_validate_ip
-// soc15_hw_ip.h
-constexpr uint16_t kHwMp1 = 1, kHwGc = 11, kHwVcn = 12, kHwMmhub = 34, kHwSdma0 = 42, kHwNbif = 108, kHwUmc = 150,
-                   kHwDmu = 271, kHwMp0 = 255;
+// soc15_hw_ip.h (the ids the parser reads, and MMHUB / DMU for the host test's tables)
+constexpr uint16_t kHwGc = 11, kHwVcn = 12, kHwMmhub = 34, kHwNbif = 108, kHwUmc = 150, kHwDmu = 271;
 
 // Register offsets (dwords) on GC 11.0.0 / NBIO 4.3.0: Linux's gc_11_0_0_offset.h, nbio_4_3_0_offset.h, with the
 // segment the offset belongs to. The absolute address is the discovery table's base for that segment plus the offset.
@@ -122,7 +129,7 @@ inline bool fits(size_t len, size_t off, size_t n) { return off <= len && n <= l
 
 // The binary's own size from its first 12 bytes (0 = not a discovery binary): how much the kext reads after the header.
 inline uint32_t binarySize(const uint8_t *b, size_t len) {
-    if (!b || len < 12 || rd32(b, 0) != kBinarySignature) return 0;
+    if (!b || len < kBinaryPrefixBytes || rd32(b, 0) != kBinarySignature) return 0;
     return rd16(b, 10);
 }
 
@@ -132,7 +139,7 @@ inline int32_t parse(const uint8_t *b, size_t len, Discovery *d) {
     *d = Discovery{};
     d->err = kErrShort;
     // binary_header: signature, version, checksum, size, then 6 x {offset, checksum, size, padding}
-    constexpr size_t kHdr = 12 + kTables * 8;
+    constexpr size_t kHdr = kBinaryPrefixBytes + kTables * 8;
     if (!b || len < kHdr) return d->err;
     if (rd32(b, 0) != kBinarySignature) return d->err = kErrSignature;
     d->versionMajor = rd16(b, 4);
@@ -148,7 +155,7 @@ inline int32_t parse(const uint8_t *b, size_t len, Discovery *d) {
     // IP discovery table: header (signature, version, size, id, num_dies, die_info[16] at 14, then the
     // v4 flags byte at 78: base_addr_64_bit) = 80 bytes (discovery.h is packed)
     const size_t ip = tabOff(kTabIpDiscovery);
-    if (!ip || !fits(n, ip, 80)) return d->err = kErrIpTable;
+    if (!ip || !fits(n, ip, kIpHeaderBytes)) return d->err = kErrIpTable;
     if (rd32(b, ip) != kDiscoveryTableSignature) return d->err = kErrIpTable;
     const uint16_t ipVersion = rd16(b, ip + 4), ipSize = rd16(b, ip + 6);
     if (!fits(n, ip, ipSize) || checksum(b + ip, ipSize) != tabSum(kTabIpDiscovery)) return d->err = kErrIpTable;
@@ -192,11 +199,11 @@ inline int32_t parse(const uint8_t *b, size_t len, Discovery *d) {
     }
     if (!haveGc) return d->err = kErrNoGc;
 
-    // Harvest table (header 8 bytes + 32 x 4): UMC and VCN instances fused off
+    // Harvest table: UMC and VCN instances fused off
     if (const size_t h = tabOff(kTabHarvest)) {
-        if (!fits(n, h, 8 + 32 * 4) || rd32(b, h) != kHarvestTableSignature || checksum(b + h, 8 + 32 * 4) != tabSum(kTabHarvest))
+        if (!fits(n, h, kHarvestBytes) || rd32(b, h) != kHarvestTableSignature || checksum(b + h, kHarvestBytes) != tabSum(kTabHarvest))
             return d->err = kErrHarvest;
-        for (unsigned i = 0; i < 32; i++) {
+        for (unsigned i = 0; i < kHarvestEntries; i++) {
             const uint16_t hw = rd16(b, h + 8 + i * 4);
             if (!hw) break;
             if (hw == kHwUmc) d->umcHarvest++;
@@ -206,21 +213,24 @@ inline int32_t parse(const uint8_t *b, size_t len, Discovery *d) {
     }
     // VCN info: only its id and checksum (Linux checks both; the fuse bits are not needed here)
     if (const size_t v = tabOff(kTabVcn)) {
-        if (!fits(n, v, 12) || rd32(b, v) != kVcnInfoTableId) return d->err = kErrVcnTable;
+        if (!fits(n, v, kInfoHeaderBytes) || rd32(b, v) != kVcnInfoTableId) return d->err = kErrVcnTable;
         const uint32_t vs = rd32(b, v + 8);
         if (!fits(n, v, vs) || checksum(b + v, vs) != tabSum(kTabVcn)) return d->err = kErrVcnTable;
     }
 
     // GC info: gpu_info_header (id, major, minor, size) then the fields (amdgpu_discovery_get_gfx_info)
     const size_t g = tabOff(kTabGc);
-    if (!g || !fits(n, g, 12) || rd32(b, g) != kGcTableId) return d->err = kErrGcTable;
+    if (!g || !fits(n, g, kInfoHeaderBytes) || rd32(b, g) != kGcTableId) return d->err = kErrGcTable;
     const uint32_t gsize = rd32(b, g + 8);
     if (!fits(n, g, gsize) || checksum(b + g, gsize) != tabSum(kTabGc)) return d->err = kErrGcTable;
     d->gcInfoMajor = rd16(b, g + 4);
     d->gcInfoMinor = rd16(b, g + 6);
-    auto f = [&](unsigned i) -> uint32_t { return 12 + (i + 1) * 4 <= gsize ? rd32(b, g + 12 + i * 4) : 0; };
+    // field i: the i-th dword after the header (0 when the table is too short to hold it)
+    auto f = [&](unsigned i) -> uint32_t {
+        return kInfoHeaderBytes + (i + 1) * 4 <= gsize ? rd32(b, g + kInfoHeaderBytes + i * 4) : 0;
+    };
     if (d->gcInfoMajor == 1) {
-        if (gsize < 12 + 19 * 4) return d->err = kErrGcTable;
+        if (gsize < kInfoHeaderBytes + 19 * 4) return d->err = kErrGcTable;   // through field 18
         d->numSe = f(0);
         d->maxCuPerSa = 2 * (f(1) + f(2));   // 2 x (WGP0 + WGP1 per SA)
         d->numRbPerSe = f(3); d->numGl2c = f(4); d->numGprs = f(5); d->maxGsThreads = f(6);
@@ -234,7 +244,7 @@ inline int32_t parse(const uint8_t *b, size_t len, Discovery *d) {
             d->gl1cPerSa = f(27); d->gl1cKb = f(28); d->gl2cKb = f(29);
         }
     } else if (d->gcInfoMajor == 2) {
-        if (gsize < 12 + 17 * 4) return d->err = kErrGcTable;
+        if (gsize < kInfoHeaderBytes + 17 * 4) return d->err = kErrGcTable;   // through field 16
         d->numSe = f(0); d->maxCuPerSa = f(1); d->numSaPerSe = f(2); d->numRbPerSe = f(3); d->numGl2c = f(4);
         d->numGprs = f(5); d->maxGsThreads = f(6); d->gsTableDepth = f(7); d->gsPrimBuffDepth = f(8);
         d->doubleOffchipLds = f(10); d->waveSize = f(11); d->maxWavesPerSimd = f(12); d->maxScratchSlotsPerCu = f(13);
@@ -252,7 +262,7 @@ inline int32_t parse(const uint8_t *b, size_t len, Discovery *d) {
 
     // MALL info (Linux does not check its checksum: amdgpu_discovery_init's "if (0 && offset)")
     if (const size_t m = tabOff(kTabMall)) {
-        if (fits(n, m, 12 + 9 * 4) && rd32(b, m) == kMallInfoTableId) {
+        if (fits(n, m, kInfoHeaderBytes + 9 * 4) && rd32(b, m) == kMallInfoTableId) {
             d->mallMajor = rd16(b, m + 4);
             if (d->mallMajor == 1) {
                 d->mallSizePerUmc = rd32(b, m + 12); d->mallSPresent = rd32(b, m + 16); d->mallHalfUse = rd32(b, m + 20);

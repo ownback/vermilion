@@ -113,6 +113,7 @@ Mesa at commit `f5cb8ee0` with 20 patches:
   registers, PCI config space). RADV's `AMDGPU_INFO_DEV_INFO`, the GFX / compute `HW_IP_INFO`, the CP firmware
   versions, `GB_ADDR_CONFIG` and the marketing name are the kext's; the entry keeps only what is the driver's own on
   Linux too (the VA layout, page and fragment sizes, `ids_flags`). With a kext before ABI 1.13 the entry answers.
+  The kext's device info has not run on hardware yet (unverified).
 - **0019:** the kext handshake line goes to the unified log (stderr only with `RADV_DARWIN_VERBOSE=1`).
 - **0020:** a window surface for apps. Built with `-Dplatforms=macos` (`RADV_PLATFORMS=macos sh scripts/build/radv.sh`),
   RADV offers `VK_KHR_surface`, `VK_EXT_metal_surface` and swapchains through Mesa's Metal WSI (a copy to host memory

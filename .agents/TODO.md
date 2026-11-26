@@ -661,15 +661,12 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   - The daemon leaves phxfb's flip off whenever GPU present is on, now the default. Where the plugin cannot start GPU
     present (a mode whose rows are not the kext's pitch: below 1440p; any size but the first), the desktop then runs
     on the CPU copy with no flip, where the old default had the flip.
-  - The safe desktop: only the daemon knows it. The plugin now tries GPU present there too, the kext refuses the query
-    (`debug.phxscan` 0), and the plugin asks again every 2 s for the life of WindowServer (eight log lines; the plane
-    numbers in them are not set by the plugin when the query fails).
+  - The safe desktop: only the daemon knows it. The plugin tries GPU present there, the kext refuses the query
+    (`debug.phxscan` 0); fixed: after 3 refusals in a row the plugin stops for the life of the process (one log line).
   - `ws-gpu-present-async-off` created on a running desktop with `phxboot-wscdcopy`: CDCOPY is read once and direct
     stays bound (async is read only at a start), while presents move to the committing thread. Not tested.
   - Direct scan-out by default still needs `phxboot-wscdcopy`, and a start that does not learn both display surfaces
     within 2 s stays on the copy path until GPU present starts again.
-  - The mock suite's plain `world` now carries `ws-gpu-present-off`, so most scenarios run the opt-out, not the
-    default; `gpdef_release` passes when `scripts/release` is missing.
   - `src/vermilion-boot/phx_globals.cpp` still names the `ws-direct` file in a comment (kext source, not touched here).
 - [ ] **1b. Narrow render-pass dependencies** (plugin, S-M): every pass has image-less ALL_COMMANDS / MEMORY_* entry
   and exit dependencies, likely an L2 flush per pass in RADV (unverified); ~0.4-0.5 ms of WindowServer's frame is

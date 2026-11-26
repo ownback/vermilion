@@ -145,3 +145,14 @@ static inline int nvmtl_sd_appeared_note(int wantedAtStart, int wantedNow, int *
     *said = 1;
     return 1;
 }
+
+/* The kernel refuses the scan query while the scan-out is not allowed (debug.phxscan 0: the safe desktop, where only the
+   daemon knows it). The plugin used to ask again every 2 s for the life of WindowServer. Now: after NVMTL_SD_QUERY_REFUSALS
+   refusals in a row it stops for the life of the process. *refused counts them in a row; r is the query's result.
+   Returns 1 when to stop. An answer (r == 0) resets the count. */
+#define NVMTL_SD_QUERY_REFUSALS 3u
+static inline int nvmtl_sd_query_giveup(unsigned *refused, int r)
+{
+    if (r == 0) { *refused = 0; return 0; }
+    return ++*refused >= NVMTL_SD_QUERY_REFUSALS;
+}

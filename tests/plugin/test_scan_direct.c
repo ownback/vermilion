@@ -159,6 +159,17 @@ int main(void)
         for (int f = 0; f < 3000; f++) { (void)nvmtl_sd_appeared_note(0, f >= 100, &said); }
         arm("appeared: over many frames the line comes once", said == 1);
     }
+    /* ---- the scan query refused (the safe desktop): stop after three in a row ---- */
+    {
+        unsigned rf = 0; int stopped = 0, tries = 0;
+        for (int i = 0; i < 100 && !stopped; i++) { tries++; stopped = nvmtl_sd_query_giveup(&rf, -1); }
+        arm("query refused: stops at the third refusal in a row", stopped && tries == (int)NVMTL_SD_QUERY_REFUSALS);
+        rf = 0;
+        arm("query refused twice: still trying", !nvmtl_sd_query_giveup(&rf, 5) && !nvmtl_sd_query_giveup(&rf, 5));
+        arm("an answer resets the count", !nvmtl_sd_query_giveup(&rf, 0) && rf == 0);
+        arm("then two more refusals do not stop it", !nvmtl_sd_query_giveup(&rf, 5) && !nvmtl_sd_query_giveup(&rf, 5));
+        arm("a third in a row does", nvmtl_sd_query_giveup(&rf, 5) == 1);
+    }
     /* ---- the cooldown ---- */
     unsigned nf = 0; uint64_t until = 0; int off = 0;
     nvmtl_sd_fail(&nf, 1000, &until, &off);

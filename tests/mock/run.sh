@@ -340,9 +340,9 @@ make_world_tpl() { local FR=$TPL/fr
 world() {   # world: a fresh fake root + default-healthy SIM_* config
   W=$(mktemp -d "$SCR/scen.XXXXXX"); FR=$W/fr; ST=$W/state
   cp -Rp "$TPL/." "$W/"   # the fake root's dirs and stub copies, made once by make_world_tpl
-  # GPU present, async and direct scan-out are ON by default (2026-11-26): the plain world is the old one, GPU present off
-  # by ws-gpu-present-off; gp_world is the new default.
-  mkdir -p "$FR/Library/GPUBundles/nvmtl"; touch "$FR/Library/GPUBundles/nvmtl/ws-gpu-present-off"
+  # GPU present, async and direct scan-out are ON by default (2026-11-26): the plain world has no opt-out file; a scenario
+  # that tests an opt-out adds it (gp_off, or touch ws-gpu-present-async-off).
+  mkdir -p "$FR/Library/GPUBundles/nvmtl"
   LOGF=$W/phxboot.log
   # SIM defaults = a healthy desktop-arm boot
   SIM_ACCELBLOCK=0 SIM_NVRAM_NORB=0 SIM_BRINGUP=1 SIM_CLAIM=1 SIM_NMXACCEL=1 SIM_PHXFB=1 SIM_FB=1 SIM_METAL=1 SIM_AGDC=1 SIM_USERS="" SIM_CRASH_PER_STEP=0 SIM_WS_NORESTART=0 SIM_SQUAT=0 SIM_SQUAT_LATE=0 SIM_AGDC_LATE=
@@ -870,6 +870,7 @@ sc_prehook_hang() {     world; DESK=0; prehook 'exec /bin/sleep 30'; export PHXB
 # 11-19 wscdcopy (GPU present E3): launchd's environment for the restarted WindowServer, only with GPU present and async on
 # (the default since 2026-11-26; opt-outs ws-gpu-present-off, ws-gpu-present-async-off). gp_world: GPU present on, and async
 # on when given `async`, else off by ws-gpu-present-async-off.
+gp_off(){ touch "$FR/Library/GPUBundles/nvmtl/ws-gpu-present-off"; }
 gp_world(){ world; local d="$FR/Library/GPUBundles/nvmtl"; rm -f "$d/ws-gpu-present-off"; [ "${1:-}" = async ] || touch "$d/ws-gpu-present-async-off"; true; }
 lc_has(){ X_CMDS="${X_CMDS:-}
 grep -q 'launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1' '$ST/launchctl.log'"; }
@@ -880,7 +881,7 @@ sc_cdcopy_on() {        gp_world async; touch "$FR/gpu/phxboot-wscdcopy"; expect
                         expect_order 'wscdcopy: NVMTL' 'restarting WindowServer once'; expect_log 'SUCCESS'; expect_killall; lc_has; go cdcopy_on; }
 sc_cdcopy_noasync() {   gp_world; touch "$FR/gpu/phxboot-wscdcopy"; expect_log 'wscdcopy: needs GPU present and async GPU present on .*ws-gpu-present-async-off.*: NVMTL_WS_PRESENT_CDCOPY not set'
                         expect_log 'SUCCESS'; expect_killall; lc_hasnt; go cdcopy_noasync; }
-sc_cdcopy_nogp() {      world; touch "$FR/gpu/phxboot-wscdcopy"; expect_log 'wscdcopy: needs GPU present and async GPU present on .*ws-gpu-present-off'; expect_nolog 'gpu present allowed'
+sc_cdcopy_nogp() {      world; gp_off; touch "$FR/gpu/phxboot-wscdcopy"; expect_log 'wscdcopy: needs GPU present and async GPU present on .*ws-gpu-present-off'; expect_nolog 'gpu present allowed'
                         expect_log 'flip on'; expect_log 'SUCCESS'; expect_killall; lc_hasnt; go cdcopy_nogp; }
 sc_cdcopy_lcfail() {    gp_world async; touch "$FR/gpu/phxboot-wscdcopy"; SIM_LAUNCHCTL_FAIL=1; expect_log 'wscdcopy: launchctl setenv failed'
                         expect_log 'SUCCESS'; expect_killall; go cdcopy_lcfail; }
@@ -888,9 +889,9 @@ sc_cdcopy_nodesk() {    gp_world async; DESK=0; touch "$FR/gpu/phxboot-wscdcopy"
 # 11-26 GPU present, async and direct scan-out on by default; the files are opt-outs, the old opt-in files are ignored
 sc_gpdef_on() {         gp_world async; expect_log 'gpu present allowed'; expect_log 'phxfb flip left off'; expect_nolog 'gpu present off'; expect_nolog 'no longer used'
                         expect_nolog 'flip on'; expect_log 'SUCCESS'; expect_killall; go gpdef_on; }
-sc_gpdef_off_file() {   world; expect_nolog 'gpu present allowed'; expect_log 'gpu present off .*ws-gpu-present-off'; expect_log 'flip on'; expect_writes 'phxscan' 0
+sc_gpdef_off_file() {   world; gp_off; expect_nolog 'gpu present allowed'; expect_log 'gpu present off .*ws-gpu-present-off'; expect_log 'flip on'; expect_writes 'phxscan' 0
                         expect_log 'SUCCESS'; expect_killall; go gpdef_off_file; }
-sc_gpdef_old_ignored() { world; local d="$FR/Library/GPUBundles/nvmtl"; touch "$d/ws-gpu-present" "$d/ws-gpu-present-async" "$d/ws-direct"
+sc_gpdef_old_ignored() { world; gp_off; local d="$FR/Library/GPUBundles/nvmtl"; touch "$d/ws-gpu-present" "$d/ws-gpu-present-async" "$d/ws-direct"
                         expect_nolog 'gpu present allowed'; expect_log 'ws-gpu-present is no longer used'; expect_log 'ws-gpu-present-async is no longer used'; expect_log 'ws-direct is no longer used'
                         expect_log 'gpu present off'; expect_log 'SUCCESS'; expect_killall; go gpdef_old_ignored; }
 sc_gpdef_old_default() { gp_world async; local d="$FR/Library/GPUBundles/nvmtl"; touch "$d/ws-gpu-present"
@@ -902,7 +903,7 @@ sc_gpdef_safe() {       gp_world async; DESK=0; SIM_SQUAT=1; touch "$FR/gpu/phxb
                         expect_log 'safe desktop up'; expect_nolog 'gpu present allowed'; expect_nolog 'wscdcopy: NVMTL'; expect_writes 'phxscan' 0; lc_hasnt
                         expect_nolog 'phxfb flip left off'; expect_killall; expect_no_reboot; go gpdef_safe; }
 # scripts/release creates none of the old opt-in files (nor the new opt-outs): the defaults are the product
-sc_gpdef_release() {    world; expect_cmd '! grep -rqE "ws-gpu-present|ws-direct" "$HERE/../../scripts/release"'; expect_log 'SUCCESS'; expect_killall; go gpdef_release; }
+sc_gpdef_release() {    world; expect_cmd '[ -d "$HERE/../../scripts/release" ] && ! grep -rqE "ws-gpu-present|ws-direct" "$HERE/../../scripts/release"'; expect_log 'SUCCESS'; expect_killall; go gpdef_release; }
 # 11-23 wstiled: launchd's environment for the restarted WindowServer (its display surface drawn tiled); not on the safe desktop
 lt_has(){ X_CMDS="${X_CMDS:-}
 grep -q 'launchctl setenv NVMTL_WS_SCANOUT_TILED 1' '$ST/launchctl.log'"; }

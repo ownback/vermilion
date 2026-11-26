@@ -86,6 +86,7 @@ static pthread_mutex_t g_scan_lock = PTHREAD_MUTEX_INITIALIZER;
 
 /* the plane did not match the display surface (a resolution change): retrying, not counted as a loss */
 static int g_scan_geom_wait;
+static unsigned g_scan_qrefused;   /* scan queries the kernel refused in a row (nvmtl_sd_query_giveup) */
 /* The size GPU present first ran at (the boot mode). GPU present runs only at this size; every other size is drawn by the
    CPU copy. Why: the XTX machine froze ~0.5 s after a switch to 1280x1024, the one place where GPU present could restart
    at another size (Linux's pitch equals the width there) and the first use of the small slot layout on that card. The
@@ -394,7 +395,12 @@ static int nvmtl_scan_start_locked(uint32_t sid, uint32_t w, uint32_t h, uint32_
     g_scan.status = dlsym(g_lib, "radv_darwin_scanout_status"); g_scan.release = dlsym(g_lib, "radv_darwin_scanout_release");
     if (!g_scan.query || !g_scan.acquire || !g_scan.reg || !g_scan.present || !g_scan.status || !g_scan.release) { nvmtl_scan_off_locked("no scanout exports in the ICD"); return -1; }
     struct nvmtl_scan_query q;
+    memset(&q, 0, sizeof q);   /* a refused query leaves it as it was: no line prints unset plane numbers */
     int r = g_scan.query(g_dev, &q);
+    if (nvmtl_sd_query_giveup(&g_scan_qrefused, r)) {
+        nvlog("ws gpu present: the kernel refused the scan query %u times in a row (%d; debug.phxscan is 0: the safe desktop): CPU copy for the life of this process",
+              g_scan_qrefused, r);
+        g_scan.state = -1; return -1; }
     if (r || q.plane_w != w || q.plane_h != h || q.pitch_px * 4 != pitch) {
         /* The plane may follow later (a resolution change: the kext's pitch is Linux's, wider than WindowServer's rows
            below 1440p, so those modes run on the CPU copy). Not off for the session: query again in 2 s (cheap). */

@@ -31,6 +31,7 @@ static int g_sampler_anisotropy, g_sampler_mirror_clamp;
 static int g_scalar_layout;
 
 void nvlog(const char *fmt, ...);
+void nvlog_error(const char *fmt, ...);
 
 static __thread uint32_t g_copy_aspect_override, g_copy_bpp_override;
 void nvmtl_vk_copy_aspect_override(uint32_t aspect, uint32_t bpp) { g_copy_aspect_override = aspect; g_copy_bpp_override = bpp; }
@@ -617,10 +618,22 @@ static VkBool32 VKAPI_PTR nvmtl_vkmsg_cb(VkDebugUtilsMessageSeverityFlagBitsEXT 
     (void)type; (void)user;
     const char *id = d && d->pMessageIdName ? d->pMessageIdName : "?", *m = d && d->pMessage ? d->pMessage : "(no message)";
     uint64_t rep; int full;
+#if NVMTL_RELEASE
+    if (!(sev & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)) return VK_FALSE;
+#endif
     if (!nvmtl_vkmsg_budget(nvmtl_vkmsg_key(id, m), &rep, &full)) return VK_FALSE;
     const char *b = strrchr(id, '/'); b = b ? b + 1 : id;
     char t[600]; snprintf(t, sizeof t, "nvk-reason: %s %s: %s", (sev & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) ? "E" : "W", b, m);
     for (char *c = t; *c; c++) if ((unsigned char)*c < 0x20) *c = ' ';
+#if NVMTL_RELEASE
+    // the driver's errors go to the unified log at error level, once per message and then every 4096th; its warnings
+    // are for a logging build
+    if (sev & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+        if (rep) nvlog_error("%s   [logged %llu times now%s]", t, (unsigned long long)rep, full ? ", table full" : "");
+        else     nvlog_error("%s%s", t, full ? "   [table full]" : "");
+    }
+    return VK_FALSE;
+#endif
     extern const char *nvmtl_log_path(void);
     FILE *f = fopen(nvmtl_log_path(), "a");
     if (f) {
@@ -717,7 +730,7 @@ static void nvmtl_vkmsg_arm(void)
     }
     PFN_vkCreateDebugUtilsMessengerEXT c = (PFN_vkCreateDebugUtilsMessengerEXT)pvkGetInstanceProcAddr(g_inst, "vkCreateDebugUtilsMessengerEXT");
     VkDebugUtilsMessengerCreateInfoEXT mi = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT, NULL, 0,
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+        (NVMTL_RELEASE ? 0 : VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
         VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
         nvmtl_vkmsg_cb, NULL };
     VkResult r = c ? c(g_inst, &mi, NULL, &g_vkmsg) : VK_ERROR_EXTENSION_NOT_PRESENT;

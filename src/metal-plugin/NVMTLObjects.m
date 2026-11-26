@@ -87,11 +87,16 @@ extern uint64_t (*nvmtl_res2_evict_hook)(uint64_t want);
 __attribute__((constructor)) static void nvmtl_conf_knobs(void)
 {
 #if NVMTL_RELEASE
+    // A release driver reads no developer switch from the environment. The two settings the boot daemon gives the
+    // restarted WindowServer through launchd (tools/phxctl/phxboot-navi31.sh) are product configuration and stay.
     { extern char **environ; char *names[256]; unsigned n = 0;
       for (char **e = environ; e && *e && n < 256; e++)
           if (!strncmp(*e, "NVMTL_", 6) || !strncmp(*e, "NVK_", 4) || !strncmp(*e, "NAK_", 4) || !strncmp(*e, "NVRM_", 5)) {
               const char *eq = strchr(*e, '='); if (!eq) continue;
-              names[n] = strndup(*e, (size_t)(eq - *e)); if (names[n]) n++; }
+              const size_t len = (size_t)(eq - *e);
+              if ((len == 23 && !strncmp(*e, "NVMTL_WS_PRESENT_CDCOPY", 23)) ||
+                  (len == 22 && !strncmp(*e, "NVMTL_WS_SCANOUT_TILED", 22))) continue;
+              names[n] = strndup(*e, len); if (names[n]) n++; }
       for (unsigned i = 0; i < n; i++) { unsetenv(names[i]); free(names[i]); } }
 #endif
     unsigned forgot = 0;

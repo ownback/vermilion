@@ -24,8 +24,17 @@
 #include "nvmtl_sample_positions.h"
 #include "nvmtl_log_failure.h"
 #include <sys/sysctl.h>
+// The default build is the release driver, as Apple ships one: quiet log, no developer switches, errors and faults at
+// error level in the unified log. -DNVMTL_RELEASE=0 (scripts/build/plugin.sh PLUGIN_CONFIG=logging) is the logging build
+// for a debugging session; -DNVMTL_DIAG (PLUGIN_CONFIG=diag) adds the measurement code on top of it.
 #ifndef NVMTL_RELEASE
-#define NVMTL_RELEASE 0
+#define NVMTL_RELEASE 1
+#endif
+// A diagnostic line outside nvlog (syslog, notice level): logging builds only.
+#if NVMTL_RELEASE
+#define nvmtl_diag_syslog(...) ((void)0)
+#else
+#define nvmtl_diag_syslog(...) syslog(LOG_NOTICE, __VA_ARGS__)
 #endif
 #if NVMTL_RELEASE
 static inline int nvmtl_rel_devpath(const char *p) {
@@ -106,27 +115,34 @@ static os_log_t nvmtl_os_log(void) {
     dispatch_once(&once, ^{ l = os_log_create("org.vermilion.nvmtl", "nvmtl"); });
     return l;
 }
-// One finished line to the logs; nvlog formats it and limits each call site. always: also in a release build, at
-// default level (the reason a texture creation returned nil).
+// One finished line to the logs; nvlog formats it and limits each call site. always: also in a release build (1: at
+// default level, the reason a texture creation returned nil; 2: at error level, an error the plugin reports itself).
 static void nvlog_emit_as(const char *t, int always) {
 #if NVMTL_RELEASE
-    const int failure = nvmtl_log_failure(t);
+    const int failure = always == 2 || nvmtl_log_failure(t);
     if (failure || always) os_log_with_type(nvmtl_os_log(), failure ? OS_LOG_TYPE_ERROR : OS_LOG_TYPE_DEFAULT, "NVMTL: %{public}s", t);
 #else
-    (void)always;
-    os_log_with_type(nvmtl_os_log(), OS_LOG_TYPE_DEFAULT, "NVMTL: %{public}s", t);
+    os_log_with_type(nvmtl_os_log(), always == 2 ? OS_LOG_TYPE_ERROR : OS_LOG_TYPE_DEFAULT, "NVMTL: %{public}s", t);
     FILE *f = fopen(nvmtl_log_path(), "a"); if (f) { fprintf(f, "pid %d NVMTL: %s\n", getpid(), t); fclose(f); }
 #endif
 }
 static void nvlog_emit(const char *t) { nvlog_emit_as(t, 0); }
-void nvlog(const char *fmt, ...) {
-    uint64_t rep; if (nvlog_dropped(fmt, &rep)) return;
-    char b[512]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+static void nvlog_line(const char *fmt, int level, va_list a) {
+    char b[512]; va_list c; va_copy(c, a); vsnprintf(b, sizeof b, fmt, c); va_end(c);
+#if NVMTL_RELEASE
+    // A release build keeps only failures (or an error-level line): decide before the per-site table and its lock, so a
+    // line nobody will see costs one format and no mutex (this runs per call and per frame at some sites).
+    if (level != 2 && !nvmtl_log_failure(b)) return;
+#endif
+    uint64_t rep = 0; if (level != 2 && nvlog_dropped(fmt, &rep)) return;
     char t[640];
     if (rep) snprintf(t, sizeof t, "%s   [logged %llu times now]", b, (unsigned long long)rep);
     else     snprintf(t, sizeof t, "%s", b);
-    nvlog_emit(t);
+    nvlog_emit_as(t, level);
 }
+void nvlog(const char *fmt, ...) { va_list a; va_start(a, fmt); nvlog_line(fmt, 0, a); va_end(a); }
+// An error the plugin reports itself: error level in every build. The caller limits how often (its own table).
+void nvlog_error(const char *fmt, ...) { va_list a; va_start(a, fmt); nvlog_line(fmt, 2, a); va_end(a); }
 // Every nil from texture creation says why, with the descriptor, at default level in every build: VectorKit aborts on a
 // nil texture (Maps, A8) and no log said which path refused it. Each path and reason (format string) logs its first 8
 // times verbatim, then every 4096th with its count. Returns nil for the caller to return.

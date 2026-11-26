@@ -64,7 +64,7 @@ inline void mapCmd(const uint32_t *in, uint32_t *out, unsigned n, bool toN) {
     } else if (type == kBurst || type == kWait) mapAddr(out[1], n, toN);
 }
 // Command i of PHY n's load (0..kLoadN-1); false past the end or for a PHY this file does not drive.
-inline bool loadCmdPhy(unsigned i, unsigned n, uint32_t *c, const uint16_t *img = kPhxC3Image) {
+inline bool loadCmdPhy(unsigned i, unsigned n, uint32_t *c, const uint16_t *img = nullptr) {
     uint32_t d[phxdmub::kCmdDw];
     if (!phyOk(n) || !phxc3::loadCmd(i, d, img)) return false;
     mapCmd(d, c, n, true);

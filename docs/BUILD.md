@@ -10,7 +10,7 @@ Dependencies may sit in `deps/`, which git ignores: `deps/MacKernelSDK` (pass it
 
 | Script | Builds | Needs |
 |---|---|---|
-| `kext.sh` | `VermilionBoot.kext` | `MKSDK` (https://github.com/acidanthera/MacKernelSDK), the firmware of [FIRMWARE.md](FIRMWARE.md) (`PHX_FW`, default `~/gpu/fw/navi31`) for the generated `phx_c3_image.inc` |
+| `kext.sh` | `VermilionBoot.kext` | `MKSDK` (https://github.com/acidanthera/MacKernelSDK), the firmware of [FIRMWARE.md](FIRMWARE.md) (`PHX_FW`, default `~/gpu/fw/navi31`) for the generated `phx_c3_hash.inc` (hashes of the C3 slice; no firmware in the kext) |
 | `accel.sh` | `VermilionAccel.kext` (ad-hoc signed) | `MKSDK`; optional link gate with export lists from `linkgate_exports.sh` (needs `ipsw` and the target's KernelCollections) |
 | `plugin.sh` | `NVMTLDriver` (Metal plugin, ad-hoc signed) | `VULKAN_HEADERS` (Vulkan-Headers include dir) |
 | `translator.sh` | `libnvmtl_translate.dylib` (shader translator, x86_64, ad-hoc signed) | Rust 1.87+ (`cargo`) with the `x86_64-apple-darwin` target; network for the first crate fetch (or `CARGO_NET_OFFLINE=true` with a filled cache); `TRANSLATOR_TEST=1` runs the wrapper tests ([`../src/translator/README.md`](../src/translator/README.md)) |

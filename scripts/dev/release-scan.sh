@@ -11,7 +11,7 @@
 #   home         a home path (/Users/<name>, /home/<name>) other than the test users below
 #   smbios       a plist with a filled SystemSerialNumber, MLB, ROM or SystemUUID
 #   firmware     a file whose md5 is one of tools/firmware/fw.lock's AMD firmware files, or a Mach-O that defines
-#                the C3 firmware slice (kPhxC3Image; found only while symbols are present)
+#                the C3 firmware slice (kPhxC3Image; gone since kext b163, which holds no firmware: kept as a regression check)
 #   edid-serial  an EDID block (in a binary file) with a serial number (bytes 12-15, or a 0xFF descriptor with text)
 #   apple-asm    an AT&T x86 instruction with operands in a text file, outside an asm statement (rule 6: no Apple
 #                disassembly; our own asm is in __asm__ / asm())

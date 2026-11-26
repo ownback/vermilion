@@ -63,7 +63,7 @@ extern struct sysctl_oid sysctl__debug_phxpipe0, sysctl__debug_phxpipe0_enable, 
 extern struct sysctl_oid sysctl__debug_phxhpd, sysctl__debug_phxhpd_sense, sysctl__debug_phxhotplug, sysctl__debug_phxhotplug_stat;   // b102 (phx_hpd.cpp)
 static void phxHotplugStop();   // b102, phx_hpd.cpp: called by stop()
 extern struct sysctl_oid sysctl__debug_phxdpcd, sysctl__debug_phxdpcd_stat;   // b112 multiport S1a (phx_dpcd.cpp)
-extern struct sysctl_oid sysctl__debug_phxc3, sysctl__debug_phxc3_stat, sysctl__debug_phxpoweron;   // b113 C3 REG_SEQ programs (phx_pipe2.cpp)
+extern struct sysctl_oid sysctl__debug_phxc3, sysctl__debug_phxc3_stat, sysctl__debug_phxc3_image, sysctl__debug_phxpoweron;   // b113 C3 REG_SEQ programs (phx_pipe2.cpp)
 extern struct sysctl_oid sysctl__debug_phxdplink, sysctl__debug_phxdplink_stat;   // b116 multiport S2b (phx_dplink.cpp)
 extern struct sysctl_oid sysctl__debug_phxdpstream, sysctl__debug_phxdpstream_stat;   // b117 multiport S2c (phx_dpstream.cpp)
 extern struct sysctl_oid sysctl__debug_phxdpb_retrain, sysctl__debug_phxdpb_retrain_stat;   // b129 DP B retrain (phx_dpbretrain.cpp)
@@ -78,7 +78,7 @@ static bool p0OdmRoute(phx_pipe0_setmode *m, IOReturn *ret);   // b134, phx_p0od
 static bool p0OdmKnows(uint32_t key);   // b138 (phx_p0odm.cpp): a key of the replay set
 static void phxC3LatchPowerOn(uint32_t gpioA);   // b113, phx_pipe2.cpp: called by start() (debug.phxpoweron, gate G1)
 
-#define PHX_KEXT_BUILD 162u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
+#define PHX_KEXT_BUILD 163u  // bump for every kext build; what each build changed: CHANGELOG.md (newest first)
 
 // The kext is ONE translation unit: the files below hold its code by function and are included here, in this
 // order (the order is the original single-file order; moving code between them must keep it). build.sh compiles

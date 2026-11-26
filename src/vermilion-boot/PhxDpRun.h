@@ -167,8 +167,10 @@ inline const char *gates(const Env &e, State &st, Run &r, int restartDone, const
     if (!r.c3Done[k->dig]) {
         r.gateDis2 = rd(e, phxc3::kGateDis2);
         if (r.gateDis2 & phxc3p::gateBit(k->dig)) return "C3 gate: DCCG_GATE_DISABLE_CNTL2 PHYnSYMCLK_GATE_DISABLE is set (the load restores it to 0)";
-        r.crc = phxc3::imageCrc(kPhxC3Image, kPhxC3ImageWords);
-        if (r.crc != kPhxC3ImageCrc32) return "C3 gate: the embedded image fails its CRC-32";
+        const uint16_t *im = phxc3::image();
+        if (!im) return "C3 gate: no C3 image installed (debug.phxc3_image: the boot daemon writes it from the installed firmware)";
+        r.crc = phxc3::imageCrc(im, kPhxC3ImageWords);
+        if (r.crc != kPhxC3ImageCrc32) return "C3 gate: the installed image fails its CRC-32";
         Trace t;   // recorded only: a PHY n program in the firmware trace means the GOP set PHY n up (a reload is harmless)
         if (traceGeometry(e.io, e.vramBytes, &t, &w)) {
             const unsigned n = traceEntries(t.size, t.wptr);

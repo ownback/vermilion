@@ -97,7 +97,8 @@ linux-firmware `amdgpu/` (https://gitlab.com/kernel-firmware/linux-firmware), [`
 Copyright (C) Advanced Micro Devices, Inc.; redistribution in binary form only; no reverse engineering, decompilation
 or disassembly. Vermilion ships no firmware file and no excerpt of one. As nullarc does (its `.gitignore` keeps
 `*.bin` out and `tools/fetch_test_firmware.sh` downloads the blobs), `tools/firmware/fetch_firmware.sh` downloads them and
-checks them against `tools/firmware/fw.lock`; `tools/firmware/c3_image.py` builds `src/vermilion-boot/phx_c3_image.inc` locally.
+checks them against `tools/firmware/fw.lock`; `tools/firmware/c3_image.py` builds `src/vermilion-boot/phx_c3_hash.inc`
+(hashes only) locally; VermilionBoot contains no firmware.
 
 ## Build-time only
 

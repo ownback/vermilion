@@ -52,18 +52,7 @@ case "$*" in
 esac
 EOF
 printf '#!/bin/sh\nexit 0\n' >"$FB/launchctl"
-cat >"$FB/nvram" <<'EOF'
-#!/bin/sh
-echo "nvram $*" >>"$SIM_LOG"
-[ "$1" = -p ] && { printf "phxfb-squat\t1\n"; exit 0; }
-# SIM_NVRAM=blocked: writes fail (DisableVariableWrite); =noreadback: the write succeeds, the read-back fails
-case "$1" in
-  phxfb-squat=*) [ "${SIM_NVRAM:-}" = blocked ] && exit 1; : >"$SIM_NVSTATE"; exit 0 ;;
-  -d) rm -f "$SIM_NVSTATE"; exit 0 ;;
-  phxfb-squat) [ "${SIM_NVRAM:-}" = noreadback ] && exit 1; [ -f "$SIM_NVSTATE" ] && exit 0; exit 1 ;;
-esac
-exit 0
-EOF
+printf '#!/bin/sh\necho "nvram $*" >>"$SIM_LOG"\n[ "$1" = -p ] && printf "phxfb-squat\\t1\\n"\nexit 0\n' >"$FB/nvram"
 printf '#!/bin/sh\necho "defaults $*" >>"$SIM_LOG"\n' >"$FB/defaults"
 printf '#!/bin/sh\nexit 0\n' >"$FB/dscl"
 printf '#!/bin/sh\nexit 0\n' >"$FB/plutil"
@@ -72,7 +61,7 @@ chmod +x "$FB"/*
 
 # ---- one fake system: $T/root, the user alice, the package scripts as the installer would get them
 export VERMILION_TEST=1 VERMILION_NOCHOWN=1 VERMILION_USER=alice VERMILION_UHOME=/Users/alice
-export PATH="$FB:$PATH" SIM_LOG=$T/sim.log SIM_RECEIPT=$T/receipt SIM_NVSTATE=$T/nvstate
+export PATH="$FB:$PATH" SIM_LOG=$T/sim.log SIM_RECEIPT=$T/receipt
 reset_world() {
   rm -rf "$T/root" "$T/scripts" "$T/stage"; : >"$SIM_LOG"
   export VERMILION_ROOT=$T/root SIM_PCI="1002:744c:c8 1002:ab30:00" SIM_BUILD=25G241
@@ -152,8 +141,8 @@ check "the LaunchDaemon names the user and ~/gpu" 'grep -q "<string>/Users/alice
 check "the AIR reader is in the bundle and its source is gone" '[ "$(cat "$T/root/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime/libLLVM.dylib")" = "llvm v1" ] && [ ! -e "$T/root/usr/local/libexec/vermilion/air-runtime-src" ]'
 check "the firmware step ran" '[ -f "$G/fw/navi31/smu_13_0_0.bin" ]'
 check "first-boot flags created, an existing one kept" '[ -e "$G/phxboot-sdma" ] && [ -e "$G/phxboot-cg" ] && [ "$(cat "$G/phxboot-uclk")" = 777 ]'
-check "phxboot-auto created for the user, and phxfb-squat set and read back" '[ -e "$G/phxboot-auto" ] && grep -q "nvram phxfb-squat=1" "$SIM_LOG" && [ -f "$SIM_NVSTATE" ] && grep -q "phxfb-squat=1 set and read back" "$T/post.out"' "$T/post.out"
-check "the MANIFEST records phxboot-auto as not there before (N)" 'grep -q "^N $G/phxboot-auto\$" "$RB/MANIFEST"'
+check "phxboot-auto and phxboot-nohdr created for the user; the package writes no NVRAM" '[ -e "$G/phxboot-auto" ] && [ -e "$G/phxboot-nohdr" ] && ! grep -q "^nvram" "$SIM_LOG"' "$T/post.out"
+check "the MANIFEST records both flags as not there before (N)" 'grep -q "^N $G/phxboot-auto\$" "$RB/MANIFEST" && grep -q "^N $G/phxboot-nohdr\$" "$RB/MANIFEST"'
 check "shader cache folders exist" '[ -d "$T/root/Library/GPUBundles/nvmtl/aircache" ] && [ -d "$T/root/Library/GPUBundles/nvmtl/spvcache" ]'
 check "the install marker names the version and user" 'grep -q "^version 0.1.0-v1" "$T/root/Library/Application Support/Vermilion/installed" && grep -q "^user alice" "$T/root/Library/Application Support/Vermilion/installed"'
 check "the daemon was not started" '! grep -q "launchctl" "$SIM_LOG"'
@@ -165,15 +154,9 @@ check "nothing outside the fake root was written" '[ ! -e /Users/alice/gpu ] && 
 reset_world; pre; payload v1; FETCH=$T/fetch-fail post
 check "failed firmware fetch: exit 0, a warning, the rest installed" '[ "$(cat "$T/post.rc")" = 0 ] && grep -q "WARNING: the firmware could not be fetched" "$T/post.out" && grep -q "basic display" "$T/post.out" && [ -f "$T/root/Users/alice/gpu/phxboot-navi31.sh" ]' "$T/post.out"
 
-# ---- phxfb-squat cannot be set (DisableVariableWrite) or read back: a warning, the install stays
-for mode in blocked noreadback; do
-  reset_world; rm -f "$SIM_NVSTATE"; pre; payload v1; SIM_NVRAM=$mode post
-  check "NVRAM $mode: exit 0, says the variable could not be set and where to look, flag still created" '[ "$(cat "$T/post.rc")" = 0 ] && grep -q "phxfb-squat could not be set" "$T/post.out" && grep -q "DisableVariableWrite" "$T/post.out" && grep -q "INSTALL.md section 6" "$T/post.out" && [ -e "$T/root/Users/alice/gpu/phxboot-auto" ] && [ -f "$T/root/Library/Application Support/Vermilion/installed" ]' "$T/post.out"
-done
-
 # ---- the closing text follows the welcome page: OpenCore part first
 reset_world; pre; payload v1; post
-check "the closing text says the OpenCore part comes first" 'grep -q "already in place and has booted once" "$T/post.out" && grep -q "OpenCore.zip first" "$T/post.out"' "$T/post.out"
+check "the closing text says the OpenCore part comes first, one restart after Allow, the ready notification" 'grep -q "already in place and has booted once" "$T/post.out" && grep -q "OpenCore.zip first" "$T/post.out" && grep -q "restart when macOS asks (one restart)" "$T/post.out" && grep -q "Graphics acceleration is ready" "$T/post.out" && ! grep -q "phxfb-squat" "$T/post.out"' "$T/post.out"
 
 # ---- update, then uninstall: everything back as it was before the first install
 reset_world
@@ -193,7 +176,7 @@ check "the empty ~/gpu/phxctl is gone; ~/gpu/fw stays while the firmware does" '
 check "the firmware stays without --purge" '[ -f "$T/root/Users/alice/gpu/fw/navi31/smu_13_0_0.bin" ] && grep -q "fw/navi31" "$T/un.out"'
 check "the receipt is forgotten and the marker is gone" '[ ! -f "$SIM_RECEIPT" ] && [ ! -f "$T/root/Library/Application Support/Vermilion/installed" ]'
 check "the rollback folders are kept, marked used" '[ "$(ls "$T/root/Library/Application Support/Vermilion/rollback" | wc -l | tr -d " ")" = 2 ] && [ "$(ls "$T/root/Library/Application Support/Vermilion/rollback"/*/MANIFEST.used | wc -l | tr -d " ")" = 2 ] && ! ls "$T/root/Library/Application Support/Vermilion/rollback"/*/MANIFEST >/dev/null 2>&1'
-check "phxboot-auto removed (it was not there before the install)" '[ ! -e "$T/root/Users/alice/gpu/phxboot-auto" ]'
+check "phxboot-auto and phxboot-nohdr removed (they were not there before the install)" '[ ! -e "$T/root/Users/alice/gpu/phxboot-auto" ] && [ ! -e "$T/root/Users/alice/gpu/phxboot-nohdr" ]'
 check "NVRAM variables deleted, login-window value put back" 'grep -q "nvram -d phxfb-squat" "$SIM_LOG" && grep -q "defaults delete /Library/Preferences/com.apple.loginwindow SHOWFULLNAME" "$SIM_LOG"'
 check "it tells which EFI entries to remove, and prints the kmutil step" 'grep -q "VermilionBoot.kext" "$T/un.out" && grep -q "kmutil install --update-all" "$T/un.out"' "$T/un.out"
 check "uninstall touched nothing outside the fake root" '[ ! -e /Users/alice ] && [ ! -e "/Library/Application Support/Vermilion" ]'

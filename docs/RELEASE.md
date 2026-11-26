@@ -97,7 +97,7 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    notes it and the rollback folder keeps what the package replaces).
 2. **postinstall (built).** Installs `~/gpu` and the LaunchDaemon (each replaced file copied to the rollback folder
    first), fetches the firmware, installs the AIR reader, creates the shader cache folders and the first-boot flags,
-   sets `phxfb-squat` (below), writes the install marker, prints the Allow-click step. It does not start the daemon.
+   writes the install marker, prints the Allow-click step. It does not start the daemon.
    The firmware step runs `tools/firmware/fetch_firmware.sh` into `~/gpu/fw/navi31`: the 20 files of `fw.lock`, from
    linux-firmware at the pinned commit (GitLab mirror, then git.kernel.org), md5 and SHA-256 checked, any mismatch
    refused; `--from <linux-firmware checkout>` works offline. **A failed fetch is a warning, not a failed install**:
@@ -111,13 +111,13 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    them, and the post-install text repeats it. (The design had Software Update's automatic install off, as
    `recovery_install.sh` does.)
 
-The post-install script also arms the accelerated desktop **(built, unverified on a Mac)**:
-
-- It creates `~/gpu/phxboot-auto` next to the first-boot flags, when it isn't there. The rollback `MANIFEST` gets its
-  `N` line, so the uninstaller removes it.
-- It runs `nvram phxfb-squat=1` and reads the variable back. If the write or the read-back fails (OpenCore's
-  `DisableVariableWrite` blocks it), the install stays: the script says the variable could not be set and points to
-  INSTALL.md section 6. The uninstaller deletes `phxfb-squat` where macOS can.
+The first-boot flags include `~/gpu/phxboot-auto` and `~/gpu/phxboot-nohdr` (HDR is broken in this preview); both get
+an `N` line in the rollback `MANIFEST`, so the uninstaller removes them. **The package does not write NVRAM.** The
+daemon arms the accelerated desktop: on a GOP boot whose bring-up and claim finished, with `phxboot-auto` present, it sets
+`phxfb-squat` for the next boot (read back) and posts "Graphics acceleration is ready". That needs the firmware and
+VermilionAccel, so a missing firmware or Allow click never arms a dark squat boot; a GOP boot without VermilionAccel
+loaded starts no bring-up, counts no failure and posts "Graphics acceleration needs your approval". The uninstaller
+deletes `phxfb-squat` where macOS can. **(Unverified on a Mac; mock-tested.)**
 
 What it never does: write the system volume or the EFI partition (the OpenCore part is the user's, or
 ryzentosh's).

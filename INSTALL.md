@@ -36,8 +36,9 @@ Set these two things yourself. The package changes neither:
 - **Software Update must not install macOS by itself.** System Settings > General > Software Update > (i) next to
   Automatic Updates: turn off "Install macOS updates".
 - **The Mac must not sleep.** System sleep does not work (section 5). Run
-  `sudo pmset -a sleep 0 hibernatemode 0 disksleep 0` and `sudo pmset -a powernap 0 tcpkeepalive 0 womp 0` (the
-  settings of the reference machine), and keep FileVault off *(FileVault is untested)*.
+  `sudo pmset -a sleep 0 hibernatemode 0 disksleep 0` (the settings used on the reference machine). The reference
+  machine's `pmset` does not offer `womp`, `powernap` or `tcpkeepalive`: set only what `pmset -g` lists on yours.
+  Keep FileVault off *(FileVault is untested)*.
 
 ### What the OpenCore snippet changes
 
@@ -141,12 +142,10 @@ What the package does:
    from linux-firmware (a GitLab mirror, then git.kernel.org) at one pinned commit into `~/gpu/fw/navi31`, and checks
    each file's MD5 and SHA-256 against the list in the package. A file that does not match is refused.
 6. It installs the AIR reader (LLVM) into the Metal driver bundle.
-7. It creates `~/gpu/phxboot-auto` (arms the accelerated desktop) and sets the NVRAM variable `phxfb-squat=1`, then
-   reads it back. If macOS cannot write it (OpenCore's `DisableVariableWrite`), the install still finishes and says
-   so. The first boot will not be the accelerated desktop until you set the variable (section 6, "Set `phxfb-squat`
-   by hand").
+7. It creates two flag files in `~/gpu`: `phxboot-auto` (the daemon may arm the accelerated desktop by itself) and
+   `phxboot-nohdr` (HDR stays off: it is broken in this preview).
 
-It never writes the system volume or the EFI partition, and it does not start the daemon.
+It never writes the system volume, NVRAM or the EFI partition, and it does not start the daemon.
 
 **If the download fails** (no network, or a mismatch), the install still finishes with a warning, and the GPU stays on
 the basic display. Run `sudo vermilion-firmware` with a network connection. Offline, use
@@ -166,22 +165,36 @@ the [known limits](README.md#known-limits).
 
 ### 3.5 First boot after the install
 
-*(Unverified: no stranger has done this first boot.)*
+*(Unverified: no stranger has done these two boots.)* There are two boots. The package does not arm the accelerated
+desktop itself: the daemon does that at the end of a boot that went well, so the second boot only happens if the
+first one had the firmware and VermilionAccel loaded.
 
-1. **After the restart, do not log in for about 3 minutes.** The daemon brings the GPU up in that time. The package
-   armed the accelerated desktop (step 7 of section 3.3), so the screen stays dark until the daemon arms the display.
-   Then the login window restarts once. **Do not log in until it has come back.** The daemon does not arm the display
-   while a user is logged in.
-2. Log in and read the log: `tail -60 /var/log/phxboot.log`. Each boot starts with a line
-   `== <date> <time> phxboot(navi31, ...)`. Read the last boot's section. A good boot shows, in this order,
-   `navi31 up: compute + gfx queues ready`, `NMXAccel up`, `Metal device ready`, `AGDC up`,
+**Boot 1 (after the Allow click): the basic display, with Metal for apps.**
+
+1. **After the restart, do not log in for about 3 minutes.** The daemon brings the GPU up in that time.
+2. Read the log: `tail -60 /var/log/phxboot.log`. Each boot starts with a line `== <date> <time> phxboot(navi31, ...)`.
+   Read the last boot's section. A good first boot shows `navi31 up: compute + gfx queues ready`, `NMXAccel up`,
+   `no desktop arm: GOP + Metal for apps`, then `phxfb-squat re-armed for the next boot (GOP boot, phxboot-auto
+   present; read-back ok)` and `done`.
+3. **A notification says "Graphics acceleration is ready. Restart to turn on the accelerated desktop."** It appears
+   after you log in. If it says "Graphics acceleration needs your approval", the Allow click (section 3.4) is still
+   missing: do it and restart. In that case the daemon touched nothing on the GPU.
+4. **Wait for `done`, then restart** (not a shutdown from another OS: a normal restart or shutdown and power-on).
+
+**Boot 2: the accelerated desktop.**
+
+1. The screen stays dark until the daemon arms the display, then the login window restarts once. **Do not log in
+   until it has come back.** The daemon does not arm the display while a user is logged in.
+2. After the login the log shows, in this order, `navi31 up: ...`, `NMXAccel up`, `Metal device ready`, `AGDC up`,
    `restarting WindowServer once`, and about 2 minutes later `SUCCESS at <time>` and `done`. About 2.5 minutes after
    boot, DisplayPort audio appears.
 3. **Wait for `done` before you restart or shut down.** A boot that ends before `done` counts as a failed attempt
    (section 6).
-4. If the package said `phxfb-squat` could not be set, do section 6, "Set `phxfb-squat` by hand". Until then every
-   boot is a basic-display boot where apps get Metal. Its log shows `navi31 up: compute + gfx queues ready`,
-   `NMXAccel up`, `no desktop arm: GOP + Metal for apps` and `done`.
+4. **If boot 2 is still the basic display,** look in `/var/log/phxboot.log` for the `phxfb-squat re-armed` line of boot
+   1. If it is missing, the daemon did not arm (no firmware, no Allow click, a failure: the log says which). If it says
+   `read-back FAILED`, OpenCore does not let macOS write NVRAM: set the variable by hand (section 6, "Set `phxfb-squat`
+   by hand"). A failed firmware download (section 3.3) also keeps boot 1 from arming: run `sudo vermilion-firmware`,
+   then restart.
 
 ## 4. Check that it works
 
@@ -191,7 +204,7 @@ Everything here is read-only. Run it after the log says `done`.
 |---|---|---|
 | macOS build | `sw_vers -buildVersion` | `25G241` |
 | Boot kext loaded | `ioreg -l \| grep phx-build` | one line with the kext's build number |
-| The boot log | `tail -60 /var/log/phxboot.log` | the last boot ends with `SUCCESS at <time>` and `done`; on a boot without the desktop arm (`phxfb-squat` not set), with `no desktop arm: GOP + Metal for apps` and `done` |
+| The boot log | `tail -60 /var/log/phxboot.log` | the last boot ends with `SUCCESS at <time>` and `done`; on boot 1 (no desktop arm yet), with `no desktop arm: GOP + Metal for apps` and `done` |
 | VermilionTrust | `sysctl debug.phxtrust_stat` | `mode=enforce`, a `list=` count equal to the code the package installs, and `denied_unlisted=0` |
 | Kernel side | `sysctl debug.phxvm` | prints the GPU virtual-memory counters |
 | Metal | `~/gpu/metaltest` | `Metal devices: 1` |
@@ -322,7 +335,8 @@ OS or from Recovery's Terminal with `nvram` where it can write *(unverified)*.
 
 ### Set `phxfb-squat` by hand
 
-Needed only if the package said it could not set the variable. From a Terminal in macOS, as an admin, try
+Needed if the log of boot 1 says `phxfb-squat re-armed ... read-back FAILED`, or boot 2 is still the basic display and
+the log has no `re-armed` line for another reason you have fixed. From a Terminal in macOS, as an admin, try
 `sudo nvram phxfb-squat=1`, then `nvram phxfb-squat` (it must print the value). If macOS cannot write NVRAM
 (OpenCore's `DisableVariableWrite`, as on the reference machine), set it from Linux. VermilionBoot only checks that
 the variable exists. This command writes the attributes (non-volatile, boot and run-time access) and the value `1`,
@@ -332,8 +346,19 @@ in Apple's NVRAM GUID:
 printf '\007\000\000\000\061' | sudo tee /sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82 >/dev/null
 ```
 
-Then power off fully (not a restart) and boot macOS. Make sure `~/gpu/phxboot-auto` exists
-(`touch ~/gpu/phxboot-auto`) so the daemon re-arms the variable after each good boot.
+Then power off fully (not a restart) and boot macOS. `~/gpu/phxboot-auto` (the package creates it) makes the daemon
+re-arm the variable after each good boot.
+
+**To delete `phxfb-squat` or `phxfb-boot` from Linux** (the uninstaller says so when macOS could not delete them): the
+files are immutable. For each variable, in the same directory and GUID:
+
+```sh
+sudo chattr -i /sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82
+sudo rm /sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82
+```
+
+and the same with `phxfb-boot-7c436110-ab2a-4bbb-a880-fe41995c9f82`. Linux's efivarfs refuses writes to some
+variables, so check that the file is gone (`ls /sys/firmware/efi/efivars | grep phxfb`) *(unverified on hardware)*.
 
 ### Linux or Windows to macOS: power off fully
 

@@ -46,7 +46,7 @@ doesn't yet). *Refused by the code* and *from the code* are what the source says
 | macOS Tahoe 26.7.1 (25G241) | **verified**; the only build that works |
 | Any other macOS version or build | not supported (the Metal driver uses private interfaces of 25G241) |
 | Recovery, Safe Mode, the macOS installer | probably no picture with VermilionBoot loaded *(unverified)*; boot an EFI copy without it |
-| FileVault | not supported today (the boot daemon logs in automatically once per boot) |
+| FileVault | not supported today (untested; the boot daemon logs in automatically only if `~/gpu/phxboot-autologin` exists, which the package does not create) |
 | System sleep | not supported (keep it off) |
 | SIP | relaxed (`0x0A03`) |
 | Kext approval | one **Allow** click for VermilionAccel at the install and after each update of it: a known step ([INSTALL.md](INSTALL.md#34-the-allow-click)) |

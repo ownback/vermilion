@@ -228,9 +228,9 @@ void PhxBringup::readFbLayout() {
     setProperty("phx-fb-size", fbSize, 64);
     setProperty("phx-fb-phys", fbPhys, 64);
     // About This Mac / System Information name the GPU from the PCI device's "model" and size its memory from
-    // "VRAM,totalMB"; without them the 780M read "Display, 15 MB" (the boot framebuffer). Only an XTX gets this far
-    // (PhxGpuId.h), so the name is fixed.
-    const char *model = "AMD Radeon RX 7900 XTX";
+    // "VRAM,totalMB"; without them the 780M read "Display, 15 MB" (the boot framebuffer). The name is the board's
+    // (PhxGpuId.h: only an XTX gets this far).
+    const char *model = phxgpu::marketingName(phxgpu::classifyPci(pci));
     if (OSData *m = OSData::withBytes(model, static_cast<unsigned>(strlen(model) + 1))) {
         pci->setProperty("model", m);
         m->release();

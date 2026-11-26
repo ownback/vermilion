@@ -43,9 +43,9 @@ static uint32_t nvmtl_vk_linear_pitch_align(uint32_t bpp)
     const uint32_t p = nvmtl_pitch_align_pick(nvmtl_pitch_probe_one, NULL, bpp ? bpp : 4);
     a = p ? p : NVMTL_PITCH_OLD;
     __atomic_store_n(&g_pitch_align[s], a, __ATOMIC_RELAXED);
-    if (p) syslog(LOG_NOTICE, "NVMTL: linear pitch alignment: %u B for %u B/texel (probed: smallest power-of-two pitch an explicit "
+    if (p) nvmtl_diag_syslog("NVMTL: linear pitch alignment: %u B for %u B/texel (probed: smallest power-of-two pitch an explicit "
                   "linear layout takes, %u B taken too)", a, bpp ? bpp : 4, 3 * a);
-    else syslog(LOG_NOTICE, "NVMTL: linear pitch alignment: no clear answer for %u B/texel (no pitch %u..%u B taken, or not its 3x) - "
+    else nvmtl_diag_syslog("NVMTL: linear pitch alignment: no clear answer for %u B/texel (no pitch %u..%u B taken, or not its 3x) - "
                 "keeping the %u B rule", bpp ? bpp : 4, NVMTL_PITCH_OLD, NVMTL_PITCH_PROBE_MAX, NVMTL_PITCH_OLD);
     return a;
 }
@@ -60,7 +60,7 @@ int nvmtl_vk_surface_pitch_ok(size_t row, uint32_t bpp, uint32_t w, uint32_t h)
     const uint64_t n = __atomic_add_fetch(&g_pitch_prerejects, 1, __ATOMIC_RELAXED);
     nvmtl_mc_add(MC_PITCH_PRE, 1);
     if (n <= 8 || !(n & (n - 1)))
-        syslog(LOG_NOTICE, "NVMTL: surface %ux%u row %zu B is not a multiple of the %u B linear pitch alignment - a private image, "
+        nvmtl_diag_syslog("NVMTL: surface %ux%u row %zu B is not a multiple of the %u B linear pitch alignment - a private image, "
                "without the host import (pre-reject #%llu)", w, h, row, nvmtl_vk_linear_pitch_align(bpp), (unsigned long long)n);
     return 0;
 }

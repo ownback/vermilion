@@ -38,7 +38,7 @@ static BOOL nvmtl_ws_capture_log_on(void) {
     const int why = nvmtl_ws_gpu_async_on() ? 1 : (!nvmtl_ws_capture_async_only() && nvmtl_ws_kernel_waits()) ? 2 : 0;
     static _Atomic int was = -1;
     if (why != atomic_exchange(&was, why))
-        syslog(LOG_NOTICE, "NVMTL: WindowServer capture wait: %s (%llu waits so far)", why == 1 ? "armed by async GPU present"
+        nvmtl_diag_syslog("NVMTL: WindowServer capture wait: %s (%llu waits so far)", why == 1 ? "armed by async GPU present"
                : why == 2 ? "armed by the kernel's GPU marks (commits return at schedule)" : "not armed (WindowServer waits for its commits)",
                (unsigned long long)g_wscap_waits);
     return why != 0;
@@ -106,6 +106,6 @@ static void nvmtl_ws_capture_wait(NVMTLCommandBuffer *cb) {
     for (uint64_t m = atomic_load(&g_wscap_max_us); us > m && !atomic_compare_exchange_weak(&g_wscap_max_us, &m, us);) {}
     const uint64_t n = atomic_fetch_add(&g_wscap_waits, 1) + 1;
     if (!(n & (n - 1)) || n % 1000 == 0)
-        syslog(LOG_NOTICE, "NVMTL: WindowServer capture wait: %llu waits, %.2f ms average, %.2f ms max", (unsigned long long)n,
+        nvmtl_diag_syslog("NVMTL: WindowServer capture wait: %llu waits, %.2f ms average, %.2f ms max", (unsigned long long)n,
                atomic_load(&g_wscap_us) / 1000.0 / n, atomic_load(&g_wscap_max_us) / 1000.0);
 }

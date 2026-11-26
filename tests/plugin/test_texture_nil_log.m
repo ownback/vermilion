@@ -3,7 +3,7 @@
    texture creation says why there, with its descriptor, rate-limited (audit row A8: Maps had no plugin log at all).
    Loads a built plugin with its backend down (NVMTL_TEST_BACKEND_DOWN=1: no GPU is touched), asks for textures, and
    reads this process's own log entries back with OSLogStore. The plugin's file log goes to a temporary file.
-     sh scripts/build/plugin.sh
+     PLUGIN_CONFIG=logging sh scripts/build/plugin.sh   (the release build forgets NVMTL_TEST_BACKEND_DOWN at load)
      clang -fobjc-arc -framework Foundation -framework Metal -framework OSLog tests/plugin/test_texture_nil_log.m -o /tmp/test_texture_nil_log
      /tmp/test_texture_nil_log build/NVMTLDriver */
 #import <Foundation/Foundation.h>

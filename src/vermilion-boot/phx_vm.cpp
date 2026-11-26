@@ -300,6 +300,7 @@ IOReturn PhxBringup::adoptQueue(const uint64_t in[6]) {
     IOLockUnlock(gpuLock);
     IOLog("PhxBringup: adopted %s queue ring=+0x%llx (%llu dw) wptr=%llu doorbell=+0x%llx\n",
           qi ? "gfx" : "compute", ringOff, ringDw, wptr, dbByte);
+    devInfoGc();   // b168: the GFX block is up: its harvest registers and GB_ADDR_CONFIG (reads only)
     return kIOReturnSuccess;
 }
 

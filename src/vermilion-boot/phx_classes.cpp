@@ -209,6 +209,28 @@ public:
     int gpuTraceSet(int on);                 // b158: per-submission trace (phx_gputime.cpp)
     char *gpuTraceDump(size_t *len);         // IOMalloc'd text, *len bytes allocated
     uint64_t goldenTsc() const;
+    // b168 (phx_devinfo.cpp): the device info from the hardware (PhxDevInfo.h, ABI 1.13), the VRAM budgets sized from
+    // the VRAM the hardware reports, and the GPU busy sampler behind "phxGpuStats" (PhxGpuStats.h)
+    void devInfoEarly();                     // start(): PCI ids and link caps, RCC_CONFIG_MEMSIZE, the discovery table
+    void devInfoGc();                        // the GC registers, once the GFX block is up (adoptQueue, then lazily)
+    void devInfo(phxn_devinfo *out);
+    uint32_t devGbAddrConfig();
+    uint32_t devGcVersion() const;
+    uint64_t vramDevTotal() const;           // the device-local memory RADV is offered (visible + hi)
+    uint64_t vramHiTotal() const;            // its hi part, per client
+    uint64_t hiSysCap() const;               // all clients' system-memory hi BOs together
+    void busyKick();                         // gpuSubmit (gpuLock held): a submission was queued
+    void busyTick();                         // the sampler's thread call
+    void busyStop();
+    bool busyNow() const;
+    void gpuStats(phx_gpu_stats *s);
+    phxdev::Discovery devDisc{};
+    phxdev::Early devEarly{};
+    phxdev::GcRegs devGc{};
+    thread_call_t busyCall{nullptr};
+    volatile UInt32 busyArmed{0}, busyStopping{0};
+    uint64_t busyNextAbs{0};
+    phxbusy::Sampler busySampler{};
 private:
     // One GPUVM context (page tables) per client, and the eight hardware VMIDs lent to contexts at submission time,
     // as amdgpu does: a fixed VMID per client capped Metal at eight processes, and with every app allowed Metal the
@@ -534,6 +556,10 @@ private:
         uint64_t unmapSeq;        // unmapped by the client, PTEs cleared once the GPU retires this seqno (b52); 0 = live
     };
 
+    // b168: a system-memory BO of the hi pool (counted in gHiSysBytes): not a VRAM-backed one, not GTT, not a host import
+    static bool hiSysBo(const Bo &b) { return !b.host && b.domain != 2 && (b.bits & PHXN_PLACED_HI_POOL) && !b.vram; }
+    uint64_t visBudget() const;   // b168 (phx_client.cpp): the pools RADV is offered
+    uint64_t hiBudget() const;
     IOReturn doHello(IOExternalMethodArguments *a);
     IOReturn doQueryInfo(IOExternalMethodArguments *a);
     IOReturn doReadRegs(IOExternalMethodArguments *a);

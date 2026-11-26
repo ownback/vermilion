@@ -136,6 +136,10 @@ jobs:
           sh tests/hooks/guard_test.sh
           c++ -std=c++17 -Wall -Wextra -Werror -I src/vermilion-boot -o "$RUNNER_TEMP/gpu_id_test" tests/kext/gpu_id_test.cpp
           "$RUNNER_TEMP/gpu_id_test"
+          for t in devinfo_test gpu_stats_test; do
+            c++ -std=c++17 -Wall -Wextra -Werror -I src/vermilion-boot -o "$RUNNER_TEMP/$t" "tests/kext/$t.cpp"
+            "$RUNNER_TEMP/$t"
+          done
           bash tests/release/run.sh
 
       - name: Artefacts

@@ -61,6 +61,9 @@ bool PhxBringup::start(IOService *provider) {
             hdpFlushDword = remap >> 2;
         setProperty("phx-hdp-flush-dword", hdpFlushDword, 32);
     }
+    devInfoEarly();   // b168: the device info (PhxDevInfo.h): PCI ids, link caps, the IP discovery table in VRAM
+    busyCall = thread_call_allocate(phxBusyTick, this);   // b168: the GPU busy sampler (PhxGpuStats.h)
+    setProperty("phx-gpu-stats-fn", kOSBooleanTrue);   // b168: PhxAccel's statistics may call "phxGpuStats"
     clearRing();   // navi31: also sets up fw_buf (needs fbMcBase and fbAperLen from above)
     setProperty("phx-fwbuf-mc", fwBufMc, 64);
     setProperty("phx-build", PHX_KEXT_BUILD, 32);
@@ -88,6 +91,7 @@ bool PhxBringup::start(IOService *provider) {
 void PhxBringup::stop(IOService *provider) {
     phxHotplugStop();   // b102: the hot-plug poll first (it reads MMIO and calls PhxAccel)
     phxDpWatchStop();   // b120: the DP stream watcher (it reads MMIO)
+    busyStop();   // b168: the busy sampler (it reads the queues' fences)
     if (gIhOn)
         ihDisable();
     if (gIrqSrc) {
@@ -108,6 +112,7 @@ void PhxBringup::stop(IOService *provider) {
         sysctl_unregister_oid(&sysctl__debug_phxbo_vram_selftest); sysctl_unregister_oid(&sysctl__debug_phxbo_vram_stat);
         sysctl_unregister_oid(&sysctl__debug_phxgpu_time_on); sysctl_unregister_oid(&sysctl__debug_phxgpu_time_reset);   // b157
         sysctl_unregister_oid(&sysctl__debug_phxgpu_time);
+        sysctl_unregister_oid(&sysctl__debug_phxdevinfo); sysctl_unregister_oid(&sysctl__debug_phxgpu_busy_us);   // b168
         sysctl_unregister_oid(&sysctl__debug_phxgpu_trace); sysctl_unregister_oid(&sysctl__debug_phxgpu_trace_dump);   // b158
         if (trace) { IOFree(trace, kTraceBytes); trace = nullptr; }
         sysctl_unregister_oid(&sysctl__debug_phxvm);

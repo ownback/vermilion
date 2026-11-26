@@ -70,6 +70,13 @@ IOReturn PhxBringup::callPlatformFunction(const OSSymbol *functionName, bool wai
         if (param4) *static_cast<uint32_t *>(param4) = src;
         return edidFetch(static_cast<uint8_t *>(param1), static_cast<uint32_t *>(param2), static_cast<int32_t *>(param3), src);
     }
+    if (functionName && functionName->isEqualTo(PHX_GPU_STATS_FN)) {   // b168: PhxAccel's PerformanceStatistics
+        phx_gpu_stats *st = static_cast<phx_gpu_stats *>(param1);
+        if (!st || st->version != PHX_GPU_STATS_VERSION || st->size != sizeof(phx_gpu_stats))
+            return kIOReturnBadArgument;
+        gpuStats(st);
+        return kIOReturnSuccess;
+    }
     if (functionName && functionName->isEqualTo("phxEdidReadFull")) {   // b134: head 0 only (pipe 0's connector, b80 rule)
         int auto_src = -1;
         if (gEdidAuto && mmio) {
@@ -115,6 +122,7 @@ IOReturn PhxBringup::newUserClient(task_t owningTask, void *securityID, UInt32 t
         sysctl_register_oid(&sysctl__debug_phxgpu_time_on);        // b157
         sysctl_register_oid(&sysctl__debug_phxgpu_time_reset);
         sysctl_register_oid(&sysctl__debug_phxgpu_time);
+        sysctl_register_oid(&sysctl__debug_phxdevinfo); sysctl_register_oid(&sysctl__debug_phxgpu_busy_us);   // b168
         sysctl_register_oid(&sysctl__debug_phxgpu_trace);          // b158
         sysctl_register_oid(&sysctl__debug_phxgpu_trace_dump);
         sysctl_register_oid(&sysctl__debug_phxwait_step_us);
@@ -243,6 +251,8 @@ void IOAccelPhxNativeClient::freeAll() {
         if (bos[h].md) {
             const Bo &b = bos[h];
             OSAddAtomic64(-static_cast<SInt64>(b.size), &gBoBytes[b.host ? 3 : b.domain == 2 ? 2 : (b.bits & PHXN_PLACED_HI_POOL) ? 1 : 0]);
+            if (hiSysBo(b))
+                OSAddAtomic64(-static_cast<SInt64>(b.size), &gHiSysBytes);   // b168
             boRelease(bos[h]);
         }
 }
@@ -423,8 +433,26 @@ IOReturn IOAccelPhxNativeClient::doHello(IOExternalMethodArguments *a) {
     return kIOReturnSuccess;
 }
 
+// b168: the pools RADV is offered, sized from the VRAM the hardware reports (PhxBringup::vramDevTotal): the visible
+// budget (256 MiB, or the CPU-visible VRAM pool for an opted-in process, b159) and the hi pool, the rest of it.
+uint64_t IOAccelPhxNativeClient::visBudget() const {
+    const uint64_t visPool = phxBoVramProcOn() ? owner->vramVisTotal() : 0;
+    return visPool > kVisTotal ? visPool : kVisTotal;
+}
+uint64_t IOAccelPhxNativeClient::hiBudget() const {
+    const uint64_t t = owner->vramDevTotal(), v = visBudget();
+    return t > v ? t - v : 0;
+}
+// The hi pool's system-memory BOs of all clients together stay under PhxBringup::hiSysCap (half the RAM).
+static bool phxHiSysFits(const PhxBringup *o, uint64_t size) {
+    const SInt64 used = gHiSysBytes;
+    return static_cast<uint64_t>(used > 0 ? used : 0) + size <= o->hiSysCap();
+}
+
+// ABI 1.13 (b168): a struct out of sizeof(phxn_info_dev) also gets the device info (phxn_devinfo) after phxn_info.
 IOReturn IOAccelPhxNativeClient::doQueryInfo(IOExternalMethodArguments *a) {
-    if (!shape(a, 0, 0, 0, sizeof(phxn_info)))
+    const bool dev = shape(a, 0, 0, 0, sizeof(phxn_info_dev));
+    if (!dev && !shape(a, 0, 0, 0, sizeof(phxn_info)))
         return kIOReturnBadArgument;
     phxn_info inf;
     bzero(&inf, sizeof(inf));
@@ -433,17 +461,22 @@ IOReturn IOAccelPhxNativeClient::doQueryInfo(IOExternalMethodArguments *a) {
     inf.reserved[2] = PHXN_ABI_MINOR;
     inf.flags = PHXN_INFO_S1B_POSITIVE | PHXN_INFO_NATIVE_BOOT | (owner->vcnSubmitReady() ? PHXN_INFO_VCN : 0u);
     inf.vmid = PHXN_VMID;
-    inf.gb_addr_config = kGbAddrConfig;
-    inf.gc_version = kGcVersion;
+    inf.gb_addr_config = owner->devGbAddrConfig();   // b168: the live register once the GFX block is up
+    inf.gc_version = owner->devGcVersion();         // b168: from the IP discovery table
     inf.ring_size_dw = 4096;
     inf.max_ibs = PHXN_MAX_IBS;
     // b159: an opted-in process sees the CPU-visible VRAM pool when it is bigger than the old 256 MiB budget
-    const uint64_t visPool = phxBoVramProcOn() ? owner->vramVisTotal() : 0;
-    const uint64_t visTotal = visPool > kVisTotal ? visPool : kVisTotal;
+    const uint64_t visTotal = visBudget();
     inf.vram_vis_total = visTotal;
     inf.vram_vis_free = visTotal > visUsed ? visTotal - visUsed : 0;
-    inf.vram_hi_total = kHiTotal;
-    inf.vram_hi_free = kHiTotal - hiUsed;
+    // b168: the hi pool is the rest of the hardware's VRAM (was a fixed 6 GiB); free is also bounded by what all
+    // clients may still take of system memory for it
+    const uint64_t hiTotal = hiBudget();
+    const SInt64 hiSys = gHiSysBytes;
+    const uint64_t sysCap = owner->hiSysCap(), sysUsed = hiSys > 0 ? static_cast<uint64_t>(hiSys) : 0;
+    const uint64_t hiFree = hiTotal > hiUsed ? hiTotal - hiUsed : 0, sysFree = sysCap > sysUsed ? sysCap - sysUsed : 0;
+    inf.vram_hi_total = hiTotal;
+    inf.vram_hi_free = hiFree < sysFree ? hiFree : sysFree;
     inf.gtt_cap = kGttCap;
     inf.gtt_used = gttUsed;
     inf.gtt_max_bo = kGttMaxBo;
@@ -455,7 +488,17 @@ IOReturn IOAccelPhxNativeClient::doQueryInfo(IOExternalMethodArguments *a) {
     inf.va_high_last = 0xFFFFFFFFFFFFFFFFull;
     inf.max_bos = PHXN_MAX_BOS;
     inf.fence_slots = PHXN_FENCE_SLOTS;
-    bcopy(&inf, a->structureOutput, sizeof(inf));
+    if (!dev) {
+        bcopy(&inf, a->structureOutput, sizeof(inf));
+        return kIOReturnSuccess;
+    }
+    phxn_info_dev *out = static_cast<phxn_info_dev *>(IOMallocZero(sizeof(phxn_info_dev)));
+    if (!out)
+        return kIOReturnNoMemory;
+    out->info = inf;
+    owner->devInfo(&out->dev);
+    bcopy(out, a->structureOutput, sizeof(*out));
+    IOFree(out, sizeof(*out));
     return kIOReturnSuccess;
 }
 
@@ -511,7 +554,7 @@ IOReturn IOAccelPhxNativeClient::doBoCreate(IOExternalMethodArguments *a) {
     uint64_t *pool;
     // b156 (thread 02 part B, M1): real VRAM for an opted-in process's NO_CPU_ACCESS BO, cleared on the GPU before the
     // handle exists (phx_vram.cpp). Counted against the hi budget as before. Any failure: system memory as before.
-    if (phxBoVramWanted(d, f) && hiUsed + size <= kHiTotal) {
+    if (phxBoVramWanted(d, f) && hiUsed + size <= hiBudget()) {
         uint32_t hv = 1;
         while (hv < PHXN_MAX_BOS && bos[hv].md)
             hv++;
@@ -573,7 +616,7 @@ IOReturn IOAccelPhxNativeClient::doBoCreate(IOExternalMethodArguments *a) {
             bits = PHXN_PLACED_CPU_MAPPABLE | PHXN_PLACED_ZEROED;
             pool = &visUsed;
         } else if ((f & PHX_AMDGPU_GEM_CREATE_NO_CPU_ACCESS) && !(f & PHX_AMDGPU_GEM_CREATE_CPU_ACCESS_REQUIRED) &&
-                   hiUsed + size <= kHiTotal) {
+                   hiUsed + size <= hiBudget() && phxHiSysFits(owner, size)) {   // b168: hardware-sized, system cap
             domain = 4;
             bits = PHXN_PLACED_HI_POOL | PHXN_PLACED_ZEROED;
             pool = &hiUsed;
@@ -639,6 +682,8 @@ IOReturn IOAccelPhxNativeClient::doBoCreate(IOExternalMethodArguments *a) {
     OSAddAtomic64(static_cast<SInt64>(phxNowNs() - t1), &gBoZeroNs);
     *pool += size;
     OSAddAtomic64(static_cast<SInt64>(size), &gBoBytes[pool == &visUsed ? 0 : pool == &hiUsed ? 1 : 2]);
+    if (pool == &hiUsed)
+        OSAddAtomic64(static_cast<SInt64>(size), &gHiSysBytes);   // b168: a system-memory hi BO
     bos[h] = Bo{md, size, domain, bits, static_cast<uint8_t *>(md->getBytesNoCopy()), false};
     a->scalarOutput[0] = h;
     a->scalarOutput[1] = size;
@@ -685,6 +730,8 @@ void IOAccelPhxNativeClient::finishFree(uint32_t h) {
         }
     const int pi = b->host ? 3 : b->domain == 2 ? 2 : (b->bits & PHXN_PLACED_HI_POOL) ? 1 : 0;
     OSAddAtomic64(-static_cast<SInt64>(b->size), &gBoBytes[pi]);
+    if (hiSysBo(*b))
+        OSAddAtomic64(-static_cast<SInt64>(b->size), &gHiSysBytes);   // b168
     if (b->host)
         hostUsed -= b->size;
     else if (b->domain == 2)

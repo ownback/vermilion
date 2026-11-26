@@ -46,6 +46,7 @@ static volatile SInt32 gVmMapFails, gVmUnmapTimeouts, gVmCtxCloses, gVmCtxRetire
 static volatile UInt32 gVmInvMaxUs;
 // bytes of BOs alive in each pool, all clients: 0 visible VRAM, 1 hi VRAM, 2 GTT, 3 host imports (debug.phxvm)
 static volatile SInt64 gBoBytes[4];
+static volatile SInt64 gHiSysBytes;   // b168: bytes of system-memory hi BOs, all clients (PhxBringup::hiSysCap)
 static char gVmLastFail[192];
 // BO creations refused, by cause: 0 visible VRAM budget, 1 hi VRAM budget, 2 GTT, 3 handle table, 4 page allocation
 // (debug.phxvm), and the last refusal with that client's pools as they were
@@ -82,7 +83,8 @@ struct PhxGfxRbFrame {
 } __attribute__((packed));
 static_assert(sizeof(PhxGfxRbFrame) == 64, "PhxGfxRbFrame must be 64 B");
 
-// navi31: GB_ADDR_CONFIG as the Linux driver reads it on the RX 7900 XT (0x545), GC 11.0.0 (IP discovery).
+// navi31: GB_ADDR_CONFIG as the Linux driver reads it on Navi 31 (0x545), GC 11.0.0 (IP discovery). b168: only until
+// the GFX block is up and before the discovery table is read; then both come from the hardware (phx_devinfo.cpp).
 static constexpr uint32_t kGbAddrConfig = 0x00000545;
 static constexpr uint32_t kGcVersion = (11u << 16) | (0u << 8) | 0u;
 
@@ -90,7 +92,8 @@ static constexpr uint32_t kGcVersion = (11u << 16) | (0u << 8) | 0u;
 // BAR0 is 256 MiB on this machine, the UMA carve-out 6 GiB.
 static constexpr uint64_t kVisTotal = 256ull << 20;
 // b47: 6 GiB / 2 GiB (were 1536 / 512 MiB): WindowServer's images reached 1690 MB after ~50 min and every later colour
-// image failed (cursor trails on an empty desktop, 2026-10-25 22:47); the machine has 32 GB
+// image failed (cursor trails on an empty desktop, 2026-10-25 22:47); the machine has 32 GB. b168: the hi pool is
+// sized from the VRAM the hardware reports (PhxBringup::vramDevTotal); this is only its fallback without a VRAM size.
 static constexpr uint64_t kHiTotal = 6144ull << 20;
 static constexpr uint64_t kGttCap = 2048ull << 20;
 static constexpr uint64_t kGttMaxBo = 256ull << 20;

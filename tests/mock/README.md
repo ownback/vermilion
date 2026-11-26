@@ -46,6 +46,8 @@ DAEMON=/path/other.sh ./run.sh # test another daemon (used for mutation tests)
 bash b15test.sh                # the idle-power display recipe script (must be 159/159 before deploying b15_boot.sh, 2026-11-23; 11-03 with the AOC-alone p0solo cases, the 16 rl_* Acer relight cases, the read-server srv_* cases and spawn_count = processes per poll)
 bash m7test.sh                 # the M7 second-monitor boot script m7_boot.sh (must be 8/8)
 bash idledpm_test.sh           # idle_dpm.sh (one-display idle clocks + underflow watchdog), stand-in tools (7/7, 2026-11-23)
+bash uclk_test.sh              # uclk.sh (U1): the DAL UCLK hard min, fake phxctl and sudo (18/18, 2026-11-26; run.sh runs it on a full run)
+bash uclk_mut.sh               # 13 mutations of uclk.sh (driver mailbox, wrong level, status, busy, ...), each CAUGHT by uclk_test.sh
 bash dettest.sh                # det.sh -p <pipe> show/clear/set/rollback (must be 11/11)
 bash bringup_warm_test.sh      # bringup_navi31.sh + navi31_up.sh: a warm GPU (sOS running) or an unreadable C2PMSG_81 is refused with nothing written, a cold one goes on; navi31_up.sh's last line "navi31 up:" / "navi31 not up: <step> (<watchdog state>)"; fake phxctl and sudo (8/8, 2026-11-25)
 bash audio_match_test.sh       # tools/phxctl/audio_match.sh: one attach per boot, a display mode change when no engine came, no `off` (a detach makes the next attach hot-reset the GPU), fake kmutil/sysctl/ioreg (8/8, 11-24; portable)

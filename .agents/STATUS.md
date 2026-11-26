@@ -48,7 +48,11 @@ at 240 Hz Linux releases UCLK to 96 only with FAMS, which macOS doesn't have. Fa
 could end GPU present for the life of WindowServer: the live move is dropped (log only), the sync's lock and
 half-frame issues are being fixed. **Release gap found:** the package creates none of `ws-gpu-present`,
 `ws-gpu-present-async`, `ws-direct`, so a stranger's WindowServer would get no GPU present: next PR makes all three
-the default (files become `-off` opt-outs; the safe desktop still turns GPU present off).
+the default (files become `-off` opt-outs; the safe desktop still turns GPU present off): **#53** (stacked on #51).
+**Release gap 2:** the reference machine runs with 18 `~/gpu/phxboot-*` flags (audio, auto, autologin, bovram, cg, gl,
+idledpm, idledpm-dcf, irqwait, nohdr, p0modes, sdma, uclk, vcn, vrrmin, waitstep, wscdcopy; nvstuck is state); the
+package sets 5. A stranger would get no DP audio, OpenGL, video decode, idle power management, extra modes or VRR
+floor. Next, after #51/#53/#52 merge: every proven feature on by default, `-off` opt-outs, autologin stays opt-in.
 **#49** merged: the plugin's release build (A2: quiet log, errors at os_log error level, env switches ignored except
 the daemon's two; NVIDIA paths removed) and Metal feature answers (A3: Mac Catalyst families YES; finding
 `2026-11-26-metal-feature-answers.md`). Release cdhash `b1900d21`; a VermilionTrust + EFI change when deployed.

@@ -9,15 +9,21 @@ The evidence for every row is in the audit findings, by row number:
 [last threads' state](findings/2026-11-24-audit-thread-handover.md). States: **works**, **broken**, **missing**,
 **not standard** (works, but not as Apple would ship it). Size: S about a day, M days, L weeks.
 
-## Paused (2026-11-26 ~01:10, the owner's call)
+## Resumed (2026-11-26 03:10, the owner's call); EFI change 40 installed, not booted
 
-Live: EFI change 39 (VermilionBoot b162, NVMTLDriver 1c15df79, VermilionTrust 18 cdhashes), direct scan-out on.
-Owner's Maps test with direct scan-out: the same as before. WindowServer no longer copies (presents mostly < 8 ms
-apart), so the choppiness is Maps' own rendering in the Metal driver: the next item is measuring Maps' GPU passes.
-Open on resume, in order: the B1 design (`ownback/kernel-bringup-design`, stopped mid-work, its worktree kept);
-ryzentosh-sse `v0.1.0` (history rewritten and force-pushed by the owner); #43 (F1) clean-up pass, merge, deploy;
-package fixes (TODO 06); Maps per-frame measurement; boot C (our AIR reader, built in `~/vermilion-build/air`).
-No agent runs and no batch is scheduled.
+**EFI change 40** (plan A7): stage `vermilion-trust-bar1g-audio-sse` (#44) = change 39 + RyzentoshSSE 0.1.0
+(ownback/ryzentosh-sse `45c3c26`, executable sha256 `ab3874fa…`, preflight passed). `config.plist` differs from 39
+only by the one Kernel/Add entry; every other file byte-identical. The live Vermilion kexts were copied from the ESP
+into `~/vermilion-build/efi40-kexts`. `EFI/OC.prev` = change 39, also in `~/vermilion-rollback/EFI-OC.change39-20261126`.
+The `local.phxpassd` login agent is removed (copy in `~/vermilion-rollback/local.phxpassd.plist.20261126`).
+Expected after the boot: `ioreg -c AppleSSE` one service, no passd AppleSSE retry lines, the usual checks
+(`phx-build` 162, `denied_unlisted=0`, `SUCCESS`, 240 Hz, direct scan-out). Then tag ryzentosh-sse `v0.1.0` and make
+the component a pinned download. The machine lock is held until the post-boot check.
+Agents: B1 design (resumed), Fable pass on #43 (F1), package fixes (`ownback/pkg-fixes`). The ryzentosh-sse checkout
+was re-cloned (the old one is `~/Projects/ryzentosh-sse.old-history-20261126`).
+
+Owner's Maps test with direct scan-out (change 39): the same as before. WindowServer no longer copies (presents mostly
+< 8 ms apart), so the choppiness is Maps' own rendering in the Metal driver: the next item is measuring Maps' GPU passes.
 
 ## Boot B (2026-11-26 00:42, XTX machine): EFI change 39 passed; direct scan-out on
 

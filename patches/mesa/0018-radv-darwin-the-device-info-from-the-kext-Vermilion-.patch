@@ -13,17 +13,18 @@ HW_IP_INFO versions, FW_VERSION of ME / PFP / MEC, the marketing name and the li
 GB_ADDR_CONFIG for READ_MMR_REG. The canned entry keeps only the driver's own values (VA
 layout, page sizes, ids_flags). The first DEV_INFO logs which values differ from the
 entry. An older kernel, or a record without N48N_DEV_VALID, leaves the canned entry
-answering, as before.
+answering, as before. The VCN firmware version is the canned one either way (the record
+has none; RADV turns video features off for version 0).
 
 ac_darwin_devinfo.h holds the mapping; host test test/acd_devinfo_test.c.
 ---
  include/darwin/navi48_native_abi.h            |  43 +++++
- src/amd/common/darwin/ac_darwin_devinfo.h     | 128 ++++++++++++++
- src/amd/common/darwin/ac_darwin_drm.c         |  47 +++++-
+ src/amd/common/darwin/ac_darwin_devinfo.h     | 151 +++++++++++++++
+ src/amd/common/darwin/ac_darwin_drm.c         |  55 ++++--
  src/amd/common/darwin/ac_darwin_kext.c        |  17 ++
  src/amd/common/darwin/ac_darwin_kext.h        |   1 +
- src/amd/common/darwin/test/acd_devinfo_test.c | 157 ++++++++++++++++++
- 6 files changed, 390 insertions(+), 3 deletions(-)
+ src/amd/common/darwin/test/acd_devinfo_test.c | 176 ++++++++++++++++++
+ 6 files changed, 432 insertions(+), 11 deletions(-)
  create mode 100644 src/amd/common/darwin/ac_darwin_devinfo.h
  create mode 100644 src/amd/common/darwin/test/acd_devinfo_test.c
 
@@ -83,10 +84,10 @@ index 0ca139d..5141cb5 100644
  N48N_STATIC_ASSERT(__builtin_offsetof(struct n48n_gem_va, input_fence_syncobj_handles) == 56, "gem_va.input_fence_syncobj_handles at 56");
 diff --git a/src/amd/common/darwin/ac_darwin_devinfo.h b/src/amd/common/darwin/ac_darwin_devinfo.h
 new file mode 100644
-index 0000000..7659113
+index 0000000..dc8c87c
 --- /dev/null
 +++ b/src/amd/common/darwin/ac_darwin_devinfo.h
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,151 @@
 +/*
 + * SPDX-License-Identifier: MIT
 + *
@@ -214,9 +215,32 @@ index 0000000..7659113
 +      *fw = (struct drm_amdgpu_info_firmware){.ver = k->fw_mec, .feature = k->fw_mec_feature};
 +}
 +
++/* The VCN firmware version RADV is told, with or without the kext's record (which has none): ac_video.c turns decode
++ * and encode features off for a version it doesn't know. */
++#define ACD_FW_VCN_VERSION 0x09118016u
++
++/* FW_VERSION: the canned entry's CP versions, the kext's over them (k may be NULL: no usable record), and the VCN
++ * version above. Other types leave fw as it is. */
++static inline void
++acd_fw_version(struct drm_amdgpu_info_firmware *fw, uint32_t type, const struct drm_amdgpu_info_firmware *me,
++               const struct drm_amdgpu_info_firmware *pfp, const struct drm_amdgpu_info_firmware *mec,
++               const struct n48n_devinfo *k)
++{
++   if (type == AMDGPU_INFO_FW_GFX_ME)
++      *fw = *me;
++   else if (type == AMDGPU_INFO_FW_GFX_PFP)
++      *fw = *pfp;
++   else if (type == AMDGPU_INFO_FW_GFX_MEC)
++      *fw = *mec;
++   else if (type == AMDGPU_INFO_FW_VCN)
++      *fw = (struct drm_amdgpu_info_firmware){.ver = ACD_FW_VCN_VERSION};
++   if (k)
++      acd_devinfo_fw(fw, type, k);
++}
++
 +#endif /* AC_DARWIN_DEVINFO_H */
 diff --git a/src/amd/common/darwin/ac_darwin_drm.c b/src/amd/common/darwin/ac_darwin_drm.c
-index e5c9bff..aa8e3dd 100644
+index e5c9bff..62a2353 100644
 --- a/src/amd/common/darwin/ac_darwin_drm.c
 +++ b/src/amd/common/darwin/ac_darwin_drm.c
 @@ -7,6 +7,7 @@
@@ -304,14 +328,20 @@ index e5c9bff..aa8e3dd 100644
        else if (info->query_hw_ip.type == AMDGPU_HW_IP_VCN_ENC && acd_vcn(dev))
           *(struct drm_amdgpu_info_hw_ip *)out = (struct drm_amdgpu_info_hw_ip){
              .hw_ip_version_major = 4,
-@@ -561,16 +583,35 @@ acd_info(struct acd_device *dev, const struct drm_amdgpu_info *info)
-          *(struct drm_amdgpu_info_firmware *)out = d->fw_gfx_pfp;
-       else if (info->query_fw.fw_type == AMDGPU_INFO_FW_GFX_MEC)
-          *(struct drm_amdgpu_info_firmware *)out = d->fw_gfx_mec;
-+      if (dev->core->have_dev)
-+         acd_devinfo_fw(out, info->query_fw.fw_type, &dev->core->dev);
-       else if (info->query_fw.fw_type == AMDGPU_INFO_FW_VCN)
-          *(struct drm_amdgpu_info_firmware *)out = (struct drm_amdgpu_info_firmware){.ver = 0x09118016};
+@@ -555,22 +577,33 @@ acd_info(struct acd_device *dev, const struct drm_amdgpu_info *info)
+       *(uint32_t *)out = 1;
+       return 0;
+    case AMDGPU_INFO_FW_VERSION:
+-      if (info->query_fw.fw_type == AMDGPU_INFO_FW_GFX_ME)
+-         *(struct drm_amdgpu_info_firmware *)out = d->fw_gfx_me;
+-      else if (info->query_fw.fw_type == AMDGPU_INFO_FW_GFX_PFP)
+-         *(struct drm_amdgpu_info_firmware *)out = d->fw_gfx_pfp;
+-      else if (info->query_fw.fw_type == AMDGPU_INFO_FW_GFX_MEC)
+-         *(struct drm_amdgpu_info_firmware *)out = d->fw_gfx_mec;
+-      else if (info->query_fw.fw_type == AMDGPU_INFO_FW_VCN)
+-         *(struct drm_amdgpu_info_firmware *)out = (struct drm_amdgpu_info_firmware){.ver = 0x09118016};
++      acd_fw_version(out, info->query_fw.fw_type, &d->fw_gfx_me, &d->fw_gfx_pfp, &d->fw_gfx_mec,
++                     dev->core->have_dev ? &dev->core->dev : NULL);
        return 0;
     case AMDGPU_INFO_READ_MMR_REG:
        info_read_mmr_reg(d, info->read_mmr_reg.dword_offset, info->read_mmr_reg.count,
@@ -382,10 +412,10 @@ index b5c6832..4b60306 100644
  struct acd_bo_created {
 diff --git a/src/amd/common/darwin/test/acd_devinfo_test.c b/src/amd/common/darwin/test/acd_devinfo_test.c
 new file mode 100644
-index 0000000..51dae61
+index 0000000..b7b8734
 --- /dev/null
 +++ b/src/amd/common/darwin/test/acd_devinfo_test.c
-@@ -0,0 +1,157 @@
+@@ -0,0 +1,176 @@
 +/*
 + * SPDX-License-Identifier: MIT
 + * Host test of the kext device info mapping (ac_darwin_devinfo.h).  Build and run:
@@ -525,6 +555,25 @@ index 0000000..51dae61
 +   fw.ver = 7;
 +   acd_devinfo_fw(&fw, AMDGPU_INFO_FW_VCN, &k);
 +   CHECK(fw.ver == 7);
++
++   /* the whole FW_VERSION answer: VCN keeps its version with the kext's record too (0 would turn video off) */
++   const struct drm_amdgpu_info_firmware me = {.ver = 1486, .feature = 29}, pfp = {.ver = 1525, .feature = 29},
++                                         mec = {.ver = 494, .feature = 29};
++   memset(&fw, 0, sizeof(fw));
++   acd_fw_version(&fw, AMDGPU_INFO_FW_VCN, &me, &pfp, &mec, &k);
++   CHECK(fw.ver == ACD_FW_VCN_VERSION && fw.feature == 0);
++   memset(&fw, 0, sizeof(fw));
++   acd_fw_version(&fw, AMDGPU_INFO_FW_VCN, &me, &pfp, &mec, NULL);
++   CHECK(fw.ver == ACD_FW_VCN_VERSION);
++   acd_fw_version(&fw, AMDGPU_INFO_FW_GFX_ME, &me, &pfp, &mec, &k);
++   CHECK(fw.ver == 2420 && fw.feature == 29);
++   acd_fw_version(&fw, AMDGPU_INFO_FW_GFX_PFP, &me, &pfp, &mec, NULL);
++   CHECK(fw.ver == 1525);
++   acd_fw_version(&fw, AMDGPU_INFO_FW_GFX_MEC, &me, &pfp, &mec, &k);
++   CHECK(fw.ver == 2650);
++   fw.ver = 5;
++   acd_fw_version(&fw, AMDGPU_INFO_FW_SMC, &me, &pfp, &mec, &k);
++   CHECK(fw.ver == 5);
 +
 +   /* what makes a record unusable */
 +   k = xtx();

@@ -12,7 +12,7 @@ stderr only when RADV_DARWIN_VERBOSE=1.
  1 file changed, 11 insertions(+), 4 deletions(-)
 
 diff --git a/src/amd/common/darwin/ac_darwin_drm.c b/src/amd/common/darwin/ac_darwin_drm.c
-index aa8e3dd..228c956 100644
+index 62a2353..c6d294f 100644
 --- a/src/amd/common/darwin/ac_darwin_drm.c
 +++ b/src/amd/common/darwin/ac_darwin_drm.c
 @@ -239,10 +239,17 @@ acd_native_handshake(struct acd_core *c, const struct amdgpu_device *canned)

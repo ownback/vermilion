@@ -24,8 +24,17 @@
 #include "nvmtl_sample_positions.h"
 #include "nvmtl_log_failure.h"
 #include <sys/sysctl.h>
+// The default build is the release driver, as Apple ships one: quiet log, no developer switches, errors and faults at
+// error level in the unified log. -DNVMTL_RELEASE=0 (scripts/build/plugin.sh PLUGIN_CONFIG=logging) is the logging build
+// for a debugging session; -DNVMTL_DIAG (PLUGIN_CONFIG=diag) adds the measurement code on top of it.
 #ifndef NVMTL_RELEASE
-#define NVMTL_RELEASE 0
+#define NVMTL_RELEASE 1
+#endif
+// A diagnostic line outside nvlog (syslog, notice level): logging builds only.
+#if NVMTL_RELEASE
+#define nvmtl_diag_syslog(...) ((void)0)
+#else
+#define nvmtl_diag_syslog(...) syslog(LOG_NOTICE, __VA_ARGS__)
 #endif
 #if NVMTL_RELEASE
 static inline int nvmtl_rel_devpath(const char *p) {
@@ -106,27 +115,33 @@ static os_log_t nvmtl_os_log(void) {
     dispatch_once(&once, ^{ l = os_log_create("org.vermilion.nvmtl", "nvmtl"); });
     return l;
 }
-// One finished line to the logs; nvlog formats it and limits each call site. always: also in a release build, at
-// default level (the reason a texture creation returned nil).
+// One finished line to the logs; nvlog formats it and limits each call site. always: also in a release build (1: at
+// default level, the reason a texture creation returned nil; 2: at error level, an error the plugin reports itself).
 static void nvlog_emit_as(const char *t, int always) {
 #if NVMTL_RELEASE
-    const int failure = nvmtl_log_failure(t);
+    const int failure = always == 2 || nvmtl_log_failure(t);
     if (failure || always) os_log_with_type(nvmtl_os_log(), failure ? OS_LOG_TYPE_ERROR : OS_LOG_TYPE_DEFAULT, "NVMTL: %{public}s", t);
 #else
-    (void)always;
-    os_log_with_type(nvmtl_os_log(), OS_LOG_TYPE_DEFAULT, "NVMTL: %{public}s", t);
+    os_log_with_type(nvmtl_os_log(), always == 2 ? OS_LOG_TYPE_ERROR : OS_LOG_TYPE_DEFAULT, "NVMTL: %{public}s", t);
     FILE *f = fopen(nvmtl_log_path(), "a"); if (f) { fprintf(f, "pid %d NVMTL: %s\n", getpid(), t); fclose(f); }
 #endif
 }
-static void nvlog_emit(const char *t) { nvlog_emit_as(t, 0); }
-void nvlog(const char *fmt, ...) {
-    uint64_t rep; if (nvlog_dropped(fmt, &rep)) return;
-    char b[512]; va_list a; va_start(a, fmt); vsnprintf(b, sizeof b, fmt, a); va_end(a);
+static void nvlog_line(const char *fmt, int level, va_list a) {
+    char b[512]; va_list c; va_copy(c, a); vsnprintf(b, sizeof b, fmt, c); va_end(c);
+#if NVMTL_RELEASE
+    // A release build keeps only failures (or an error-level line): decide before the per-site table and its lock, so a
+    // line nobody will see costs one format and no mutex (this runs per call and per frame at some sites).
+    if (level != 2 && !nvmtl_log_failure(b)) return;
+#endif
+    uint64_t rep = 0; if (level != 2 && nvlog_dropped(fmt, &rep)) return;
     char t[640];
     if (rep) snprintf(t, sizeof t, "%s   [logged %llu times now]", b, (unsigned long long)rep);
     else     snprintf(t, sizeof t, "%s", b);
-    nvlog_emit(t);
+    nvlog_emit_as(t, level);
 }
+void nvlog(const char *fmt, ...) { va_list a; va_start(a, fmt); nvlog_line(fmt, 0, a); va_end(a); }
+// An error the plugin reports itself: error level in every build. The caller limits how often (its own table).
+void nvlog_error(const char *fmt, ...) { va_list a; va_start(a, fmt); nvlog_line(fmt, 2, a); va_end(a); }
 // Every nil from texture creation says why, with the descriptor, at default level in every build: VectorKit aborts on a
 // nil texture (Maps, A8) and no log said which path refused it. Each path and reason (format string) logs its first 8
 // times verbatim, then every 4096th with its count. Returns nil for the caller to return.
@@ -195,19 +210,7 @@ static void nvmtl_alloc_failed(const char *what) {
 @interface NVMTLDevice : MTLIOAccelDevice <MTLDevice, MTLDeviceSPI>
 @end
 #import "NVMTLObjects.h"
-void nvmtl_vendor_compile_airs(NSDictionary<NSString *, NSString *> *airs,
-                               NSDictionary<NSString *, NSString *> *stages);
-void nvmtl_vendor_attach_sass(id device, id pipelineState, id function);
-int  nvmtl_vendor_dispatch_sass(id pipelineState, nvk_cmdbuf *c,
-                                const uint32_t threads[3], const uint32_t tg[3]);
-id   nvmtl_vendor_apple_pipeline(id device, id function);
-id   nvmtl_sass_kernel_for_function(id function);
-id   nvmtl_sass_kernel_for_linked(id function, NSDictionary *mods, NSDictionary *fc);
-BOOL nvmtl_sass_tables_wanted(void);
-int  nvmtl_sass_dispatch(id encoder, MTLSize grid, MTLSize group, uint32_t kind, BOOL hasFallback);
 NSDictionary<NSString *, NSData *> *nvmtl_translate_metallib(NSData *lib, NSDictionary **stages, NSDictionary **airs);
-void nvmtl_vendor_compile_airs(NSDictionary<NSString *, NSString *> *airs,
-                               NSDictionary<NSString *, NSString *> *stages);
 #include <sys/stat.h>
 NSDictionary<NSString *, NSData *> *nvmtl_translate_metallib_k(NSData *lib, NSData *knownKey, NSDictionary **stages, NSDictionary **airs);
 NSData *nvmtl_lib_sha256(NSData *lib);
@@ -233,330 +236,43 @@ static bool nvmtl_accel_armed(void)
 }
 #include <dlfcn.h>
 #include <libgen.h>
-// The video libraries tile and untile frames in the Blackwell (GB20x) layout. Earlier GPUs' NVDEC/NVENC use the classic
-// one: on an RTX 3070 Laptop (issue #65, measured against Apple's software codecs) H.264 decode showed shifted macroblock
-// rows and a green stripe, and both encoders produced torn pictures. The decoder's only difference is its untiling mode
-// (1 = Blackwell, 0 = classic), so earlier GPUs load libnvdec_h264_t2d.dylib, the same library with mode 0 (51 dB on
-// GA104). The encoders are not registered on them, so apps use Apple's encoder until they are fixed for those GPUs.
-// Set from the I/O registry where no Metal device (and so no Vulkan device name) exists: -1 = unknown, use the name.
-static int g_video_blackwell = -1;
-// One string from the per-generation profile NVRM publishes on the GPU's PCI device ("nvrm-gpu-profile": chip,
-// generation, engine classes, scan-out model, video layout). False when the driver is older than the profile or the key
-// is missing; callers then keep their previous rule.
-static bool nvmtl_gpu_profile_string(CFStringRef key, char *out, size_t n)
-{
-    bool ok = false;
-    io_iterator_t it = IO_OBJECT_NULL;
-    if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPCIDevice"), &it) != KERN_SUCCESS) return false;
-    for (io_object_t o; !ok && (o = IOIteratorNext(it)); IOObjectRelease(o)) {
-        CFTypeRef d = IORegistryEntryCreateCFProperty(o, CFSTR("nvrm-gpu-profile"), kCFAllocatorDefault, 0);
-        if (!d) continue;
-        if (CFGetTypeID(d) == CFDictionaryGetTypeID()) {
-            CFTypeRef v = CFDictionaryGetValue((CFDictionaryRef)d, key);
-            if (v && CFGetTypeID(v) == CFStringGetTypeID()) ok = CFStringGetCString((CFStringRef)v, out, (CFIndex)n, kCFStringEncodingUTF8);
-        }
-        CFRelease(d);
-    }
-    IOObjectRelease(it);
-    return ok;
-}
-static bool nvmtl_video_is_blackwell(void)
-{
-    if (g_video_blackwell >= 0) return g_video_blackwell == 1;
-    char layout[32];
-    if (nvmtl_gpu_profile_string(CFSTR("video-layout"), layout, sizeof layout)) {
-        g_video_blackwell = !strcmp(layout, "blackwell");
-        return g_video_blackwell == 1;
-    }
-    return strstr(nvmtl_vk_device_name(), "NVK GB") != NULL;
-}
-// The H.264 encoder library built for this card's generation, or NULL when we ship none for it (then the app keeps
-// Apple's encoder, which is what every non-Blackwell card got before these libraries existed).
-// The setup a card's NVENC expects differs per generation: Turing and Ampere write the same picture setup apart from
-// the class byte, and Blackwell differs in the plane offsets, the input layout and the padding. Each library is
-// checked byte-for-byte against NVIDIA's own output on that generation before it ships.
-// The HEVC encoder library for this card's generation. Turing and Ampere write the same HEVC setup apart from the
-// class byte, checked byte-for-byte against NVIDIA's own output on each; Blackwell differs in the layout as it does
-// for H.264.
-static const char *nvmtl_nvenc_hevc_library_for_this_gpu(void)
-{
-    char gen[32];
-    if (!nvmtl_gpu_profile_string(CFSTR("generation"), gen, sizeof gen))
-        return nvmtl_video_is_blackwell() ? "libnvenc_hevc.dylib" : NULL;
-    if (!strcmp(gen, "Blackwell")) return "libnvenc_hevc.dylib";
-    if (!strcmp(gen, "Ampere")) return "libnvenc_hevc_ga10x.dylib";
-    if (!strcmp(gen, "Turing")) return "libnvenc_hevc_tu10x.dylib";
-    return NULL;
-}
-static const char *nvmtl_nvenc_library_for_this_gpu(void)
-{
-    char gen[32];
-    if (!nvmtl_gpu_profile_string(CFSTR("generation"), gen, sizeof gen)) {
-        // No profile: fall back to the name test, which only recognises Blackwell.
-        return nvmtl_video_is_blackwell() ? "libnvenc_h264.dylib" : NULL;
-    }
-    if (!strcmp(gen, "Blackwell")) return "libnvenc_h264.dylib";
-    if (!strcmp(gen, "Ampere")) return "libnvenc_h264_ga10x.dylib";
-    if (!strcmp(gen, "Turing")) return "libnvenc_h264_tu10x.dylib";
-    return NULL;
-}
-static void nvmtl_nvdec_register(void)
-{
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        const char *me = getprogname();
-        if (getenv("NVMTL_NO_NVDEC")) { nvlog("nvdec: NVMTL_NO_NVDEC set - not registering in %s", me); return; }
-        if (!strcmp(me, "WindowServer")) return;
-        typedef int32_t (*RegFn)(uint32_t, CFDictionaryRef, void *);
-        RegFn reg = (RegFn)dlsym(RTLD_DEFAULT, "VTRegisterVideoDecoderWithInfo");
-        if (!reg) { nvlog("nvdec: VideoToolbox is not loaded in %s - not registering", me); return; }
-        Dl_info di;
-        if (!dladdr((const void *)nvmtl_nvdec_register, &di) || !di.dli_fname) { nvlog("nvdec: dladdr failed - not registering"); return; }
-        char dir[1024], path[1200];
-        strlcpy(dir, di.dli_fname, sizeof dir);
-        snprintf(path, sizeof path, "%s/%s", dirname(dir), nvmtl_video_is_blackwell() ? "libnvdec_h264.dylib" : "libnvdec_h264_t2d.dylib");
-        void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-        if (!h) { nvlog("nvdec: dlopen %s FAILED: %s", path, dlerror()); return; }
-        void *fac = dlsym(h, "NVDecH264_CreateInstance");
-        if (!fac) { nvlog("nvdec: %s has no NVDecH264_CreateInstance", path); return; }
-        NSDictionary *info = @{ @"CMClassImplementationID": @"com.nvmtl.videodecoder.avc.nvdec",
-                                @"VTRating": @1000, @"VTIsHardwareAccelerated": @YES };
-        int32_t st = reg('avc1', (__bridge CFDictionaryRef)info, fac);
-        nvlog("nvdec: H.264 decoder %s in %s (VTRegisterVideoDecoderWithInfo -> %d, rating 1000, %s)",
-              st ? "NOT registered" : "REGISTERED", me, (int)st, path);
-    });
-}
-static void nvmtl_nvenc_register(void)
-{
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        const char *me = getprogname();
-        if (getenv("NVMTL_NO_NVENC")) { nvlog("nvenc: NVMTL_NO_NVENC set - not registering in %s", me); return; }
-        const char *lib = nvmtl_nvenc_library_for_this_gpu();
-        if (!lib) { nvlog("nvenc: no encoder library for %s - H.264 encode stays on Apple's encoder", nvmtl_vk_device_name()); return; }
-        if (!strcmp(me, "WindowServer")) return;
-        typedef int32_t (*RegFn)(uint32_t, CFDictionaryRef, void *);
-        RegFn reg = (RegFn)dlsym(RTLD_DEFAULT, "VTRegisterVideoEncoderWithInfo");
-        if (!reg) { nvlog("nvenc: VideoToolbox is not loaded in %s - not registering", me); return; }
-        Dl_info di;
-        if (!dladdr((const void *)nvmtl_nvenc_register, &di) || !di.dli_fname) { nvlog("nvenc: dladdr failed - not registering"); return; }
-        char dir[1024], path[1200];
-        strlcpy(dir, di.dli_fname, sizeof dir);
-        snprintf(path, sizeof path, "%s/%s", dirname(dir), lib);
-        void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-        if (!h) { nvlog("nvenc: dlopen %s FAILED: %s", path, dlerror()); return; }
-        void *fac = dlsym(h, "NVEncH264_CreateInstance");
-        if (!fac) { nvlog("nvenc: %s has no NVEncH264_CreateInstance", path); return; }
-        NSDictionary *info = @{ @"CMClassImplementationID": @"com.nvmtl.videoencoder.avc.nvenc",
-                                @"CMClassImplementationName": @"NVIDIA NVENC H.264",
-                                @"VTRating": @1000, @"VTIsHardwareAccelerated": @YES };
-        int32_t st = reg('avc1', (__bridge CFDictionaryRef)info, fac);
-        nvlog("nvenc: H.264 encoder %s in %s (VTRegisterVideoEncoderWithInfo -> %d, rating 1000, %s)",
-              st ? "NOT registered" : "REGISTERED", me, (int)st, path);
-    });
-}
-// An encoder built outside this driver can register itself beside ours and let VTRating decide which
-// one an app gets, so both can be installed and compared. The one this was written for reports H.264
-// at about 5 ms where the library we ship takes about 12, and it runs on Turing, Ampere and Ada,
-// which nvmtl_nvenc_register above turns away for not being Blackwell.
-// Off unless NVMTL_NVENCVT names this process (or is 1), from nvrm610.conf or the environment.
-// This loads code into every app that encodes, so the library and the directory holding it must be
-// ours and nobody else's. The firmware taught this: it used to sit in /Users/Shared, which is mode
-// 1777, and the only permission step was a chmod that adds read bits and never takes write away, so
-// a directory left there by any user was adopted as-is. A path anyone can write is not a path you can
-// trust. lstat, not stat: a symlink must not be followed into something else.
-static bool nvmtl_loadable_root_only(const char *path)
-{
-    struct stat st;
-    if (lstat(path, &st) != 0 || !S_ISREG(st.st_mode)) return false;
-    if (st.st_uid != 0 || (st.st_mode & (S_IWGRP | S_IWOTH))) return false;
-    char dir[1024]; strlcpy(dir, path, sizeof dir);
-    char *d = dirname(dir);
-    struct stat ds;                                  // a writable directory lets the file be swapped
-    if (!d || lstat(d, &ds) != 0 || !S_ISDIR(ds.st_mode)) return false;
-    return ds.st_uid == 0 && !(ds.st_mode & (S_IWGRP | S_IWOTH));
-}
-static void nvmtl_nvencvt_register(void)
-{
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        const char *me = getprogname();
-        const char *sel = getenv("NVMTL_NVENCVT");
-        if (!sel || !*sel || !strcmp(sel, "0")) return;
-        if (strcmp(sel, "1")) {                      // a process list, so one app can be moved over at a time
-            char list[512]; strlcpy(list, sel, sizeof list);
-            bool named = false;
-            for (char *t = strtok(list, ", :"); t && !named; t = strtok(NULL, ", :")) named = !strcmp(t, me);
-            if (!named) return;
-        }
-        if (!strcmp(me, "WindowServer")) return;     // the codec registrars all stay out of it
-        Dl_info di;
-        if (!dladdr((const void *)nvmtl_nvencvt_register, &di) || !di.dli_fname) { nvlog("nvencvt: dladdr failed - not registering"); return; }
-        char dir[1024], path[1200];
-        strlcpy(dir, di.dli_fname, sizeof dir);
-        snprintf(path, sizeof path, "%s/libnvencvt.dylib", dirname(dir));
-        if (!nvmtl_loadable_root_only(path)) {
-            nvlog("nvencvt: %s is absent, or is not a root-owned file inside a root-owned directory - REFUSED", path);
-            return;
-        }
-        void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-        if (!h) { nvlog("nvencvt: dlopen %s FAILED: %s", path, dlerror()); return; }
-        typedef int32_t (*RegFn)(int);
-        RegFn r = (RegFn)dlsym(h, "NVEncVT_Register");
-        if (!r) { nvlog("nvencvt: %s has no NVEncVT_Register", path); return; }
-        int rating = 1100;                           // above our own 1000, so the opt-in one wins where it is asked for
-        const char *rv = getenv("NVMTL_NVENCVT_RATING");
-        if (rv) { int v = atoi(rv); if (v > 0) rating = v; }
-        int32_t st = r(rating);
-        nvlog("nvencvt: external encoder %s in %s (NVEncVT_Register -> %d, rating %d, %s)",
-              st ? "NOT registered" : "REGISTERED", me, (int)st, rating, path);
-    });
-}
-static void nvmtl_nvdec_hevc_register(void)
-{
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        const char *me = getprogname();
-        if (getenv("NVMTL_NO_NVDEC_HEVC")) { nvlog("nvdec: NVMTL_NO_NVDEC_HEVC set - not registering HEVC in %s", me); return; }
-        if (!strcmp(me, "WindowServer")) return;
-        typedef int32_t (*RegFn)(uint32_t, CFDictionaryRef, void *);
-        RegFn reg = (RegFn)dlsym(RTLD_DEFAULT, "VTRegisterVideoDecoderWithInfo");
-        if (!reg) { nvlog("nvdec: VideoToolbox is not loaded in %s - not registering HEVC", me); return; }
-        Dl_info di;
-        if (!dladdr((const void *)nvmtl_nvdec_hevc_register, &di) || !di.dli_fname) { nvlog("nvdec: dladdr failed - not registering HEVC"); return; }
-        char dir[1024], path[1200];
-        strlcpy(dir, di.dli_fname, sizeof dir);
-        snprintf(path, sizeof path, "%s/libnvdec_hevc.dylib", dirname(dir));
-        void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-        if (!h) { nvlog("nvdec: dlopen %s FAILED: %s", path, dlerror()); return; }
-        void *fac = dlsym(h, "NVDecHEVC_CreateInstance");
-        if (!fac) { nvlog("nvdec: %s has no NVDecHEVC_CreateInstance", path); return; }
-        NSDictionary *info = @{ @"CMClassImplementationID": @"com.nvmtl.videodecoder.hevc.nvdec",
-                                @"VTRating": @1000, @"VTIsHardwareAccelerated": @YES };
-        int32_t st = reg('hvc1', (__bridge CFDictionaryRef)info, fac);
-        nvlog("nvdec: HEVC decoder %s in %s (VTRegisterVideoDecoderWithInfo -> %d, rating 1000, %s)",
-              st ? "NOT registered" : "REGISTERED", me, (int)st, path);
-    });
-}
-// GH #175: with Chrome's GPU sandbox on, decoding runs in VTDecoderXPCService. Metal maps this bundle there (the
-// process holds the bundle's mappings but never creates a Metal device), but the decoders were registered only when a Metal
-// device came up, so that process never had them and H.264 fell to AppleH264SW. The decoder libraries open NVRM
-// themselves (IOKit; nothing from the Vulkan device), as NVIDIA's own decoder is a per-process capability needing no
-// render device. So in that one process register them at load, telling Blackwell apart by the GPU's PCI device id
-// instead of the Vulkan device name.
-static void nvmtl_nvdec_hevc_register(void);
 #include "NVMTLPhxdec.m"
 #include "NVMTLSurfaceUsage.m"
 #include "NVMTLX420.m"
-#if NVMTL_DIAG_BUILD   // the holder census: measurement build only (scripts/build/plugin.sh PLUGIN_DEFS=-DNVMTL_DIAG)
+#if NVMTL_DIAG_BUILD   // the holder census: measurement build only (scripts/build/plugin.sh PLUGIN_CONFIG=diag)
 #include "NVMTLHolders.m"
 #endif
-__attribute__((constructor)) static void nvmtl_nvdec_in_decode_service(void)
+// With Chrome's GPU sandbox on, decoding runs in VTDecoderXPCService. Metal maps this bundle there (the process holds the
+// bundle's mappings but never creates a Metal device), but the decoder was registered only when a Metal device came up,
+// so that process never had it and HEVC fell to Apple's decoder. Register it at load in that one process.
+__attribute__((constructor)) static void nvmtl_phxdec_in_decode_service(void)
 {
     const char *me = getprogname();
-    if (!me || strcmp(me, "VTDecoderXPCService") || getenv("NVMTL_NO_NVDEC")) return;
+    if (!me || strcmp(me, "VTDecoderXPCService")) return;
     // off the loader's thread: the registration dlopens the decoder library
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        uint32_t dev = 0;
-        io_iterator_t it = IO_OBJECT_NULL;
-        if (IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOPCIDevice"), &it) == KERN_SUCCESS) {
-            for (io_object_t o; !dev && (o = IOIteratorNext(it)); IOObjectRelease(o)) {
-                CFDataRef v = IORegistryEntryCreateCFProperty(o, CFSTR("vendor-id"), kCFAllocatorDefault, 0);
-                CFDataRef c = IORegistryEntryCreateCFProperty(o, CFSTR("class-code"), kCFAllocatorDefault, 0);
-                CFDataRef d = IORegistryEntryCreateCFProperty(o, CFSTR("device-id"), kCFAllocatorDefault, 0);
-                uint32_t vv = 0, cc = 0, dd = 0;
-                if (v && CFDataGetLength(v) >= 4) CFDataGetBytes(v, CFRangeMake(0, 4), (UInt8 *)&vv);
-                if (c && CFDataGetLength(c) >= 4) CFDataGetBytes(c, CFRangeMake(0, 4), (UInt8 *)&cc);
-                if (d && CFDataGetLength(d) >= 4) CFDataGetBytes(d, CFRangeMake(0, 4), (UInt8 *)&dd);
-                if ((vv & 0xffff) == 0x10de && (cc >> 16) == 0x03) dev = dd & 0xffff;
-                if (v) CFRelease(v); if (c) CFRelease(c); if (d) CFRelease(d);
-            }
-            IOObjectRelease(it);
-        }
-        if (!dev) {
-            // WP6 B5: an AMD display GPU (class 0x03, vendor 0x1002) gets our VCN decoder instead
-            nvmtl_phxdec_register();
-            nvlog("nvdec: no NVIDIA GPU in the I/O registry - NVDEC not registering in %s", me); return; }
-        char layout[32];
-        if (nvmtl_gpu_profile_string(CFSTR("video-layout"), layout, sizeof layout)) g_video_blackwell = !strcmp(layout, "blackwell");
-        else g_video_blackwell = dev >= 0x2b00 && dev < 0x3000;   // no profile (older NVRM): the GB20x device-id block
-        nvlog("nvdec: decode service, GPU 10de:%04x (%s): registering the decoders at load", dev,
-              g_video_blackwell ? "Blackwell" : "before Blackwell");
-        nvmtl_nvdec_register();
-        nvmtl_nvdec_hevc_register();
-    });
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ nvmtl_phxdec_register(); });
 }
-static void nvmtl_nvenc_hevc_register(void)
+// PhxAccel: true when THIS Metal device is the AMD accelerator driving its own panel (debug.nmxaccel_headless == 0).
+// CoreDisplay only builds a display on a device that reports non-headless / full-power / non-removable; a headless
+// device still enumerates for apps (MTLCopyAllDevices) but CoreDisplay's FindAcceleratorWithMTLDevice skips it, so
+// WindowServer's CreateMetalDevice returns 0x0 and CoreDisplay aborts (Display.cpp:3228). Cobalt64 marks its device
+// display-eligible the same way (Navi48Device.m isHeadless/isLowPower/isRemovable). Gated on the same AMD-panel signal
+// the allow-list gate uses.
+static bool nvmtl_is_amd_panel(void)
 {
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        const char *me = getprogname();
-        if (getenv("NVMTL_NO_NVENC_HEVC")) { nvlog("nvenc: NVMTL_NO_NVENC_HEVC set - not registering HEVC in %s", me); return; }
-        const char *lib = nvmtl_nvenc_hevc_library_for_this_gpu();
-        if (!lib) { nvlog("nvenc: no HEVC encoder library for %s - HEVC encode stays on Apple's encoder", nvmtl_vk_device_name()); return; }
-        if (!strcmp(me, "WindowServer")) return;
-        typedef int32_t (*RegFn)(uint32_t, CFDictionaryRef, void *);
-        RegFn reg = (RegFn)dlsym(RTLD_DEFAULT, "VTRegisterVideoEncoderWithInfo");
-        if (!reg) { nvlog("nvenc: VideoToolbox is not loaded in %s - not registering HEVC", me); return; }
-        Dl_info di;
-        if (!dladdr((const void *)nvmtl_nvenc_hevc_register, &di) || !di.dli_fname) { nvlog("nvenc: dladdr failed - not registering HEVC"); return; }
-        char dir[1024], path[1200];
-        strlcpy(dir, di.dli_fname, sizeof dir);
-        snprintf(path, sizeof path, "%s/%s", dirname(dir), lib);
-        void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-        if (!h) { nvlog("nvenc: dlopen %s FAILED: %s", path, dlerror()); return; }
-        void *fac = dlsym(h, "NVEncHEVC_CreateInstance");
-        if (!fac) { nvlog("nvenc: %s has no NVEncHEVC_CreateInstance", path); return; }
-        NSDictionary *info = @{ @"CMClassImplementationID": @"com.nvmtl.videoencoder.hevc.nvenc",
-                                @"CMClassImplementationName": @"NVIDIA NVENC HEVC",
-                                @"VTRating": @1000, @"VTIsHardwareAccelerated": @YES };
-        int32_t st = reg('hvc1', (__bridge CFDictionaryRef)info, fac);
-        nvlog("nvenc: HEVC encoder %s in %s (VTRegisterVideoEncoderWithInfo -> %d, rating 1000, %s)",
-              st ? "NOT registered" : "REGISTERED", me, (int)st, path);
-    });
+    int ahv = 1; size_t ahn = sizeof ahv;
+    return nvmtl_vk_vendor() == 0x1002 && sysctlbyname("debug.nmxaccel_headless", &ahv, &ahn, NULL, 0) == 0 && !ahv;
 }
-// ANGLE refuses Metal on NVIDIA (disableMetalOnNvidia), and Chromium on macOS has no other GL backend, so without this
-// the GPU process exits at start-up and the app draws everything on the CPU. Chrome and Chromium get it by default:
-// without it their GPU process cannot start. Electron stays opt-in (NVMTL_ANGLE_METAL=1) because it showed artifacts,
-// stutter and lost transparency on several cards. NVMTL_ANGLE_METAL=0 turns the rule off in every process. An existing
-// ANGLE override is kept; no sandbox setting is changed.
-static bool nvmtl_angle_chrome_family(void)
-{
-    const char *me = getprogname();
-    if (!me) return false;
-    return strncmp(me, "Google Chrome", 13) == 0 || strncmp(me, "Chromium", 8) == 0;
-}
-__attribute__((constructor)) static void nvmtl_angle_allow_nvidia(void)
-{
-    const char *opt = getenv("NVMTL_ANGLE_METAL");
-    if (opt && !strcmp(opt, "0")) return;
-    const char *me = getprogname();
-    if (!(opt && !strcmp(opt, "1")) && !nvmtl_angle_chrome_family()) return;
-    const char *key = "ANGLE_FEATURE_OVERRIDES_DISABLED", *rule = "disableMetalOnNvidia";
-    const char *cur = getenv(key);
-    if (cur && strstr(cur, rule)) return;
-    // One line per process, outside nvlog's release failure filter: a field report must show whether the rule was
-    // active in this process.
-    syslog(LOG_NOTICE, "NullMoth: angle: Metal allowed in %s (%s; NVMTL_ANGLE_METAL=0 disables)", me ? me : "?",
-           (opt && !strcmp(opt, "1")) ? "NVMTL_ANGLE_METAL=1" : "Chrome family");
-    char v[1024];
-    if (cur && *cur) snprintf(v, sizeof v, "%s:%s", cur, rule); else snprintf(v, sizeof v, "%s", rule);
-    setenv(key, v, 1);
-}
+
 static bool nvmtl_process_is_allowed(void)
 {
     const char *me = getprogname();
     if (!me) return false;
-    // A headless NVIDIA GPU (the display is on the Intel or AMD GPU) is a Metal device for apps only: WindowServer stays
-    // on the GPU that owns the display, as on Apple's two-GPU Macs. The list below cannot express this: "*" matches
-    // WindowServer before its "!WindowServer" line is reached.
-    { int hv = 0; size_t hn = sizeof hv;
-      // PhxAccel: an AMD accelerator that drives its own panel (debug.nmxaccel_headless reads 0) composites WindowServer
-      int ahv = 1; size_t ahn = sizeof ahv;
-      const bool amdPanel = nvmtl_vk_vendor() == 0x1002 && sysctlbyname("debug.nmxaccel_headless", &ahv, &ahn, NULL, 0) == 0 && !ahv;
-      if (!strcmp(me, "WindowServer") && !amdPanel && (nvmtl_vk_vendor() != 0x10de ||
-                                          (sysctlbyname("debug.nvaccel_headless", &hv, &hn, NULL, 0) == 0 && hv))) {
-          nvlog("  headless GPU: no device for WindowServer (it composites on the GPU that owns the display)"); return false; } }
+    // PhxAccel: an AMD accelerator that drives its own panel (debug.nmxaccel_headless reads 0) composites WindowServer;
+    // a headless one is a Metal device for apps only, and WindowServer stays off it. The list below cannot express this:
+    // "*" matches WindowServer before its "!WindowServer" line is reached.
+    if (!strcmp(me, "WindowServer") && !nvmtl_is_amd_panel()) {
+        nvlog("  headless GPU: no device for WindowServer (it composites on the GPU that owns the display)"); return false; }
     if (getenv("NVMTL_ENABLE")) return true;
     if (!strcmp(me, "mtlprobe") || !strcmp(me, "nvmtltest") || !strcmp(me, "nvmtlrender")) return true;
     FILE *f = fopen("/Library/GPUBundles/nvmtl-allow.txt", "r");
@@ -580,18 +296,6 @@ static bool nvmtl_process_is_allowed(void)
     fclose(f);
     if (ok) nvlog("  allow-listed: %s", me);
     return ok;
-}
-
-// PhxAccel: true when THIS Metal device is the AMD accelerator driving its own panel (debug.nmxaccel_headless == 0).
-// CoreDisplay only builds a display on a device that reports non-headless / full-power / non-removable; a headless
-// device still enumerates for apps (MTLCopyAllDevices) but CoreDisplay's FindAcceleratorWithMTLDevice skips it, so
-// WindowServer's CreateMetalDevice returns 0x0 and CoreDisplay aborts (Display.cpp:3228). Cobalt64 marks its device
-// display-eligible the same way (Navi48Device.m isHeadless/isLowPower/isRemovable). Gated on the same AMD-panel signal
-// the allow-list gate uses, so the NVIDIA app-only path keeps reporting headless and WindowServer stays off it.
-static bool nvmtl_is_amd_panel(void)
-{
-    int ahv = 1; size_t ahn = sizeof ahv;
-    return nvmtl_vk_vendor() == 0x1002 && sysctlbyname("debug.nmxaccel_headless", &ahv, &ahn, NULL, 0) == 0 && !ahv;
 }
 
 // a host import shared by the textures of a multi-plane surface's planes (NVMTL_PLANEHOST_SHARE, nvmtl_planehost_get)
@@ -639,10 +343,10 @@ static void nvmtl_install_hw_resource_pools(id dev)
     self = [super initWithAcceleratorPort:port];
     if (!self) { nvlog("  super initWithAcceleratorPort: returned nil"); return nil; }
     {   /* one GPU per process: the plugin runs a single Vulkan device, so a second Metal device on another vendor's
-           accelerator (a PC with an NVIDIA card and an AMD or Intel GPU) is refused rather than given the wrong GPU */
+           accelerator is refused rather than given the wrong GPU */
         uint16_t mine = nvmtl_vk_set_accelerator(port), live = nvmtl_vk_vendor();
         if (mine && mine != live) { nvlog("  accelerator vendor %04x, but this process runs Metal on %04x: no second device", mine, live); return nil; }
-        nvlog("  GPU vendor %04x (%s)", live, live == 0x1002 ? "AMD, RADV" : live == 0x8086 ? "Intel, ANV" : "NVIDIA, NVK");
+        nvlog("  GPU vendor %04x (%s)", live, live == 0x1002 ? "AMD, RADV" : "Intel, ANV");
     }
     if (!nvmtl_process_is_allowed()) { nvlog("  not allow-listed: no device for %s", getprogname()); return nil; }
     nvlog("MTLIOAccelDevice's initWithAcceleratorPort: -> %p", (__bridge void *)self);
@@ -654,13 +358,7 @@ static void nvmtl_install_hw_resource_pools(id dev)
         return nil;
     }
     nvmtl_gl_caps_enable();
-    if (nvmtl_vk_vendor() == 0x10de) {   /* NVDEC/NVENC are NVIDIA engines reached through NVRM */
-        nvmtl_nvdec_register();
-        nvmtl_nvenc_register();
-        nvmtl_nvdec_hevc_register();
-        nvmtl_nvenc_hevc_register();
-        nvmtl_nvencvt_register();   // last, so an opt-in external encoder registers above ours
-    } else if (nvmtl_vk_vendor() == 0x1002) {
+    if (nvmtl_vk_vendor() == 0x1002) {
         // the client process picks the decoder from its own registry, then asks VTDecoderXPCService for it by
         // implementation ID: registering only in the service is never used (as NullMoth, every Metal process but WS)
         nvmtl_phxdec_register();
@@ -700,7 +398,7 @@ static void nvmtl_install_hw_resource_pools(id dev)
 - (NSString *)vendorName {
     static NSMutableSet *seen; static dispatch_once_t once; dispatch_once(&once, ^{ seen = [NSMutableSet new]; });
     Dl_info i = {0}; const char *who = dladdr(__builtin_return_address(0), &i) && i.dli_fname ? i.dli_fname : "?";
-    NSString *v = nvmtl_vk_vendor() == 0x1002 ? @"AMD" : nvmtl_vk_vendor() == 0x8086 ? @"Intel" : @"NVIDIA";
+    NSString *v = nvmtl_vk_vendor() == 0x1002 ? @"AMD" : nvmtl_vk_vendor() == 0x8086 ? @"Intel" : @"AMD";
     @synchronized(seen) { NSString *k = @(who); if (![seen containsObject:k]) { [seen addObject:k]; nvlog("vendorName -> %s (asked by %s)", v.UTF8String, who); } }
     return v;
 }
@@ -1601,8 +1299,6 @@ static void nvmtl_stitch_dump(const char *what, NSString *dag, NSArray *fns, id 
     if (!fns) return nvmtl_fail(err, @"newLibraryWithData: translation produced nothing");
     NVMTLLibrary *lib = [NVMTLLibrary new]; lib->_fns = fns; lib->_stages = stages; lib->_airs = airs; lib->_externs = nvmtl_externs_of_airs(airs);
     lib->_raw = bytes;
-    nvmtl_vendor_compile_airs((NSDictionary<NSString *, NSString *> *)airs,
-                              (NSDictionary<NSString *, NSString *> *)stages);
     return lib; }
 - (id<MTLLibrary>)nvmtlBridgeAppleLibrary:(id)apple what:(const char *)what error:(NSError **)err {
     if (!apple) return nil;
@@ -2225,16 +1921,6 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
             @"newComputePipelineState: REFUSED - this function is not ours: %s", object_getClassName(fn)]);
     NVMTLFunction *f = (NVMTLFunction *)fn;
     if (f && f->_needsLink) { NSError *le = nil; id<MTLFunction> lk = nvmtl_link_stage(fn, nil, nil, &le); if (!lk) { if (err) *err = le; return nil; } f = (NVMTLFunction *)lk; fn = lk; }
-    // Machine code compiled ahead of time (NVMTLSass.m), from the linker or looked up for this function, runs
-    // instead of a Vulkan pipeline, which is then never built for it.
-    id sass = f ? (f->_sassKernel ?: nvmtl_sass_kernel_for_function(f)) : nil;
-    if (sass && f.functionType == MTLFunctionTypeKernel) {
-        NVMTLComputePipelineState *ps = [NVMTLComputePipelineState new];
-        ps->_function = f; ps->_attrT = nvmtl_air_max_tg(f); ps->_sassKernel = sass; ps->_sassOnly = YES;
-        nvlog("newComputePipelineStateWithFunction: %s -> %p from compiled machine code",
-              f->_fname.UTF8String, (__bridge void *)ps);
-        return ps;
-    }
     if (!f || !f->_spirv) return nvmtl_fail(err, @"newComputePipelineState: function has no SPIR-V");
     if (f.functionType != MTLFunctionTypeKernel) {
         nvlog("newComputePipelineState: \"%s\" is a %s, not a kernel — REFUSED",
@@ -2250,8 +1936,6 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
         return nvmtl_fail(err, @"newComputePipelineState: vkCreateComputePipelines FAILED"); }
     nvlog("newComputePipelineStateWithFunction: %s -> %p (%lu B of SPIR-V)",
           f->_fname.UTF8String, (__bridge void *)ps, (unsigned long)f->_spirv.length);
-    nvmtl_vendor_attach_sass(self, ps, f);
-    { id apple = nvmtl_vendor_apple_pipeline(self, f); if (apple) return apple; }
     return ps; }
 
 - (BOOL)supportsRaytracing { return nvmtl_vk_rt_available() != 0; }
@@ -2334,8 +2018,12 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
 - (MTLArgumentBuffersTier)argumentBuffersSupport { return MTLArgumentBuffersTier2; }
 - (BOOL)supportsFamily:(MTLGPUFamily)f {
     switch ((NSInteger)f) {
+        // The families Apple's own driver answers YES to on an RDNA 2 Mac (2026-11-26-metal-feature-answers.md): Common1-3,
+        // Mac1 (2001, deprecated) and Mac2 (2002), Mac Catalyst 1 and 2 (4001, 4002: a Catalyst app asks for these on
+        // every Mac that has the Mac families), Metal 3 (5001). Apple and Metal 4 families stay NO.
         case MTLGPUFamilyMac2: case MTLGPUFamilyCommon1: case MTLGPUFamilyCommon2: case MTLGPUFamilyCommon3: return YES;
         case 2001 : return YES;
+        case 4001: case 4002: return YES;
         case 5001 : return YES;
         default: return NO;
     }
@@ -2419,7 +2107,7 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
 - (uint64_t)dedicatedMemorySize { return nvmtl_vk_vram_bytes(); }
 
 // Display-eligibility (PhxAccel): in AMD-panel mode present as a real, non-headless display GPU, or CoreDisplay cannot
-// create the display's Metal device and WindowServer aborts (Display.cpp:3228). NVIDIA/app-only mode stays headless so
+// create the display's Metal device and WindowServer aborts (Display.cpp:3228). App-only mode stays headless so
 // WindowServer composites on the GPU that owns the display (Apple two-GPU behaviour). See nvmtl_is_amd_panel().
 - (BOOL)isHeadless  { return nvmtl_is_amd_panel() ? NO : YES; }
 // CoreAnimation's client-storage textures. Apple's inherited feature table answers YES (the Apple-silicon contract):
@@ -2537,6 +2225,4 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
 #import "NVMTLGL.m"
 #import "NVMTLGLVBlank.m"
 #import "NVMTLEmbedded.m"
-#import "NVMTLVendorCompiler.m"
 #include "nvmtl_vk.c"
-#import "NVMTLSass.m"

@@ -3,7 +3,7 @@
    (src/metal-plugin/NVMTLDeadEncoder.m, audit row A6). Loads a built plugin, keeps its backend down with
    NVMTL_TEST_BACKEND_DOWN=1 (set before anything opens a GPU or loads RADV) and drives the public Metal API on its
    command queue. No GPU is touched. The plugin's log goes to a temporary file, not /tmp/nvmtl.log.
-     sh scripts/build/plugin.sh
+     PLUGIN_CONFIG=logging sh scripts/build/plugin.sh   (the release build forgets NVMTL_TEST_BACKEND_DOWN at load)
      clang -fobjc-arc -framework Foundation -framework Metal tests/plugin/test_dead_cmdbuf.m -o /tmp/test_dead_cmdbuf
      /tmp/test_dead_cmdbuf build/NVMTLDriver */
 #import <Foundation/Foundation.h>

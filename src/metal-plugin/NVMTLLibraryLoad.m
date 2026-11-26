@@ -2340,20 +2340,6 @@ id<MTLFunction> nvmtl_link_stage(id<MTLFunction> kIn, MTLLinkedFunctions *lfIn, 
         }
         [t writeToFile:[dumpDir stringByAppendingFormat:@"/%@.fc.txt", fn->_fname] atomically:YES encoding:NSUTF8StringEncoding error:NULL];
     }
-    // Machine code compiled ahead of time for exactly this link (kernel AIR, chosen bodies, constants) runs
-    // instead of a translation: the kernels that have it are the ones the translator cannot express or
-    // expresses slowly, and asking it first cost minutes on MPS's depthwise convolution.
-    {
-        id sass = nvmtl_sass_kernel_for_linked(fn, mods, fc);
-        if (sass) {
-            free(idx); free(sz); free(bytes); free(pay);
-            NVMTLFunction *mf = [NVMTLFunction new];
-            mf->_fname = fn->_fname; mf->_stage = fn->_stage; mf->_air = linked; mf->_fc = [fc copy];
-            mf->_lib = fn->_lib; mf->_fcv = fn->_fcv; mf->_specName = fn->_specName; mf->_sassKernel = sass;
-            nvlog("link: \"%s\" runs from its compiled machine code; no translation", fn->_fname.UTF8String);
-            return mf;
-        }
-    }
     NSString *te = nil;
     NSData *spv = nvmtl_translate_link_cached(linked, fn->_stage, idx, sz, pay, k2, &te);
     free(idx); free(sz); free(bytes); free(pay);

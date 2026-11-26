@@ -44,7 +44,11 @@ failed read); the kext's own UCLK step uses the DAL mailbox, `debug.phxpipe0_ucl
 refuses driver-mailbox 0x1B/0x1C. hw-safety: "SAFE WITH CHANGES", the blocking point fixed. Linux traces from the XTX
 machine: 72 of 78 mode sets end at a 96 MHz minimum; 456 was never sent. Open for the owner (TODO 01, before U1 too):
 at 240 Hz Linux releases UCLK to 96 only with FAMS, which macOS doesn't have. Fable pass running.
-**#51** open: direct scan-out live switch-on, idle screenshot sync, a flip-wait counter. Fable pass running.
+**#51** open: direct scan-out idle screenshot sync and a flip-wait counter. Its Fable pass found the live switch-on
+could end GPU present for the life of WindowServer: the live move is dropped (log only), the sync's lock and
+half-frame issues are being fixed. **Release gap found:** the package creates none of `ws-gpu-present`,
+`ws-gpu-present-async`, `ws-direct`, so a stranger's WindowServer would get no GPU present: next PR makes all three
+the default (files become `-off` opt-outs; the safe desktop still turns GPU present off).
 **#49** merged: the plugin's release build (A2: quiet log, errors at os_log error level, env switches ignored except
 the daemon's two; NVIDIA paths removed) and Metal feature answers (A3: Mac Catalyst families YES; finding
 `2026-11-26-metal-feature-answers.md`). Release cdhash `b1900d21`; a VermilionTrust + EFI change when deployed.

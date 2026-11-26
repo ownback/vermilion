@@ -13,11 +13,11 @@
 //   debug.phxpipe0_dead    the dark latch (RO)
 // b101: the macOS path. PhxAMDFB head 0's setDisplayMode calls the platform
 // function "phxPipe0SetMode" (PhxSwitchABI.h; property phx-pipe0-mode-fn), which runs phxp0::macSet: stutter forced off,
-// the UCLK hard minimum (debug.phxpipe0_uclk MHz, default 456) before a set above 60, the round trip at the current mode
-// when none passed in this boot, then the set; debug.phxpipe0=4 runs the same sequence for debug.phxpipe0_mode from a
-// shell (no PhxAccel). debug.phxpipe0_modes=1 (root) publishes phx-pipe0-modes = true on this service: PhxAMDFB head 0
-// then lists the AOC's 60 and 144 Hz modes when it starts (the boot daemon sets it before the claim). The kill switch
-// debug.phxpipe0_enable still gates every register access of every path.
+// the UCLK hard minimum (debug.phxpipe0_uclk MHz; b167: DAL mailbox, default 0 = none) before a set above 60, the round
+// trip at the current mode when none passed in this boot, then the set; debug.phxpipe0=4 runs the same sequence for
+// debug.phxpipe0_mode from a shell (no PhxAccel). debug.phxpipe0_modes=1 (root) publishes phx-pipe0-modes = true on this
+// service: PhxAMDFB head 0 then lists the AOC's 60 and 144 Hz modes when it starts (the boot daemon sets it before the
+// claim). The kill switch debug.phxpipe0_enable still gates every register access of every path.
 // b103: a third plan, phx_p0_plan_1080p144a60.inc = the AOC at 144 next to the
 // Acer at 60 (from Linux); every path picks the plan for its rate by OTG1's totals (phxp0::pick), and the pipe-1 switch
 // (p2SwitchTo, phx_pipe2.cpp) runs the switch through p0PairSwitch so that pipe 0 at 144 follows the Acer's mode in the safe order.
@@ -52,7 +52,10 @@ static phxp0::State gP0;
 static int gP0Enable;          // debug.phxpipe0_enable
 static int gP0Mode = 60;       // debug.phxpipe0_mode
 static int gP0Modes;           // b101 debug.phxpipe0_modes (property phx-pipe0-modes for PhxAMDFB head 0's mode list)
-static int gP0UclkMhz = 456;   // b101 debug.phxpipe0_uclk: the UCLK hard minimum macSet sends before a set above 60 (0 = none)
+// b101 debug.phxpipe0_uclk: the UCLK hard minimum macSet sends before a set above 60 (0 = none). b167 (U1): through the DAL
+// mailbox, 0 and only 0: Linux raises UCLK at none of the 60 / 120 / 144 Hz switches on the XTX machine (finding
+// 2026-11-26-u1-uclk-dal.md); before b167 456 MHz through the driver mailbox (0x1B), which Linux never sends on SMU 13.0.0.
+static int gP0UclkMhz = 0;
 static int gP0Solo;            // p0solo debug.phxpipe0_solo: 1 = the AOC alone (OTG1 dark) may take the 1080p144 plan (PhxPipe0.h pairFits)
 static int gP0Live = 1;        // b123 debug.phxpipe0_live (b124: default 1, passed on the box): 1 = a pair re-plan of double-buffered frame / HUBP registers runs live (PhxPipe0.h liveShell)
 static const phxp0::Plan kP0Plan60 = {kPhxP0_1080p60, sizeof kPhxP0_1080p60 / sizeof kPhxP0_1080p60[0], kPhxP0_1080p60Info};
@@ -80,12 +83,6 @@ static uint64_t p0NowUs(void *) {
     return ns / 1000;
 }
 
-// b101: one driver-mailbox SMU message (the path of phxctl smu / uclk.sh); RESP, 0 = no answer or not sent
-static uint32_t p0Smu(void *c, uint32_t msg, uint32_t arg) {
-    uint32_t resp = 0, after = 0;
-    return static_cast<PhxBringup *>(c)->smuMessage(msg, arg, &resp, &after) == kIOReturnSuccess ? resp : 0;
-}
-
 static phxp0::Env p0Env() {
     phxp0::Env e{};
     e.io = {gPhx, p2IoRd, p2IoWr, p2IoMmRd, p2IoMmWr, p2IoDelay};
@@ -94,8 +91,7 @@ static phxp0::Env p0Env() {
     e.live = gP0Live;
     e.p2Switching = gP2.switching;
     e.nowUs = p0NowUs;
-    e.smu = p0Smu;
-    e.dal = p2Dal;             // b128 (phx_pipe2.cpp): the DAL mailbox, its allow-list and dead latch
+    e.dal = p2Dal;             // b128 (phx_pipe2.cpp): the DAL mailbox, its allow-list and dead latch; b167: macSet's UCLK hard minimum too
     e.pmfwIdle = p2PmfwIdle;
     return e;
 }
@@ -270,12 +266,14 @@ static int phxPipe0UclkSysctl SYSCTL_HANDLER_ARGS {
     if (err || !req->newptr)
         return err;
     if (proc_suser(req->p)) return EPERM;
-    if (v != 0 && (v < 96 || v > 2500)) return EINVAL;
+    // b167: 0 only. Any other MHz would replace the boot daemon's DAL hard minimum (the last one sent wins) and could
+    // lower it; Linux sends only a DPM level, and the kernel has no DPM table until K11 (hw-safety review of U1).
+    if (v != 0) return EINVAL;
     gP0UclkMhz = v;
     return 0;
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxpipe0_uclk, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxPipe0UclkSysctl, "I",
-            "b101 (root): UCLK hard minimum in MHz the macOS path sends before a pipe-0 set above 60 Hz (default 456 = uclk.sh pin 456; 0 = none)");
+            "b101 (root): UCLK hard minimum in MHz the macOS path sends before a pipe-0 set above 60 Hz (b167: DAL mailbox; 0 = none, the only value accepted)");
 
 // p0solo: the boot daemon's b15_boot.sh aocboot1 / the one-display
 // branch write 1 when only the AOC is lit; 0 (default) = the pair rule as before (no 144 with OTG1 dark).

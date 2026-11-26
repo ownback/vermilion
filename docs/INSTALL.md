@@ -518,7 +518,7 @@ stated.
 | `phxboot-b21guard` | start | the login-window guard (7.4). Absent or anything but `0` = on (default); `0` = the daemon never touches `SHOWFULLNAME` |
 | `phxboot-sdma` | after the bring-up | starts both SDMA engines idle, so the RLC can grant clock gating (without it the card idles at ~150 W) |
 | `phxboot-cg` | after the bring-up and after `done` | GFX clock gating as Linux enables it (without it the idle card runs ~250 W at a 110 C hotspot with the fans at full) |
-| `phxboot-uclk` (value: MHz, e.g. `456`) | after the bring-up and after `done` | memory clock hard minimum; without it a memory clock switch under GPU load can underflow the display |
+| `phxboot-uclk` | after the bring-up and after `done` | memory clock hard minimum at the top UCLK level through the DAL mailbox, as Linux's display code holds it while the mode can't take a memory clock switch (`uclk.sh pin`); without it a memory clock switch under GPU load can underflow the display. `phxboot-idledpm` lets it go at the settled desktop. The file's content (`456` on older installs) is not read since U1 (VermilionBoot b167, [finding](../.agents/findings/2026-11-26-u1-uclk-dal.md)) |
 | `phxboot-m7-aocmodes` or `phxboot-m7-aoc144` | before the claim | head 0 lists the DisplayPort monitor's 60 and 144 Hz modes |
 | `phxboot-p0modes` | before the claim | the XTX machine's 1440p monitor: switches the pipe-0 engine on and lets head 0 list the monitor's modes (`debug.phxpipe0_enable=1`, `debug.phxpipe0_modes=1`), so System Settings offers its rates, Variable and HDR ([XTX.md](XTX.md), "A 1440p monitor"). Needs VermilionBoot b128 or later |
 | `phxboot-novrr` | before the claim | `debug.phxfb0_vrr=0`: head 0 does not offer Adaptive Sync (System Settings' "Variable"). HDR is offered only with it, so HDR goes too. Default: offered when the monitor and the kexts support it |
@@ -528,8 +528,8 @@ stated.
 | `phxboot-aoc-rate` (value: `144`, `60` or `last`) | desktop arm, before the restart | puts the DisplayPort monitor at 144 Hz before the WindowServer restart. Needs the head-0 mode list flag and `phxboot-b15` (plus `phxboot-b15-2pipe` with two monitors, `phxboot-m7` with one); `last` = the rate remembered in `phxboot-rate-last` |
 | `phxboot-dispovr` | right before the restart | `dispovr.sh`: a CoreDisplay override per connected display so a new display set defaults to its highest refresh rate. It writes only files it created (key `phx-override`) under `/Library/Displays/Contents/Resources/Overrides` |
 | `phxboot-noflip` | after the restart | keeps the copy into the scanned surface instead of the DCN A/B flip (ignored when GPU present is on) |
-| `/Library/GPUBundles/nvmtl/ws-gpu-present` | before and after the restart | GPU present: the plugin flips the display itself (`debug.phxscan=1`) and the display pipe's copy is skipped |
-| `phxboot-wscdcopy` | before the restart | GPU present E3: `launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1`, so the restarted WindowServer presents CoreDisplay's display surfaces instead of SkyLight's composite targets (fixes the flicker of redrawn regions; verified on the XTX machine at 1440p60). Needs `ws-gpu-present` and `/Library/GPUBundles/nvmtl/ws-gpu-present-async`, otherwise only logged |
+| `/Library/GPUBundles/nvmtl/ws-gpu-present-off` | before and after the restart | opt-out: GPU present is on by default (the plugin flips the display itself, `debug.phxscan=1`, and the display pipe's copy is skipped); with this file the daemon does not allow the scanout and the plugin gives the plane back. Never on the safe desktop. The old opt-in file `ws-gpu-present` is ignored (the daemon logs a note). See section 8.6 |
+| `phxboot-wscdcopy` | before the restart | GPU present E3: `launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1`, so the restarted WindowServer presents CoreDisplay's display surfaces instead of SkyLight's composite targets (fixes the flicker of redrawn regions; verified on the XTX machine at 1440p60). Needs GPU present and async GPU present on (neither `ws-gpu-present-off` nor `ws-gpu-present-async-off`, not the safe desktop), otherwise only logged. Direct scan-out needs it too |
 | `phxboot-waitstep` (value: microseconds, `20`-`1000`; empty = `200`) | before the restart | `debug.phxwait_step_us`: the timed step of a fence wait (the kext's default is 50). 200 cut WindowServer's wakeups on the XTX machine; only 50 and 200 were tried on hardware |
 | `phxboot-irqwait` | before the restart | fence waits by interrupt: `debug.phxih_vram`, `phxih`, `phxeopirq`, `phxirq`, `phxwait_irq` = 1 in that order, each read back (any refusal turns all five off again). On the XTX machine a short waited GPU job went from 265 to 114 us median, as on Linux, with a lower p99 |
 | `phxboot-autologin` (value: the user name) | before the restart | automatic login by the accelerated login window: the daemon writes loginwindow's `autoLoginUser` right before the WindowServer restart and removes it at start, at shutdown and at every revert. When it arms, it also deletes loginwindow's first-run marker (`/private/var/run/com.apple.loginwindow.didRunThisBoot`): loginwindow logs in automatically only on its first run of a boot, and the relaunched one creates the file again. Needs `/etc/kcpassword` (made once by `sudo sysadminctl -autologin set`). macOS's own automatic login must stay off: it would log in before the arm, which refuses with a user logged in |
@@ -674,6 +674,30 @@ the claim the daemon writes a "test tools only" list until the next boot rewrite
 To turn the GPU path off by hand: `touch ~/gpu/phxboot-off` and reboot. If macOS does not boot at all, disable the
 `VermilionBoot.kext` entry in OpenCore (or boot your EFI copy), or add `-phxacceloff` / `-phxbringupoff` to the
 boot-args for one boot.
+
+### 8.6 Turning GPU present, async present and direct scan-out off
+
+Since 2026-11-26 the Metal plugin runs three display features by default, with no file to create (direct scan-out
+only together with the `phxboot-wscdcopy` flag of section 7.3, which is still opt-in). Each has an opt-out
+file in `/Library/GPUBundles/nvmtl` (create it as root; no reboot for the plugin, which re-reads them every second).
+The defaults were built and host-tested on 2026-11-26; no boot of the XTX machine has run without the old opt-in
+files yet (unverified).
+
+| Feature | Turn it off | Takes effect |
+|---|---|---|
+| GPU present: the plugin copies WindowServer's frame into VRAM and flips the display itself | `sudo touch /Library/GPUBundles/nvmtl/ws-gpu-present-off` | The plane goes back at the next present. The boot daemon also stops allowing the scanout, from the next boot |
+| Async GPU present: WindowServer does not wait for its swap commit | `sudo touch /Library/GPUBundles/nvmtl/ws-gpu-present-async-off` | within a second in the plugin. Direct scan-out and `phxboot-wscdcopy` need it and are chosen at a start, so reboot after creating the file: what a running desktop with `phxboot-wscdcopy` does when async goes off is (unverified) |
+| Direct scan-out: CoreDisplay draws the two display surfaces in VRAM and a present is the flip alone | `sudo touch /Library/GPUBundles/nvmtl/ws-direct-off` (or `sudo sysctl debug.phxscan_direct=0`) | the next present copies back and releases; the copy path runs |
+
+Remove the file to turn a feature on again, then reboot. Async turns on within a second where GPU present runs. GPU
+present does not come back in a running WindowServer (the plugin keeps it off for the process, and the daemon allows
+the scanout only at boot). Direct scan-out is chosen only when GPU present starts, and the plugin logs
+`ws-direct-off removed: direct scan-out takes effect at the next WindowServer start`.
+
+The old opt-in files `ws-gpu-present`, `ws-gpu-present-async` and `ws-direct` are ignored now. A machine that has them
+keeps working (the features are on) and the daemon logs `note: ... is no longer used`; you can delete them. The safe
+desktop (after a failed or unfinished startup) never has GPU present, whatever these files say. The release package
+creates none of these files.
 
 ## 9. Rollback and uninstall
 

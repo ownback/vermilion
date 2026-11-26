@@ -2,7 +2,7 @@
 // WindowServer window captures under async GPU present (Safari full-screen glitch).
 // SkyLight composites a capture (CGWindowListCreateImage, CGSHWCaptureWindowList: WebKit's full-screen placeholders)
 // into an IOSurface and copies it on the CPU under IOSurfaceLock right after the commit, with no GPU wait; Apple's
-// IOSurfaceLock waits for the GPU writer, ours does not. With ws-gpu-present-async a WindowServer commit returns at
+// IOSurfaceLock waits for the GPU writer, ours does not. With async GPU present a WindowServer commit returns at
 // schedule, so the copy read rows the GPU had not written yet (black or stale top rows).
 // v1 waited when a commit wrote a surface for one of its first writes and v2 also after an idle gap; both caught window
 // resizes too (every new size = new surfaces: resize very slow, user 10-29 15:05), and v3 only logged the surfaces.
@@ -11,7 +11,7 @@
 // "flattened-surface" is QuartzCore's render flatten cache (render-flatten-cache.cpp), read only by later GPU draws on
 // the same queue, so it does not wait. The name is fetched once per surface (id + size + format) and cached.
 // On by default; /Library/GPUBundles/nvmtl/ws-capture-wait-off turns the wait off (log only).
-// v5 (10-30, plugin audit): the swap commit also returns at schedule, without ws-gpu-present-async, whenever
+// v5 (10-30, plugin audit): the swap commit also returns at schedule, without async GPU present, whenever
 // the kernel takes WindowServer's GPU completion marks (commitAndWaitUntilSubmitted skips its wait when
 // nvmtl_ws_kernel_waits, NVMTLEventSync.m). The kernel's surface waits cover the flip and the head-1 copy, not SkyLight's
 // CPU copy of a capture surface (PhxAccel's page-off waits only for an NMX VRAM resource; our captures are host imports),

@@ -39,7 +39,7 @@ struct phx_pipe0_setmode {
 };
 #define PHX_P0SW_ROUNDTRIP 1u      // a 60->60 (current mode) round trip ran first
 #define PHX_P0SW_STUTTER_OFF 2u    // stutter was allowed and is forced off now (left off while pipe 0 is at 144)
-#define PHX_P0SW_UCLK_PIN 4u       // the UCLK hard minimum was sent (debug.phxpipe0_uclk MHz) before a set above 60
+#define PHX_P0SW_UCLK_PIN 4u       // the UCLK hard minimum was sent (debug.phxpipe0_uclk, b167: DAL, 0 = never) before a set above 60
 #ifdef __cplusplus
 static_assert(sizeof(struct phx_pipe0_setmode) == 120, "phx_pipe0_setmode is 120 B");
 #endif

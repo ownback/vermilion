@@ -558,12 +558,18 @@ M7LIT=0; M7PHASE=0; M7BOUND=0
 # NVMTL_WS_PRESENT_CDCOPY=1 from launchd (as CI_USE_MTL_DAG_FOR_CIKL_SRC), so the plugin presents CoreDisplay's display
 # surfaces (every region current) instead of SkyLight's composite targets, which only have the changed regions redrawn:
 # those regions flickered between new and old (findings 2026-11-19-gpu-present-flicker-heat.md; verified on the XTX
-# machine at 1440p60). E3 presents at GPU completion, so it needs both GPU present switches; without them nothing is set.
-# launchctl setenv lasts until the next reboot.
-WSASYNC=${PHXBOOT_WSASYNC:-/Library/GPUBundles/nvmtl/ws-gpu-present-async}
+# machine at 1440p60). E3 presents at GPU completion, so it needs GPU present and async GPU present on; without them
+# nothing is set. launchctl setenv lasts until the next reboot.
+# GPU present, async GPU present and direct scan-out are ON by default (2026-11-26); the opt-out files in
+# /Library/GPUBundles/nvmtl are ws-gpu-present-off, ws-gpu-present-async-off and ws-direct-off (the Metal plugin reads
+# them; the daemon reads the first two). The old opt-in files (ws-gpu-present, ws-gpu-present-async, ws-direct) are
+# ignored. The safe desktop (SAFE=1) never has GPU present: the daemon does not allow the scanout (debug.phxscan).
+GPUPRESENT_OFF=${PHXBOOT_GPUPRESENT_OFF:-/Library/GPUBundles/nvmtl/ws-gpu-present-off}
+WSASYNC_OFF=${PHXBOOT_WSASYNC_OFF:-/Library/GPUBundles/nvmtl/ws-gpu-present-async-off}
+GPUPRESENT=0   # 1 from step 5a when GPU present is on this boot
 ws_cdcopy(){ [ -e "$G/phxboot-wscdcopy" ] || return 0
-  if [ ! -e "$GPUPRESENT" ] || [ ! -e "$WSASYNC" ]; then
-    echo "wscdcopy: needs $GPUPRESENT and $WSASYNC: NVMTL_WS_PRESENT_CDCOPY not set"; return 0; fi
+  if [ "$GPUPRESENT" != 1 ] || [ -e "$WSASYNC_OFF" ]; then
+    echo "wscdcopy: needs GPU present and async GPU present on (not the safe desktop, no $GPUPRESENT_OFF, no $WSASYNC_OFF): NVMTL_WS_PRESENT_CDCOPY not set"; return 0; fi
   if launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1 2>/dev/null; then
     echo "wscdcopy: NVMTL_WS_PRESENT_CDCOPY=1 for the restarted WindowServer (CoreDisplay's display surfaces are presented)"
   else echo "wscdcopy: launchctl setenv failed: SkyLight's targets are presented"; fi; }
@@ -732,12 +738,14 @@ cg_boot(){
   [ -e "$G/phxboot-cg" ] || return 0
   [ -e "$G/gfx_cg.sh" ] || { echo "cg: $G/gfx_cg.sh missing"; return 0; }
   echo "cg: $(PHXCTL=$G/phxctl.bin sh "$G/gfx_cg.sh" on 2>&1 | tail -1 | cut -c1-120)"; }
-# Memory clock hard minimum (MHz in $G/phxboot-uclk, e.g. 456): without the DAL hand-off a UCLK switch under GPU load
-# underflows the display (glitches under video decode); needs kext >= b71
+# Memory clock hard minimum (flag $G/phxboot-uclk): without the DAL hand-off a UCLK switch under GPU load underflows the
+# display (glitches under video decode). U1 (finding 2026-11-26-u1-uclk-dal.md): `uclk.sh pin` = the DAL hard minimum at
+# the top UCLK level, what Linux's DC holds while the mode can't take a UCLK switch; the flag's content (456 on older
+# installs) is no longer read. Needs kext >= b75 (the DAL selector); idle_dpm.sh lets it go at the settled desktop.
 uclk_boot(){
   [ -e "$G/phxboot-uclk" ] || return 0
   [ -e "$G/uclk.sh" ] || { echo "uclk: $G/uclk.sh missing"; return 0; }
-  echo "uclk: $(PHXCTL=$G/phxctl.bin sh "$G/uclk.sh" pin "$(cat "$G/phxboot-uclk")" 2>&1 | tail -1 | cut -c1-120)"; }
+  echo "uclk: $(PHXCTL=$G/phxctl.bin sh "$G/uclk.sh" pin 2>&1 | tail -1 | cut -c1-120)"; }
 # Idle power root cause: the RLC grants CGCG only once both SDMA engines report idle; never-started engines stay "busy" and
 # the card idles at ~150 W with PMFW activity 100 %. Start their queue 0 idle, before cg_boot.
 sdma_boot(){
@@ -871,11 +879,17 @@ if [ $DESK = 1 ]; then
   #    final 0-users guard IMMEDIATELY before the killall, nothing slow between arm-confirm and kill, so the
   #    window where the stale-cache boot WindowServer could hit the assert on its own is as small as possible.
   if who 2>/dev/null | grep -q . ; then m2_fail "a user logged in during arm -- refusing the WindowServer restart"; fi
-  # 5a) GPU present (2026-10-25): with $GPUPRESENT the plugin copies WindowServer's frames into VRAM slots on the GPU
+  # 5a) GPU present (2026-10-25): with GPUPRESENT=1 the plugin copies WindowServer's frames into VRAM slots on the GPU
   #     and flips HUBP0 itself (PhxBringup scanout, debug.phxscan); it needs the scanout allowed before WindowServer
   #     comes back, and phxfb's own flip left off (both would program HUBP0)
-  GPUPRESENT=${PHXBOOT_GPUPRESENT:-/Library/GPUBundles/nvmtl/ws-gpu-present}; [ $SAFE = 1 ] && GPUPRESENT=""
-  [ -e "$GPUPRESENT" ] && { sysctl -w debug.phxscan=1 >/dev/null 2>&1 && echo "gpu present allowed (debug.phxscan=1)"; }
+  #     On by default; off on the safe desktop and with $GPUPRESENT_OFF.
+  GPUPRESENT=1; { [ $SAFE = 1 ] || [ -e "$GPUPRESENT_OFF" ]; } && GPUPRESENT=0
+  GPUDIR=$(dirname "$GPUPRESENT_OFF")
+  for f in ws-gpu-present ws-gpu-present-async ws-direct; do
+    [ -e "$GPUDIR/$f" ] && echo "note: $GPUDIR/$f is no longer used (GPU present, async and direct scan-out are on by default; ws-gpu-present-off, ws-gpu-present-async-off and ws-direct-off turn them off)"
+  done
+  [ $GPUPRESENT = 0 ] && [ $SAFE != 1 ] && echo "gpu present off ($GPUPRESENT_OFF)"
+  [ $GPUPRESENT = 1 ] && { sysctl -w debug.phxscan=1 >/dev/null 2>&1 && echo "gpu present allowed (debug.phxscan=1)"; }
   ws_cdcopy    # E3: the restarted WindowServer presents CoreDisplay's display surfaces (flag ~/gpu/phxboot-wscdcopy)
   ws_tiled     # C3: the restarted WindowServer composes into a tiled image (flag ~/gpu/phxboot-wstiled)
   waitstep_boot   # the fence wait's timed step for the restarted WindowServer (flag ~/gpu/phxboot-waitstep)
@@ -896,7 +910,7 @@ if [ $DESK = 1 ]; then
   #     $G/phxboot-noflip keeps the copy into the scanned surface; GPU present replaces it
   #     with GPU present the display pipe's copy into A is skipped while HUBP0 scans a slot (PhxAccel with
   #     debug.nvaccel_iop_skipforeign; an older PhxAccel has no such sysctl and keeps copying)
-  if [ -e "$GPUPRESENT" ]; then echo "phxfb flip left off (GPU present owns HUBP0)"
+  if [ $GPUPRESENT = 1 ]; then echo "phxfb flip left off (GPU present owns HUBP0)"
     sysctl -w debug.nvaccel_iop_skipforeign=1 >/dev/null 2>&1 && echo "display pipe copy skipped while GPU present scans (debug.nvaccel_iop_skipforeign=1)"
   elif [ $SAFE = 0 ] && [ ! -e "$G/phxboot-noflip" ]; then sysctl -w debug.phxfb_flip=1 >/dev/null 2>&1 && echo "flip on (debug.phxfb_flip=1)"; fi
   before=$(ls "$DR" 2>/dev/null | grep -c '^WindowServer[-_]')   # baseline AFTER the clean restart: earlier crashes don't count

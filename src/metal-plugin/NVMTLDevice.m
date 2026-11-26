@@ -406,9 +406,13 @@ static void nvmtl_install_hw_resource_pools(id dev)
     static int vk = 0; if (!vk) { vk = 1; nvmtl_vk_init(); }
     const char *vkname = nvmtl_vk_device_name();
     NSString *full = [NSString stringWithUTF8String:(vkname ? vkname : "NVIDIA GPU")];
-    NSRange cut = [full rangeOfString:@" (NVK "];
-    NSString *marketing = (cut.location != NSNotFound) ? [full substringToIndex:cut.location] : full;
-    return [NSString stringWithFormat:@"%@ (NVMTL over %@)", marketing, full];
+    // plan A4: the marketing name alone, as Apple's drivers answer ("AMD Radeon RX 7900 XTX"): the Vulkan driver's
+    // own suffix (RADV's " (RADV NAVI31)", NVK's " (NVK ...)") is not part of it
+    for (NSString *suffix in @[ @" (RADV ", @" (NVK " ]) {
+        NSRange cut = [full rangeOfString:suffix];
+        if (cut.location != NSNotFound && cut.location > 0) return [full substringToIndex:cut.location];
+    }
+    return full;
 }
 - (id<MTLCommandQueue>)newCommandQueue { return [self newCommandQueueWithMaxCommandBufferCount:64]; }
 - (id<MTLCommandQueue>)newCommandQueueWithMaxCommandBufferCount:(NSUInteger)n {

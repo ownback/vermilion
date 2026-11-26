@@ -30,10 +30,15 @@ set neither `~/gpu/phxboot-auto` nor `phxfb-squat`, so a stranger's first boot w
 the fix (postinstall arms both, read-back, a plain message when NVRAM writes are off) is in progress on the same
 branch, with the post-install text order and stale "section 3" comments. Agent on A2+A3 (`ownback/plugin-release`).
 **#47** merged: the B1 design (K1-K14, T1, U1; 18-20 boots; hw-safety review folded in; K1-K3 = b164-b166).
-**#49** open: the plugin's release build (A2: quiet log, errors at os_log error level, env switches ignored except
+**Boot queue** (one change per boot; files staged in `~/vermilion-build`):
+40 RyzentoshSSE (installed) → 41 VermilionBoot b163 (EFI) + `phxctl.bin`, `m7_boot.sh` (#43) and the daemon's #48
+commit into `~/gpu` (`efi41/`; the live daemon equals main minus that commit; its new code runs only on GOP boots) →
+42 NVMTLDriver release `b1900d21` (`plugin-d47dff1/`) + VermilionTrust with its cdhash (EFI) → C our AIR reader
+(`air/`) + VermilionTrust (EFI) → U1 when reviewed.
+**#49** merged: the plugin's release build (A2: quiet log, errors at os_log error level, env switches ignored except
 the daemon's two; NVIDIA paths removed) and Metal feature answers (A3: Mac Catalyst families YES; finding
 `2026-11-26-metal-feature-answers.md`). Release cdhash `b1900d21`; a VermilionTrust + EFI change when deployed.
-Fable pass running. **#48** rework: the package no longer writes `phxfb-squat`; the daemon's GOP-boot re-arm (after a
+**#48** merged (INSTALL.md; the package no longer writes `phxfb-squat`; the daemon's GOP-boot re-arm (after a
 bring-up that needs the firmware and VermilionAccel) arms the desktop; HDR off by flag; notices for Allow and restart.
 Agent on U1 (`ownback/uclk-dal`: Linux's DAL-mailbox UCLK floor instead of the driver-mailbox 0x1B, hw-safety review).
 **U1, hard rule 1, live:** `uclk.sh pin` sends the driver-mailbox SMU message 0x1B (SetHardMinByFreq, UCLK 456 MHz,

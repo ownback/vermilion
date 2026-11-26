@@ -121,7 +121,7 @@ sampler stays the fallback when the PMFW is busy or refuses. It is not built.
 - `tests/kext/gpu_stats_test.cpp`, 21 checks: the sampler's hold, cap and stop; utilization and its clamps.
 - `tests/kext/gpu_id_test.cpp`: `marketingName`.
 - These three run in CI (`.github/workflows/release.yml`).
-- Mesa `src/amd/common/darwin/test/acd_devinfo_test.c`, 32 checks: the mapping keeps the driver's own fields, overlays
+- Mesa `src/amd/common/darwin/test/acd_devinfo_test.c`, 38 checks (the firmware-version answers too, VCN with and without the kext's record): the mapping keeps the driver's own fields, overlays
   the hardware's, keeps the template's PCIe / VRAM values when the kext has none, never overruns the names buffer, and
   refuses an unusable record.
 - The Mesa series applies cleanly to `f5cb8ee0`, and RADV builds.

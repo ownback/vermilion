@@ -498,6 +498,13 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
 - [ ] `INSTALL.md` rewritten for the one-kext release (it is upstream's manual XT guide); recovery and troubleshooting:
       black screen after a failed switch, the squat loop, booting `OC.prev`
 
+- [x] Release package fixes from #42's clean-up review (`ownback/pkg-fixes`): the uninstaller removes the AIR reader,
+      removes the empty `~/gpu`, `~/gpu/phxctl`, `~/gpu/fw`, no longer deletes a restored
+      `/usr/local/libexec/vermilion`, and restores the login-window value without `lib.sh`; the test hooks are
+      stripped from the shipped scripts; `distribution.xml` has its own installation check; `fetch_firmware.sh --from`
+      reports the SHA-256; the `--rebuild-kc` help names `vermilion-uninstall`; the test payload has `spirv-val` in
+      `bin`. A real Installer run of the check stays **unverified**.
+
 ## 07 Wireless and Continuity
 
 - [ ] **Step 1, in this order:**

@@ -32,6 +32,11 @@ check "the bundle is not relocatable" 'grep -q "<relocate/>" "$P/PackageInfo"'
 check "x86_64 hosts and the system volume only" 'grep -q "hostArchitectures=\"x86_64\"" "$T/x/Distribution" && grep -q "enable_localSystem=\"true\"" "$T/x/Distribution" && grep -q "enable_currentUserHome=\"false\"" "$T/x/Distribution"'
 check "the package is unsigned" '! pkgutil --check-signature "$T/out/Vermilion-$VER.pkg" 2>&1 | grep -q "signed by"'
 check "release scan on the package is clean" 'bash "$R/scripts/dev/release-scan.sh" "$T/out/Vermilion-$VER.pkg" >/dev/null 2>&1'
+check "Distribution: an installation-check script, the macOS build filled in, no placeholder left" 'grep -q "<installation-check script=\"installCheck()\"" "$T/x/Distribution" && grep -q "25G241" "$T/x/Distribution" && ! grep -q "@[A-Z]*@" "$T/x/Distribution"'
+check "resources: install-check.sh (executable) and the lib.sh it reads" '[ -x "$T/x/Resources/install-check.sh" ] && [ -f "$T/x/Resources/lib.sh" ]'
+check "resources: install-check.sh and lib.sh are valid shell" 'sh -n "$T/x/Resources/install-check.sh" && sh -n "$T/x/Resources/lib.sh"'
+check "no shipped script carries a test hook (payload, package scripts, resources)" 'for f in "$P/Payload/usr/local/sbin/vermilion-uninstall" "$P/Payload/usr/local/sbin/vermilion-firmware" "$P/Payload/usr/local/libexec/vermilion/lib.sh" "$P/Payload/usr/local/libexec/vermilion/tools/air_runtime_install.sh" "$P/Scripts/preinstall" "$P/Scripts/postinstall" "$P/Scripts/lib.sh" "$T/x/Resources/install-check.sh" "$T/x/Resources/lib.sh"; do [ -f "$f" ] || { echo "  missing $f"; exit 1; }; ! grep -n "VERMILION_\(TEST\|ROOT\|NOCHOWN\|USER\|UHOME\|FETCH\)" "$f" || exit 1; done'
+check "the installed uninstaller and the libexec copy of lib.sh are the stripped ones, and still shell" 'sh -n "$P/Payload/usr/local/sbin/vermilion-uninstall" && sh -n "$P/Payload/usr/local/libexec/vermilion/lib.sh"'
 for bad in 1.0 v1.0.0 "0.1.0 x"; do
   check "refuses the version '$bad'" '! sh "$R/scripts/release/make-pkg.sh" --version "$bad" --build "$T/build" --air-runtime "$T/air" --out "$T/o2" >/dev/null 2>&1'
 done

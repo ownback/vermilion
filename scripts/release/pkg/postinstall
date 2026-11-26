@@ -9,7 +9,10 @@
 #   4. the AIR reader (libLLVM + libzstd) into the Metal driver bundle, through air_runtime_install.sh;
 #   5. the shared shader cache folders, the first-boot flags (only those that are not there), the install marker.
 # It never touches the system volume, NVRAM, the EFI partition or Software Update, and it does not start the daemon.
-# VERMILION_FETCH=<command> replaces the firmware step (tests); VERMILION_FW_FROM=<dir> makes it offline.
+# VERMILION_FW_FROM=<dir> makes the firmware step offline.
+#@test-hooks-begin
+# VERMILION_FETCH=<command> replaces the firmware step (tests).
+#@test-hooks-end
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/lib.sh"
 VERSION=$(cat "$LIBEXEC/VERSION" 2>/dev/null || echo unknown)

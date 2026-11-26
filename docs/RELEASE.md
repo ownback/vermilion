@@ -87,9 +87,9 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    shows a `1002:744c` function of PCI revision `0xC8` (the RX 7900 XTX, G1) and no other `744c` board (the XT, GRE,
    7900M and unknown revisions are named in the message); a desktop user can be named (console user, else the only
    account with uid 501 or more). The values are `PhxGpuId.h`'s, and `tests/release/pkg_scripts_test.sh` compares
-   them with the header. The revision comes from `ioreg`'s `revision-id` property of the `IOPCIDevice`; **(unverified)**
-   that this property exists with this value on the XTX machine (the parser is tested on a fixture of ioreg's format
-   only). If it can't be read, the package refuses. Then it opens the rollback folder and copies away every path the
+   them with the header. The revision comes from `ioreg`'s `revision-id` property of the `IOPCIDevice`
+   (`c8000000` on the XTX machine, read 2026-11-26; `install-check.sh` exited 0 there). If it can't be read, the
+   package refuses. Then it opens the rollback folder and copies away every path the
    payload is about to replace. The refusal text is in `/var/log/install.log`; the installer window says only that
    the install failed. **(unverified)** that the Installer shows no more than that.
    Not built from the design: VermilionBoot loaded (`phx-build` in `ioreg`; the zip may be applied later, so a warning
@@ -113,6 +113,18 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
 
 What it never does: write the system volume, NVRAM, or the EFI partition (the OpenCore part is the user's, or
 ryzentosh's).
+
+Two checks refuse a wrong Mac, with the same rules (`lib.sh`: macOS build `EXPECT_BUILD`, an RX 7900 XTX and no other
+1002:744c board): `installCheck()` in `distribution.xml` runs `install-check.sh` from the archive's Resources when the
+package is opened and shows a plain message (exit code 1 build, 2 no XTX, 3 another 744c board); the preinstall
+script checks again as root, which also covers `installer -pkg` from a terminal. `system.run` needs
+`allow-external-scripts="yes"` in `<options>`; with it the Installer first tells the user that the package runs a
+program to check whether it can be installed. **(unverified):** that the Installer runs `system.run` scripts from an
+unsigned package and shows the message; `install-check.sh` itself ran on the XTX machine and exited 0.
+
+The test hooks of `lib.sh` and the scripts (`VERMILION_TEST`, `_ROOT`, `_NOCHOWN`, `_USER`, `_UHOME`, `_FETCH`) are
+cut out of every shipped copy by `scripts/release/strip-hooks.sh` (make-pkg.sh fails if one is left), so the caller's
+environment cannot steer a script that runs as root. The tests keep using the source scripts.
 
 Tested without a Mac install: `tests/release/pkg_scripts_test.sh` runs the three scripts against a fake root with a
 fake `ioreg`, `sw_vers` and `pkgutil` (refusals, first install over older files, an update, the uninstall back to the
@@ -140,10 +152,16 @@ result on the files.
 1. `launchctl bootout` the daemon, remove `/var/db/phxboot.pending` and `/var/db/phxboot.fails`, delete the NVRAM
    variables `phxfb-squat` and `phxfb-boot` where macOS can.
 2. Put back the login-window value (`phxboot-b21guard.orig`) and remove the display overrides that carry `phx-override`.
-3. Remove every file `pkgutil --files org.vermilion.pkg` lists (and the emptied folders with Vermilion's names).
+3. Remove every file `pkgutil --files org.vermilion.pkg` lists (and the emptied folders with Vermilion's names), the
+   AIR reader (the post-install script put it in the bundle, so no receipt lists it) and
+   `/usr/local/libexec/vermilion`; all before step 4, so that step 4 can put back what stood there before.
 4. For every path a rollback `MANIFEST` names, oldest folder first, the first line decides: `E` puts the saved copy
    back, `N` leaves the path removed. So an update never turns a Vermilion file into "the user's own", and a file
-   the user had before the first install comes back. The firmware folder is skipped unless `--purge`.
+   the user had before the first install comes back. The firmware folder is skipped unless `--purge`. Then the
+   folders the install made in `~/gpu` (`phxctl`, `fw`, `~/gpu` itself) are removed when they are empty. Each
+   `MANIFEST` is then renamed `MANIFEST.used` (the copies stay), so a later install and uninstall start from what is
+   there then: a file the user puts at a payload path after an uninstall comes back after the next one.
+   The uninstaller also works when `lib.sh` is already gone.
 5. `pkgutil --forget`; print what's left for the user: the AuxKC rebuild (`kmutil install --update-all` and
    `kmutil clear-staging`, printed, run only with `--rebuild-kc`; **unverified** on 26.7.1), the OpenCore entries and
    kexts, NVRAM variables macOS couldn't delete, the firmware (kept unless `--purge`), the rollback folders.

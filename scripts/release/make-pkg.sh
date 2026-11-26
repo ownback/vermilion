@@ -10,6 +10,9 @@
 # The package holds no AMD firmware, no EFI file and nothing for the system volume. Scripts: pkg/preinstall (checks,
 # rollback copies), pkg/postinstall (the daemon files, firmware fetch, AIR reader), pkg/vermilion-uninstall.
 # The package is unsigned (owner decision 2026-11-25).
+# Every script it ships goes through strip-hooks.sh first: the test hooks (VERMILION_TEST, _ROOT, _NOCHOWN, ...) are
+# not in the installed copies, so the caller's environment cannot steer them. The Installer's own check
+# (pkg/install-check.sh, run by distribution.xml) goes in the package's resources.
 set -eu
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -37,6 +40,7 @@ done
 [ -d "$AIR/LICENSES" ] || { echo "make-pkg: $AIR/LICENSES missing: the AIR reader must ship with its notices" >&2; exit 1; }
 command -v pkgbuild >/dev/null && command -v productbuild >/dev/null || { echo "make-pkg: pkgbuild and productbuild are macOS tools" >&2; exit 1; }
 mkdir -p "$OUT"; OUT=$(cd "$OUT" && pwd)
+ship() { sh "$HERE/strip-hooks.sh" "$1" "$2"; }   # ship <source script> <destination>: the copy without the test hooks
 
 W=$(mktemp -d "${TMPDIR:-/tmp}/vermilion-pkg.XXXXXX"); trap 'rm -rf "$W"' EXIT
 P=$W/root
@@ -58,7 +62,8 @@ printf '*\n' >"$GB/nvmtl-allow.txt"
 cp -R "$BUILD/VermilionAccel.kext" "$P/Library/Extensions/"
 cp "$BUILD/phxctl" "$BUILD/mesboot" "$P/usr/local/sbin/"
 cp "$BUILD/spirv-val" "$P/usr/local/bin/"
-cp "$HERE/pkg/vermilion-uninstall" "$HERE/pkg/vermilion-firmware" "$P/usr/local/sbin/"
+ship "$HERE/pkg/vermilion-uninstall" "$P/usr/local/sbin/vermilion-uninstall"
+ship "$HERE/pkg/vermilion-firmware" "$P/usr/local/sbin/vermilion-firmware"
 
 # /usr/local/libexec/vermilion: what the post-install script copies into ~/gpu, the firmware fetcher, the AIR reader
 T=$ROOT/tools/phxctl
@@ -69,8 +74,8 @@ cp "$BUILD/phxctl" "$LX/gpu/phxctl.bin"
 cp "$BUILD/metaltest" "$LX/gpu/metaltest"
 cp "$T/local.phxboot.plist.in" "$LX/"
 cp "$ROOT/tools/firmware/fetch_firmware.sh" "$ROOT/tools/firmware/fw.lock" "$LX/firmware/"
-cp "$T/air_runtime_install.sh" "$LX/tools/"
-cp "$HERE/pkg/lib.sh" "$LX/lib.sh"
+ship "$T/air_runtime_install.sh" "$LX/tools/air_runtime_install.sh"
+ship "$HERE/pkg/lib.sh" "$LX/lib.sh"
 printf '%s\n' "$VERSION" >"$LX/VERSION"
 mkdir -p "$LX/air-runtime-src"; cp -R "$AIR"/. "$LX/air-runtime-src/"
 chmod -R go-w,a+rX "$P"
@@ -79,7 +84,7 @@ chmod 755 "$P/usr/local/sbin/"* "$P/usr/local/bin/"* "$LX/gpu/"*.sh "$LX/gpu/phx
 
 # The scripts, and the list of paths the payload replaces (the preinstall script copies each away first)
 S=$W/scripts; mkdir -p "$S"
-cp "$HERE/pkg/preinstall" "$HERE/pkg/postinstall" "$HERE/pkg/lib.sh" "$S/"
+for f in preinstall postinstall lib.sh; do ship "$HERE/pkg/$f" "$S/$f"; done
 chmod 755 "$S/preinstall" "$S/postinstall"
 cat >"$S/units-payload.txt" <<'EOF'
 /Library/GPUBundles/NVMTLDriver.bundle
@@ -110,8 +115,16 @@ EOF
 pkgbuild --root "$P" --component-plist "$W/component.plist" --identifier "$ID" --version "$VERSION" \
          --install-location / --ownership recommended --scripts "$S" "$W/vermilion-component.pkg" >/dev/null
 
-# The product archive: title, welcome and conclusion pages, x86_64 only, installs on the system volume only
-sed -e "s|@VERSION@|$VERSION|g" -e "s|@IDENTIFIER@|$ID|g" "$HERE/pkg/distribution.xml.in" >"$W/distribution.xml"
-productbuild --distribution "$W/distribution.xml" --resources "$HERE/pkg/resources" --package-path "$W" \
-             "$OUT/Vermilion-$VERSION.pkg" >/dev/null
+# The product archive: title, welcome and conclusion pages, x86_64 only, installs on the system volume only, and the
+# Installer's own check (installCheck() in distribution.xml runs install-check.sh, which reads lib.sh).
+# productbuild copies only the pages the distribution names into the archive's Resources, so the two scripts are added
+# to the expanded archive, which is flattened again (the package is unsigned, so nothing is invalidated).
+EXPECT=$(sed -n 's/^EXPECT_BUILD=//p' "$HERE/pkg/lib.sh")
+sed -e "s|@VERSION@|$VERSION|g" -e "s|@IDENTIFIER@|$ID|g" -e "s|@BUILD@|$EXPECT|g" "$HERE/pkg/distribution.xml.in" >"$W/distribution.xml"
+productbuild --distribution "$W/distribution.xml" --resources "$HERE/pkg/resources" --package-path "$W" "$W/product.pkg" >/dev/null
+pkgutil --expand "$W/product.pkg" "$W/product"
+chmod 755 "$W/product/Resources"
+ship "$HERE/pkg/install-check.sh" "$W/product/Resources/install-check.sh"; chmod 755 "$W/product/Resources/install-check.sh"
+ship "$HERE/pkg/lib.sh" "$W/product/Resources/lib.sh"; chmod 644 "$W/product/Resources/lib.sh"
+pkgutil --flatten "$W/product" "$OUT/Vermilion-$VERSION.pkg"
 echo "built $OUT/Vermilion-$VERSION.pkg"

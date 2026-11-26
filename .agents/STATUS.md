@@ -35,6 +35,16 @@ branch, with the post-install text order and stale "section 3" comments. Agent o
 commit into `~/gpu` (`efi41/`; the live daemon equals main minus that commit; its new code runs only on GOP boots) →
 42 NVMTLDriver release `b1900d21` (`plugin-d47dff1/`) + VermilionTrust with its cdhash (EFI) → C our AIR reader
 (`air/`) + VermilionTrust (EFI) → U1 when reviewed.
+**Boot queue update (U1, #51):** 41 becomes VermilionBoot **b167** (#52: b163's F1 + U1) with `uclk.sh`, `idle_dpm.sh`,
+the daemon (#48 + #52), `phxctl.bin` and `m7_boot.sh`, all from main after #52 merges; 42 the plugin from #51
+(direct scan-out live switch-on, release cdhash `8f6e0a38`, supersedes #49's `b1900d21`).
+**#52** open (U1): `uclk.sh pin` sets DALSMC SetHardMinByFreq (9) to the PMFW's top UCLK level (1249 MHz here,
+Linux's "UCLK min = max"), `unpin` level 0 (96 MHz), with ReturnHardMinStatus polled as Linux does (stops at the first
+failed read); the kext's own UCLK step uses the DAL mailbox, `debug.phxpipe0_uclk` takes only 0, and its debug selector
+refuses driver-mailbox 0x1B/0x1C. hw-safety: "SAFE WITH CHANGES", the blocking point fixed. Linux traces from the XTX
+machine: 72 of 78 mode sets end at a 96 MHz minimum; 456 was never sent. Open for the owner (TODO 01, before U1 too):
+at 240 Hz Linux releases UCLK to 96 only with FAMS, which macOS doesn't have. Fable pass running.
+**#51** open: direct scan-out live switch-on, idle screenshot sync, a flip-wait counter. Fable pass running.
 **#49** merged: the plugin's release build (A2: quiet log, errors at os_log error level, env switches ignored except
 the daemon's two; NVIDIA paths removed) and Metal feature answers (A3: Mac Catalyst families YES; finding
 `2026-11-26-metal-feature-answers.md`). Release cdhash `b1900d21`; a VermilionTrust + EFI change when deployed.

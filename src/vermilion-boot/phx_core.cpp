@@ -61,6 +61,11 @@ bool PhxBringup::start(IOService *provider) {
             hdpFlushDword = remap >> 2;
         setProperty("phx-hdp-flush-dword", hdpFlushDword, 32);
     }
+    devInfoEarly();   // b168: the device info (PhxDevInfo.h): PCI ids, link caps, the IP discovery table in VRAM
+    // b168: the GPU busy sampler (PhxGpuStats.h). A "once" call: one tick at a time, and busyStop's cancel-wait also
+    // waits for a running tick (a plain call's cancel-wait doesn't when it cancelled a pending one).
+    busyCall = thread_call_allocate_with_options(phxBusyTick, this, THREAD_CALL_PRIORITY_KERNEL, THREAD_CALL_OPTIONS_ONCE);
+    setProperty("phx-gpu-stats-fn", kOSBooleanTrue);   // b168: VermilionAccel's statistics may call "phxGpuStats"
     clearRing();   // navi31: also sets up fw_buf (needs fbMcBase and fbAperLen from above)
     setProperty("phx-fwbuf-mc", fwBufMc, 64);
     setProperty("phx-build", PHX_KEXT_BUILD, 32);
@@ -88,6 +93,7 @@ bool PhxBringup::start(IOService *provider) {
 void PhxBringup::stop(IOService *provider) {
     phxHotplugStop();   // b102: the hot-plug poll first (it reads MMIO and calls PhxAccel)
     phxDpWatchStop();   // b120: the DP stream watcher (it reads MMIO)
+    busyStop();   // b168: the busy sampler (it reads the queues' fences)
     if (gIhOn)
         ihDisable();
     if (gIrqSrc) {
@@ -108,6 +114,7 @@ void PhxBringup::stop(IOService *provider) {
         sysctl_unregister_oid(&sysctl__debug_phxbo_vram_selftest); sysctl_unregister_oid(&sysctl__debug_phxbo_vram_stat);
         sysctl_unregister_oid(&sysctl__debug_phxgpu_time_on); sysctl_unregister_oid(&sysctl__debug_phxgpu_time_reset);   // b157
         sysctl_unregister_oid(&sysctl__debug_phxgpu_time);
+        sysctl_unregister_oid(&sysctl__debug_phxdevinfo); sysctl_unregister_oid(&sysctl__debug_phxgpu_busy_us);   // b168
         sysctl_unregister_oid(&sysctl__debug_phxgpu_trace); sysctl_unregister_oid(&sysctl__debug_phxgpu_trace_dump);   // b158
         if (trace) { IOFree(trace, kTraceBytes); trace = nullptr; }
         sysctl_unregister_oid(&sysctl__debug_phxvm);
@@ -228,9 +235,9 @@ void PhxBringup::readFbLayout() {
     setProperty("phx-fb-size", fbSize, 64);
     setProperty("phx-fb-phys", fbPhys, 64);
     // About This Mac / System Information name the GPU from the PCI device's "model" and size its memory from
-    // "VRAM,totalMB"; without them the 780M read "Display, 15 MB" (the boot framebuffer). Only an XTX gets this far
-    // (PhxGpuId.h), so the name is fixed.
-    const char *model = "AMD Radeon RX 7900 XTX";
+    // "VRAM,totalMB"; without them the 780M read "Display, 15 MB" (the boot framebuffer). The name is the board's
+    // (PhxGpuId.h: only an XTX gets this far).
+    const char *model = phxgpu::marketingName(phxgpu::classifyPci(pci));
     if (OSData *m = OSData::withBytes(model, static_cast<unsigned>(strlen(model) + 1))) {
         pci->setProperty("model", m);
         m->release();

@@ -1,13 +1,26 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Vermilion contributors <vermilion@example.invalid>
 Date: Wed, 4 Nov 2026 00:00:00 +0000
-Subject: [PATCH 17/17] radv/darwin: navi31 shim changes on top of 0016
+Subject: [PATCH 17/20] radv/darwin: navi31 shim changes on top of 0016
 
 The uncommitted Darwin shim changes the 2026-11-04 RADV build carries
 (scanout, kext connection, sync, disk cache path), exported as one patch.
 ---
+ include/darwin/navi48_native_abi.h            |   1 +
+ src/amd/common/ac_gpu_info.c                  |   8 ++
+ src/amd/common/darwin/ac_darwin_drm.c         | 103 ++++++++++++++++--
+ src/amd/common/darwin/ac_darwin_drm.h         |   3 +-
+ src/amd/common/darwin/ac_darwin_kext.c        |  24 +++-
+ src/amd/common/darwin/ac_darwin_kext.h        |   2 +
+ src/amd/common/darwin/ac_darwin_sync.c        |   9 +-
+ src/amd/vulkan/radv_cmd_buffer.c              |  13 ++-
+ .../winsys/amdgpu/radv_darwin_scanout.c       |  14 +++
+ .../winsys/amdgpu/radv_darwin_scanout.h       |   2 +
+ src/util/disk_cache_os.c                      |   8 +-
+ 11 files changed, 166 insertions(+), 21 deletions(-)
+
 diff --git a/include/darwin/navi48_native_abi.h b/include/darwin/navi48_native_abi.h
-index 74b4468f..0ca139d5 100644
+index 74b4468..0ca139d 100644
 --- a/include/darwin/navi48_native_abi.h
 +++ b/include/darwin/navi48_native_abi.h
 @@ -192,6 +192,7 @@ struct n48n_info {                 /* 192 B */
@@ -19,7 +32,7 @@ index 74b4468f..0ca139d5 100644
  /* ABI 1.10 (kext 0.0.640): n48n_info.reserved[] words (an older kext leaves them 0, which reads as "no budget reported").
   *   reserved[0],[1] = native write counter (diagnostic)   reserved[2] = ABI minor (1.1)
 diff --git a/src/amd/common/ac_gpu_info.c b/src/amd/common/ac_gpu_info.c
-index d734cf51..132a5058 100644
+index d734cf5..132a505 100644
 --- a/src/amd/common/ac_gpu_info.c
 +++ b/src/amd/common/ac_gpu_info.c
 @@ -15,6 +15,7 @@
@@ -45,7 +58,7 @@ index d734cf51..132a5058 100644
     /* Compute the scratch WAVESIZE granularity in bytes. */
     info->scratch_wavesize_granularity_shift = info->gfx_level >= GFX11 ? 8 : 10;
 diff --git a/src/amd/common/darwin/ac_darwin_drm.c b/src/amd/common/darwin/ac_darwin_drm.c
-index d377ebbd..0577685d 100644
+index 835e2a4..e5c9bff 100644
 --- a/src/amd/common/darwin/ac_darwin_drm.c
 +++ b/src/amd/common/darwin/ac_darwin_drm.c
 @@ -9,6 +9,7 @@
@@ -109,7 +122,7 @@ index d377ebbd..0577685d 100644
 +static bool
 +acd_vcn(const struct acd_device *dev)
 +{
-+   if (!dev->core->kext || strcmp(dev->canned->name, "navi31_xt"))
++   if (!dev->core->kext || strcmp(dev->canned->name, "navi31"))
 +      return false;
 +   if (env_is_1("RADV_DARWIN_VCN"))
 +      return true;
@@ -269,7 +282,7 @@ index d377ebbd..0577685d 100644
        free(b);
        return -EIO;
 diff --git a/src/amd/common/darwin/ac_darwin_drm.h b/src/amd/common/darwin/ac_darwin_drm.h
-index 1db90147..63da9c46 100644
+index 1db9014..63da9c4 100644
 --- a/src/amd/common/darwin/ac_darwin_drm.h
 +++ b/src/amd/common/darwin/ac_darwin_drm.h
 @@ -76,7 +76,8 @@ struct util_sync_provider *acd_sync_provider_create(const struct acd_sync_backen
@@ -283,7 +296,7 @@ index 1db90147..63da9c46 100644
  int acd_sync_cs_attach(struct util_sync_provider *p, uint32_t handle, uint64_t point, uint64_t seq);
  
 diff --git a/src/amd/common/darwin/ac_darwin_kext.c b/src/amd/common/darwin/ac_darwin_kext.c
-index bdac1352..88b75004 100644
+index bdac135..88b7500 100644
 --- a/src/amd/common/darwin/ac_darwin_kext.c
 +++ b/src/amd/common/darwin/ac_darwin_kext.c
 @@ -477,7 +477,7 @@ acd_cs_plan_init(struct acd_cs_plan *plan, uint32_t ctx_id, uint32_t bo_list_han
@@ -332,7 +345,7 @@ index bdac1352..88b75004 100644
  
  int
 diff --git a/src/amd/common/darwin/ac_darwin_kext.h b/src/amd/common/darwin/ac_darwin_kext.h
-index eee3a5ca..b5c68326 100644
+index eee3a5c..b5c6832 100644
 --- a/src/amd/common/darwin/ac_darwin_kext.h
 +++ b/src/amd/common/darwin/ac_darwin_kext.h
 @@ -48,6 +48,7 @@ enum acd_sel {
@@ -352,7 +365,7 @@ index eee3a5ca..b5c68326 100644
  uint64_t acd_kext_now_ns(struct acd_kext *k);
  
 diff --git a/src/amd/common/darwin/ac_darwin_sync.c b/src/amd/common/darwin/ac_darwin_sync.c
-index 4f0dc18c..002cd574 100644
+index 4f0dc18..002cd57 100644
 --- a/src/amd/common/darwin/ac_darwin_sync.c
 +++ b/src/amd/common/darwin/ac_darwin_sync.c
 @@ -481,9 +481,11 @@ sync_clone(struct util_sync_provider *p)
@@ -381,7 +394,7 @@ index 4f0dc18c..002cd574 100644
           return 0;
        }
 diff --git a/src/amd/vulkan/radv_cmd_buffer.c b/src/amd/vulkan/radv_cmd_buffer.c
-index 1ae3241c..f4d8df59 100644
+index 1ae3241..f4d8df5 100644
 --- a/src/amd/vulkan/radv_cmd_buffer.c
 +++ b/src/amd/vulkan/radv_cmd_buffer.c
 @@ -1401,12 +1401,6 @@ radv_create_cmd_buffer(struct vk_command_pool *pool, VkCommandBufferLevel level,
@@ -412,7 +425,7 @@ index 1ae3241c..f4d8df59 100644
  
     if (device->utrace.context) {
 diff --git a/src/amd/vulkan/winsys/amdgpu/radv_darwin_scanout.c b/src/amd/vulkan/winsys/amdgpu/radv_darwin_scanout.c
-index 4d77a6f1..09a2d3e6 100644
+index 4d77a6f..09a2d3e 100644
 --- a/src/amd/vulkan/winsys/amdgpu/radv_darwin_scanout.c
 +++ b/src/amd/vulkan/winsys/amdgpu/radv_darwin_scanout.c
 @@ -42,6 +42,20 @@ scanx_kext(VkDevice _dev)
@@ -437,7 +450,7 @@ index 4d77a6f1..09a2d3e6 100644
  radv_darwin_n48n_call(VkDevice dev, uint32_t sel, const uint64_t *sin, uint32_t nsin, const void *stin, size_t stinsz,
                        uint64_t *sout, uint32_t *nsout, void *stout, size_t *stoutsz)
 diff --git a/src/amd/vulkan/winsys/amdgpu/radv_darwin_scanout.h b/src/amd/vulkan/winsys/amdgpu/radv_darwin_scanout.h
-index 4ec17562..aa2fbf47 100644
+index 4ec1756..aa2fbf4 100644
 --- a/src/amd/vulkan/winsys/amdgpu/radv_darwin_scanout.h
 +++ b/src/amd/vulkan/winsys/amdgpu/radv_darwin_scanout.h
 @@ -31,6 +31,8 @@ int radv_darwin_scanout_status(VkDevice dev, struct n48n_scan_status *st);
@@ -450,7 +463,7 @@ index 4ec17562..aa2fbf47 100644
   * kernel with ABI minor < 11: -ENOSYS, and the caller must keep instance 2 OFF). The argument conventions are kcall's: scalar in / out words, one optional struct in and out. radv_darwin_n48n_bo_handle returns
   * the kernel BO handle of a VkDeviceMemory (for n48n_scan_reg). The six exports above are unchanged. */
 diff --git a/src/util/disk_cache_os.c b/src/util/disk_cache_os.c
-index 66a3f5b1..f1cda938 100644
+index 66a3f5b..f1cda93 100644
 --- a/src/util/disk_cache_os.c
 +++ b/src/util/disk_cache_os.c
 @@ -1003,8 +1003,12 @@ bool
@@ -468,3 +481,6 @@ index 66a3f5b1..f1cda938 100644
  
     /* At user request, disable shader cache entirely.
      * Disk cache is not enabled by default for android, for most
+-- 
+2.50.1 (Apple Git-155)
+

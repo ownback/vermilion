@@ -7,7 +7,7 @@ HERE=$(cd "$(dirname "$0")" && pwd); R=$HERE/../..; S=$R/tools/phxctl/recovery_i
 . "$HERE/lib/portable.sh"   # MOCKTMP, mock_sedi, MOCK_PB; off macOS the shims in lib/bin (tests/mock/README.md)
 T=$(mktemp -d "${TMPDIR:-/tmp}/rinst.XXXXXX"); PASSN=0; FAILN=0; PB=$MOCK_PB
 payload() { P=$T/payload; mkdir -p "$P/build/VermilionAccel.kext/Contents/MacOS" "$P/tools/phxctl" "$P/fw/navi31"
-  for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib phxctl mesboot metaltest spirv-val; do echo "$f" >"$P/build/$f"; done
+  for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib phxctl mesboot metaltest spirv-val phxaudio; do echo "$f" >"$P/build/$f"; done
   echo kext >"$P/build/VermilionAccel.kext/Contents/MacOS/VermilionAccel"; echo fw >"$P/fw/navi31/smu_13_0_0.bin"
   cp "$R"/tools/phxctl/*.sh "$R"/tools/phxctl/*.py "$R/tools/phxctl/local.phxboot.plist.in" "$P/tools/phxctl/"; }
 data() {   # data <user>...: a fake Data volume with those users (uid 501, 502, ...)
@@ -29,8 +29,8 @@ check fresh '[ "$(cat "$T/rc")" = 0 ]' '[ -f "$GB/NVMTLDriver.bundle/Contents/In
   '[ "$(cat "$GB/NVMTLDriver.bundle/Contents/MacOS/NVMTLDriver")" = NVMTLDriver ]' '[ -f "$GB/nvmtl/libvulkan_radeon.dylib" ]' '[ -d "$GB/nvmtl/aircache" ]' \
   '[ "$(cat "$GB/nvmtl-allow.txt")" = "*" ]' '[ -f "$D/Library/Extensions/VermilionAccel.kext/Contents/MacOS/VermilionAccel" ]' \
   '[ -x "$D/usr/local/sbin/mesboot" ]' '[ -x "$D/usr/local/bin/spirv-val" ]' '[ -x "$G/phxboot-navi31.sh" ]' '[ -x "$G/phxctl/navi31_up.sh" ]' \
-  '[ -x "$G/phxctl/bringup_navi31.sh" ]' 'cmp -s "$G/phxboot-pre.sh" "$R/tools/phxctl/esp_flags.sh"' '[ -f "$G/fw/navi31/smu_13_0_0.bin" ]' \
-  '[ -e "$G/phxboot-sdma" ] && [ -e "$G/phxboot-cg" ] && [ "$(cat "$G/phxboot-uclk")" = 456 ]' '[ ! -e "$G/phxboot-desktop" ] && [ ! -e "$G/phxboot-auto" ]' \
+  '[ -x "$G/phxctl/bringup_navi31.sh" ]' '[ -x "$G/phxaudio" ] && [ -x "$G/audio_match.sh" ]' 'cmp -s "$G/phxboot-pre.sh" "$R/tools/phxctl/esp_flags.sh"' '[ -f "$G/fw/navi31/smu_13_0_0.bin" ]' \
+  '[ ! -e "$G/phxboot-sdma" ] && [ ! -e "$G/phxboot-cg" ] && [ ! -e "$G/phxboot-uclk" ]' '[ ! -e "$G/phxboot-desktop" ] && [ ! -e "$G/phxboot-auto" ]' \
   'grep -q "<string>/Users/alice/gpu/phxboot-navi31.sh</string>" "$D/Library/LaunchDaemons/local.phxboot.plist"' \
   'grep -q "<key>PHX_USER</key><string>alice</string>" "$D/Library/LaunchDaemons/local.phxboot.plist"' \
   '[ "$($PB -c "Print :AutomaticDownload" "$D/Library/Preferences/com.apple.SoftwareUpdate.plist")" = false ]' \

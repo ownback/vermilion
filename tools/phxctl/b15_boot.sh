@@ -12,7 +12,7 @@
 #     ~43 -> ~20 W idle)
 # Any step failing stops before 5 (stutter stays forced off: the state every step was tested in). Watchdog: polls the OPTC0
 # (0x4F8A bit 10) and HUBP0 (0x3AB3 bits 30:28) underflow stickies every $PHXB15_POLL s and at the first hit forces 0x1002
-# for the rest of the boot, and with step 6 on re-pins UCLK 456 (the UCLK-switch underflow mitigation). Logs to stdout (the daemon's phxboot.log). Never touches anything else.
+# for the rest of the boot, and with step 6 on re-pins UCLK (the UCLK-switch underflow mitigation). Logs to stdout (the daemon's phxboot.log). Never touches anything else.
 # Rollback: rm ~/gpu/phxboot-b15 (next boot = no recipe); live: `sudo ~/gpu/phxctl.bin wreg 0x39BC 0x1002` + kill this.
 # Two displays (10-30), only with
 # ~/gpu/phxboot-b15-2pipe, OTG0 + OTG1 lit, OTG0 1080p60, DET0 = DET1 = 9 (m7_boot.sh set them at 144): wm144.sh linux2,
@@ -20,7 +20,7 @@
 # ~/gpu/phxboot-b15-2pipe-sr the stutter allowed (0x39BC 0x1000; -4.5 W more), and with
 # ~/gpu/phxboot-b15-2pipe-dalwm dalwm.sh before the UCLK unpin, with ~/gpu/phxboot-b15-2pipe-p0pf p0prefetch.sh
 # linux before the UCLK unpin. Watchdog:
-# OPTC0/1 + HUBP0/1 stickies; first hit = stutter forced off (0x1002) and UCLK re-pinned 456 for the rest of the boot.
+# OPTC0/1 + HUBP0/1 stickies; first hit = stutter forced off (0x1002) and UCLK re-pinned for the rest of the boot.
 # AOC at 144 (10-31; kext b101 pipe-0 macOS path), only with
 # ~/gpu/phxboot-m7-aocmodes or ~/gpu/phxboot-m7-aoc144: after the two-display recipe the pipe-0 engine is armed
 # (debug.phxpipe0_enable=1) and the watchdog follows pipe 0's mode (AOC 144 -> `aoc144`, back at 60 -> `aoc60`); -aoc144
@@ -32,7 +32,7 @@
 # SCDC2 (11-01; from a register capture of Linux amdgpu with the Acer at 165): the
 # Acer at 1080p165 (OTG1 0x81f/0x455) next to either AOC mode. AOC 144 + Acer 165: `aoc144` = linux144a165 (c3), the HUBP0
 # rate group checked against the kext's 1080p144a165 plan, HUBP1's reported against c3. AOC 60 + Acer 165: `aoc60` = UCLK
-# pinned 456 + stutter forced off (an untested pair: the conservative state of the 144 branch / the underflow mitigation) +
+# pinned (top level) + stutter forced off (an untested pair: the conservative state of the 144 branch / the underflow mitigation) +
 # linux60a165 (c2), HUBP0's group reported against c2; the Acer leaving 165 next to the AOC at 60 = linux2, UCLK pinned and
 # stutter off until the next boot. The follower also acts when the Acer enters or leaves 165 next to the AOC at 60.
 # Boot rate (11-02): ~/gpu/phxboot-aoc-rate (144 | last) = the AOC at 144 from boot.
@@ -46,11 +46,11 @@
 # ~/gpu/phxboot-m7) at 144. Needs PhxBringup's debug.phxpipe0_solo (kernel-p0solo.patch: with OTG1 dark the kext accepts
 # its 1080p144 plan = u3, whose HUBP0 group is Linux's for this AOC mode at DET 9). `aocboot1` (the daemon, before its
 # restart) = DET0 9, hubp_dlg linux60 + the stickies cleared + p0prefetch linux PHXP0_SOLO=1 (the 60 round trip needs every
-# 60-plan register equal), the engine armed with solo, the macOS sequence to 144, then `aoc144solo` (UCLK pinned 456, the
+# 60-plan register equal), the engine armed with solo, the macOS sequence to 144, then `aoc144solo` (UCLK pinned (top level), the
 # HUBP0 group checked against u3, watermarks wm144.sh linux = Linux's one-display 144 set, stutter left forced off). After
 # `done` the one-display AOC branch keeps that state (no stutter allowed: the conservative two-display-144 state), arms the
 # engine with solo for System Settings picks (the AOC alone at 60 gets the same pipe-0 prep and, with boot rate 144, the
-# after-login request) and runs `watch1`: OPTC0/HUBP0 underflow -> stutter forced off + UCLK 456 for the boot; OTG0 changes
+# after-login request) and runs `watch1`: OPTC0/HUBP0 underflow -> stutter forced off + UCLK pinned for the boot; OTG0 changes
 # -> aoc144solo / aoc60solo. The Acer alone on pipe 0 (OTG0 0x807/0x449) keeps the one-display recipe as before.
 # Acer relight (11-03): an Acer HDMI replug clears the sink's SCDC
 # while pipe 1 keeps sending 165 Hz TMDS that needs scrambling -> a dark panel. watch2 reads debug.phxhotplug_stat (every
@@ -116,7 +116,7 @@ sw0() { $SW0 2>/dev/null | awk '{for (i = 1; i <= NF; i++) if ($i ~ /^(busy|gen)
 step() { sn=$1; shift; out=$("$@" 2>&1); rc=$?   # sn, not n: n is the watchdog's poll counter
   echo "b15: $sn rc $rc $(echo "$out" | tail -1 | cut -c1-100)"; return $rc; }
 # AOC at 144: the two-display set for OTG0 at 1080p144 next to the Acer at 144 (Linux capture u3):
-# UCLK pinned 456 (kept pinned at 144 + 144 until its own test;
+# UCLK pinned (top level) (kept pinned at 144 + 144 until its own test;
 # Linux idles MCLK at 96 MHz there, u3 clk-samples), the HUBP0 rate group checked against the kext's 144 plan (= u3: the
 # pipe-0 engine wrote it), watermarks wm144.sh linux144x2, HUBP1's rate group reported only (pipe 1 is the pipe-1 plan's;
 # = u3 except MIN_TTU_VBLANK 0x7a5, Linux 0x79f), stutter left forced off (the kext's macOS path leaves 0x39BC so at 144).
@@ -196,16 +196,16 @@ aoc144() {
   if [ $a1 = 60 ]; then   # b103: the kext's 1080p144a60 plan, the u4 sets
     grp HUBP0 "$AOC_HUBP0_A60" u4 || { echo "b15: aoc144: HUBP0's rate group is not the 1080p144a60 plan's: watermarks not changed"; return 1; }
     step wm144a60 sh "$G/wm144.sh" linux144a60 || return 1
-    echo "b15: $(date '+%T') AOC 144 + Acer 60: UCLK pinned 456, watermarks linux144a60, stutter forced off ($(r 0x39BC))"; return 0; fi
+    echo "b15: $(date '+%T') AOC 144 + Acer 60: UCLK pinned (top level), watermarks linux144a60, stutter forced off ($(r 0x39BC))"; return 0; fi
   if [ $a1 = 165 ]; then   # SCDC2: the kext's 1080p144a165 plan, the c3 sets
     grp HUBP0 "$AOC_HUBP0_A165" c3 || { echo "b15: aoc144: HUBP0's rate group is not the 1080p144a165 plan's: watermarks not changed"; return 1; }
     step wm144a165 sh "$G/wm144.sh" linux144a165 || return 1
     grp HUBP1 "$AOC_HUBP1_165" c3 || true
-    echo "b15: $(date '+%T') AOC 144 + Acer 165: UCLK pinned 456, watermarks linux144a165, stutter forced off ($(r 0x39BC))"; return 0; fi
+    echo "b15: $(date '+%T') AOC 144 + Acer 165: UCLK pinned (top level), watermarks linux144a165, stutter forced off ($(r 0x39BC))"; return 0; fi
   grp HUBP0 "$AOC_HUBP0" || { echo "b15: aoc144: HUBP0's rate group is not the 144 plan's: watermarks not changed"; return 1; }
   step wm144x2 sh "$G/wm144.sh" linux144x2 || return 1
   grp HUBP1 "$AOC_HUBP1" || true
-  echo "b15: $(date '+%T') AOC 144 + Acer 144: UCLK pinned 456, watermarks linux144x2, stutter forced off ($(r 0x39BC))"; }
+  echo "b15: $(date '+%T') AOC 144 + Acer 144: UCLK pinned (top level), watermarks linux144x2, stutter forced off ($(r 0x39BC))"; }
 aoc60() {
   ht=$(r 0x4FEA); [ $(( ht )) -eq $((0x897)) ] || { echo "b15: aoc60: OTG0 H_TOTAL $ht is not the AOC at 1080p60 (0x897): nothing done"; return 1; }
   case "$(sw0)" in *busy=1*) echo "b15: aoc60: the pipe-0 engine is busy: nothing done"; return 1 ;; esac
@@ -216,13 +216,13 @@ aoc60() {
     sa=$(r 0x39BC); [ $(( sa & 3 )) -eq 2 ] || w 0x39BC $(printf 0x%X $(( (sa & ~3) | 2 )))
     step wm60a165 sh "$G/wm144.sh" linux60a165 || return 1
     grp HUBP0 "$AOC60_HUBP0_A165" c2 || true
-    echo "b15: $(date '+%T') AOC 60 + Acer 165: UCLK pinned 456, watermarks linux60a165, stutter forced off ($(r 0x39BC))"; return 0; fi
+    echo "b15: $(date '+%T') AOC 60 + Acer 165: UCLK pinned (top level), watermarks linux60a165, stutter forced off ($(r 0x39BC))"; return 0; fi
   sa=$(r 0x39BC); [ $(( sa & 3 )) -eq 2 ] || w 0x39BC $(printf 0x%X $(( (sa & ~3) | 2 )))
   step wm144_2 sh "$G/wm144.sh" linux2 || return 1
   echo "b15: $(date '+%T') AOC back at 60 (Acer OTG1 H_TOTAL $(r 0x506A)): watermarks linux2, UCLK stays pinned and stutter off until the next boot"; }
 # p0solo: OTG1-3 all dark (one display)
 alone() { for o in 1 2 3; do c=$(r $(printf 0x%X $((0x4FEA + 0x80 * o + 0x17)))); [ $(( c & 1 )) -eq 0 ] || return 1; done; return 0; }
-# the AOC alone at 144 (the kext's 1080p144 plan through debug.phxpipe0_solo): UCLK 456, HUBP0 = u3, Linux one-display watermarks
+# the AOC alone at 144 (the kext's 1080p144 plan through debug.phxpipe0_solo): UCLK pinned, HUBP0 = u3, Linux one-display watermarks
 aoc144solo() {
   ht=$(r 0x4FEA); vt=$(r 0x4FEF)
   [ $(( ht )) -eq $((0x807)) ] && [ $(( vt )) -eq $((0x44B)) ] || { echo "b15: aoc144solo: OTG0 $ht/$vt is not the AOC at 1080p144 (0x807/0x44b): nothing done"; return 1; }
@@ -233,7 +233,7 @@ aoc144solo() {
   step uclk_pin sh "$G/uclk.sh" pin 456 || return 1
   grp HUBP0 "$AOC_HUBP0" || { echo "b15: aoc144solo: HUBP0's rate group is not the 1080p144 plan's: watermarks not changed"; return 1; }
   step wm144 sh "$G/wm144.sh" linux || return 1
-  echo "b15: $(date '+%T') AOC 144 alone: UCLK pinned 456, watermarks linux (one display), stutter forced off ($(r 0x39BC))"; }
+  echo "b15: $(date '+%T') AOC 144 alone: UCLK pinned (top level), watermarks linux (one display), stutter forced off ($(r 0x39BC))"; }
 # the AOC alone back at 60: stutter stays forced off and UCLK pinned for the rest of the boot (the one-display 144 watermarks
 # stay: the same latency budget is easier at 60 [I]); the kext's 60 plan put the HUBP0 groups back
 aoc60solo() {
@@ -266,14 +266,14 @@ aocboot1() {
   aoc144solo || return 1
   echo "b15: $(date '+%T') aocboot1: the AOC (alone) at 144 before the WindowServer restart"; }
 # The one-display watchdog: OPTC0/HUBP0 stickies (skipped while the pipe-0 engine is busy or started meanwhile) -> stutter
-# forced off + UCLK 456 for the boot; OTG0 mode changes -> aoc144solo / aoc60solo
+# forced off + UCLK pinned for the boot; OTG0 mode changes -> aoc144solo / aoc60solo
 watch1() {
   srv_start; n=0; last1=$(r 0x4FEA)
   while :; do
     if srv @$SW0N 0x4F8A 0x3AB3 @$SW0N && sget p0 && sget v && sget h && sget p1; then bgof "$p0"; p0=$BG; bgof "$p1"; p1=$BG
     else p0=$(sw0); v=$(r 0x4F8A); h=$(r 0x3AB3); p1=$(sw0); fi; k=""
     case "$p0$p1" in *busy=1*) ;; *) if [ "$p0" = "$p1" ]; then [ $(( v & 0x400 )) -ne 0 ] && k=optc0; [ $(( (h >> 28) & 7 )) -ne 0 ] && k="${k:+$k+}hubp0"; fi ;; esac
-    if [ -n "$k" ]; then w 0x39BC 0x1002; echo "b15: $(date '+%T') $k underflow: stutter forced off, UCLK pinned 456 for this boot"; step uclk_repin sh "$G/uclk.sh" pin 456; exit 2; fi
+    if [ -n "$k" ]; then w 0x39BC 0x1002; echo "b15: $(date '+%T') $k underflow: stutter forced off, UCLK pinned (top level) for this boot"; step uclk_repin sh "$G/uclk.sh" pin 456; exit 2; fi
     if srv @$SW0N 0x4FEA && sget q && sget ht; then bgof "$q"; q=$BG; else q=$(sw0); case "$q" in *busy=1*) ;; *) ht=$(r 0x4FEA) ;; esac; fi
     case "$q" in *busy=1*) ;; *)
       if [ "$ht" != "$last1" ] && [ "$(sw0)" = "$q" ]; then last1=$ht
@@ -316,7 +316,7 @@ aoc_request() {
 # Boot rate: the AOC at 144 before the daemon's WindowServer restart (see the header). Same steps and order as the after-login
 # path reached them: the pair's 60 watermarks, hubp_dlg linux60, the underflow stickies cleared (the survey refuses a set
 # ODM0 sticky), p0prefetch linux (the round trip needs every 60-plan register equal; the Acer at 165:
-# PHXP0_PAIR165=1), the engine armed, debug.phxpipe0_mode=144 + debug.phxpipe0=4 (stutter off, UCLK 456, the 60 round
+# PHXP0_PAIR165=1), the engine armed, debug.phxpipe0_mode=144 + debug.phxpipe0=4 (stutter off, UCLK pinned, the 60 round
 # trip, the set), then aoc144. Exit 0 = OTG0 at 1080p144 with aoc144 done; any refusal before the set leaves the AOC at 60
 # (this script's 60 recipe after `done` repeats the same pipe-0 steps). Needs pipe 1 at 144 or 165 with DET 9/9 (m7_boot.sh).
 aocboot() {
@@ -442,7 +442,7 @@ watch2() {
     k=""; w2read
     case "$p0$p1" in *busy=1*) ;; *) if [ "$p0" = "$p1" ]; then [ $(( wv0 & 0x400 )) -ne 0 ] && k=optc0; [ $(( (wh0 >> 28) & 7 )) -ne 0 ] && k="${k:+$k+}hubp0"; fi ;; esac
     case "$s0$s1" in *busy=1*) ;; *) if [ "$s0" = "$s1" ]; then [ $(( wv1 & 0x400 )) -ne 0 ] && k="${k:+$k+}optc1"; [ $(( (wh1 >> 28) & 7 )) -ne 0 ] && k="${k:+$k+}hubp1"; fi ;; esac
-    if [ -n "$k" ]; then w 0x39BC 0x1002; echo "b15: $(date '+%T') $k underflow: stutter forced off, UCLK pinned 456 for this boot"; step uclk_repin sh "$G/uclk.sh" pin 456; exit 2; fi
+    if [ -n "$k" ]; then w 0x39BC 0x1002; echo "b15: $(date '+%T') $k underflow: stutter forced off, UCLK pinned (top level) for this boot"; step uclk_repin sh "$G/uclk.sh" pin 456; exit 2; fi
     [ $follow = 1 ] && follow0
     [ $rlon = 1 ] && rl_tick; [ $rlon = 2 ] && rl_arm
     [ $remember = 1 ] && [ $(( n % RMEMN )) -eq 0 ] && remember_tick

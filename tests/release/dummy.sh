@@ -24,7 +24,7 @@ EOF
 dummy_build() {
   local f
   mkdir -p "$1"
-  for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib phxctl mesboot metaltest spirv-val; do echo "dummy $f $2" >"$1/$f"; done
+  for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib phxctl mesboot metaltest spirv-val phxaudio; do echo "dummy $f $2" >"$1/$f"; done
   mkdir -p "$1/VermilionAccel.kext/Contents/MacOS"
   echo "dummy accel $2" >"$1/VermilionAccel.kext/Contents/MacOS/VermilionAccel"
   echo '<plist version="1.0"><dict/></plist>' >"$1/VermilionAccel.kext/Contents/Info.plist"

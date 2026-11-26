@@ -346,7 +346,7 @@ alone144() { echo 0x00000807 > "$R/0x4FEA"; echo 0x0000044B > "$R/0x4FEF"; echo 
 # det.sh stub that really sets DET0 (the engine and aoc144solo read it)
 detstub() { printf '#!/bin/sh\necho "det $*" >> %s/calls\n[ "$1" = set ] && echo 0x00000909 > %s/0x397B\nexit ${SIM_FAIL_det:-0}\n' "$W" "$R" > "$G/det.sh"; chmod +x "$G/det.sh"; }
 mk aocboot1_ok; alone60; p0pf1stub; detstub; sc0stub; runa aocboot1
-check '[ $RC = 0 ] && [ "$(calls)" = "det set 9,hubp_dlg linux60,p0prefetch linux solo=1,uclk pin 456,wm144 linux," ] && grep -q "sysctl -w debug.phxpipe0_solo=1" $W/sysctl.log && grep -q "sysctl -w debug.phxpipe0=4" $W/sysctl.log && grep -q "AOC 144 alone: UCLK pinned 456, watermarks linux (one display)" $W/out && grep -q "aocboot1: the AOC (alone) at 144 before the WindowServer restart" $W/out && [ "$(st)" = 0x00001002 ] && grep -q "^0x4F8A " $R/writes'
+check '[ $RC = 0 ] && [ "$(calls)" = "det set 9,hubp_dlg linux60,p0prefetch linux solo=1,uclk pin 456,wm144 linux," ] && grep -q "sysctl -w debug.phxpipe0_solo=1" $W/sysctl.log && grep -q "sysctl -w debug.phxpipe0=4" $W/sysctl.log && grep -q "AOC 144 alone: UCLK pinned (top level), watermarks linux (one display)" $W/out && grep -q "aocboot1: the AOC (alone) at 144 before the WindowServer restart" $W/out && [ "$(st)" = 0x00001002 ] && grep -q "^0x4F8A " $R/writes'
 mk aocboot1_otg1_lit; alone60; echo 0x00000001 > "$R/0x5081"; p0pf1stub; detstub; sc0stub; runa aocboot1
 check '[ $RC = 1 ] && [ ! -e $W/calls ] && grep -q "a second pipe is lit" $W/out && ! grep -q "\-w debug.phxpipe0" $W/sysctl.log'
 mk aocboot1_no_solo; alone60; p0pf1stub; detstub; sc0stub; export SIM_NOSOLO=1; runa aocboot1; unset SIM_NOSOLO

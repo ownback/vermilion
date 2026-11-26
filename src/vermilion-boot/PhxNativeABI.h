@@ -17,7 +17,7 @@
 
 #define PHXN_UC_TYPE      0x4E34384Eu   /* 'N48N' */
 #define PHXN_ABI_VERSION  1u
-#define PHXN_ABI_MINOR    12u           /* minor the RADV build expects in Hello / info.reserved[2] */
+#define PHXN_ABI_MINOR    13u           /* minor the RADV build expects in Hello / info.reserved[2]; 13 (b168): phxn_devinfo */
 #define PHXN_HELLO_F_MINOR (1u << 8)
 #define PHXN_MAX_IBS      64u
 #define PHXN_MAX_BOS      4096u         /* handles 1..4095 */
@@ -273,6 +273,48 @@ static_assert(sizeof(struct phxn_ctx) == 16, "ctx is 16 B");
 static_assert(sizeof(struct phxn_cs_ib) == 32, "cs_ib is 32 B");
 static_assert(sizeof(struct phxn_cs_in) == 32, "cs_in is 32 B");
 static_assert(sizeof(struct phxn_info) == 192, "info is 192 B");
+
+/* ABI 1.13 (kext b168): the device info, read from the hardware the way Linux amdgpu gets it (PhxDevInfo.h). QueryInfo
+ * with a struct out of sizeof(phxn_info_dev) (704 B) returns phxn_info followed by it; the 192-B call is unchanged.
+ * Each field is what Linux's AMDGPU_INFO_DEV_INFO / HW_IP_INFO / FW_VERSION answer holds for it, in the same units
+ * (cache sizes in KiB, clocks in kHz, mall_size in bytes). The flags say where the values without a read-only source
+ * come from. */
+#define PHXN_DEVINFO_VERSION    1u
+#define PHXN_DEV_VALID          (1u << 0)   /* the IP discovery table in VRAM parsed (signature, checksums, bounds) */
+#define PHXN_DEV_GC_REGS        (1u << 1)   /* the GC harvest registers and GB_ADDR_CONFIG were read (GFX is up) */
+#define PHXN_DEV_CU_PER_SA_FULL (1u << 2)   /* cu_bitmap: every active SA has the table's CU count (no per-SA read) */
+#define PHXN_DEV_VRAM_FROM_UMC  (1u << 3)   /* vram_type / vram_bit_width from the UMC IP and count, not the VBIOS */
+#define PHXN_DEV_CLOCKS_DEFAULT (1u << 4)   /* clocks and gpu_counter_khz are Linux's values for this board, not read */
+#define PHXN_DEV_FW_DEFAULT     (1u << 5)   /* fw_*: the pinned firmware files' header versions, not the loaded ones */
+struct phxn_devinfo {
+    uint32_t version, size, flags;
+    int32_t discovery_err;                  /* phxdev::Err: 0 = parsed */
+    uint32_t device_id, pci_rev, chip_rev, external_rev;
+    uint32_t family, gc_ip, vcn_ip, umc_ip; /* IP versions: major << 16 | minor << 8 | revision */
+    uint32_t discovery_version, vcn_config, num_umc, vram_mb;
+    uint32_t num_se, num_sa_per_se, num_cu_per_sa, cu_active_number;
+    uint32_t sa_active_mask, num_rb_pipes, num_tcc_blocks, num_hw_gfx_contexts;
+    uint64_t enabled_rb_pipes_mask, tcc_disabled_mask;
+    uint32_t cu_bitmap[4][4];               /* Linux's layout: SE0-3 in rows 0-3 columns 0-1, SE4-7 columns 2-3 */
+    uint32_t gb_addr_config, num_gprs, max_gs_waves_per_vgt, gs_vgt_table_depth;
+    uint32_t gs_prim_buffer_depth, double_offchip_lds, wave_size, max_waves_per_simd;
+    uint32_t max_scratch_slots_per_cu, lds_size, num_sc_per_sa, num_packer_per_sc;
+    uint32_t tcp_cache_kb, num_sqc_per_wgp, sqc_inst_cache_kb, sqc_data_cache_kb;
+    uint32_t gl1c_cache_kb, gl2c_cache_kb, vram_type, vram_bit_width;
+    uint64_t mall_size;
+    uint32_t pcie_gen, pcie_num_lanes, gpu_counter_khz, reserved0;
+    uint64_t max_engine_khz, min_engine_khz, max_memory_khz, min_memory_khz;
+    uint32_t fw_me, fw_me_feature, fw_pfp, fw_pfp_feature;
+    uint32_t fw_mec, fw_mec_feature, reserved1[2];
+    char name[64];                          /* the marketing name, NUL-terminated (PhxGpuId.h) */
+    uint32_t reserved[26];
+};
+struct phxn_info_dev {
+    struct phxn_info info;
+    struct phxn_devinfo dev;
+};
+static_assert(sizeof(struct phxn_devinfo) == 512, "devinfo is 512 B");
+static_assert(sizeof(struct phxn_info_dev) == 704, "info_dev is 704 B");
 
 /* scanout (selectors 9..14): the layouts of Cobalt64's n48n_scan_* (kext ABI 1.1) */
 #define PHXN_SCAN_MAX_SLOTS    3u

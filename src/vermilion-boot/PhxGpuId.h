@@ -65,6 +65,18 @@ inline const char *name(Board b) {
     }
 }
 
+// The marketing name as amdgpu.ids spells it, which is also how Apple names its AMD GPUs (the PCI device's "model",
+// About This Mac, MTLDevice.name). Only the XTX gets as far as asking.
+inline const char *marketingName(Board b) {
+    switch (b) {
+        case Board::Xtx: return "AMD Radeon RX 7900 XTX";
+        case Board::Xt: return "AMD Radeon RX 7900 XT";
+        case Board::Gre: return "AMD Radeon RX 7900 GRE";
+        case Board::Mobile: return "AMD Radeon RX 7900M";
+        default: return "AMD Radeon Graphics";
+    }
+}
+
 // The board a PCI object (IOPCIDevice, or a test double with configRead16 / configRead8) is. Config reads only.
 template <class Pci>
 inline Board classifyPci(Pci *pci) {

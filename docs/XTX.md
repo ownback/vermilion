@@ -53,11 +53,11 @@ The XTX is the same die with nothing disabled. These were checked against the XT
 
 | # | What | Where | Fix | Impact if left |
 |---|---|---|---|---|
-| 1 | RADV canned profile is the XT's: 84 CU, 320-bit, 4 of 24 cache channels off | `patches/mesa/0016` | **Done in `0018` (thread 02):** revision `0xC8` takes Mesa's own `navi31` entry (an XTX; it differs from `navi31_xt` only in the harvest: 96 CU, 384-bit, no GL2 channel off), anything else keeps `navi31_xt` (left over: no board that reaches RADV can read another revision now that the kexts refuse them; remove `navi31_xt` and the fallback with the next RADV rebuild, which is its own VermilionTrust + EFI boot). Side-loaded on the XTX machine 2026-11-23: `metalbench render 2000` 4.86 -> 3.93 ms per frame, the rest unchanged | Works, but extra cache flushes (`tcc_rb_non_coherent`), the GPU reports 84 cores |
-| 2 | Two shims compare the profile name to `"navi31_xt"` exactly | `patches/mesa/0017` (`acd_vcn`), `0016` (marketing name) | **Done in `0018`:** the VCN shim matches every `navi31*` profile; `navi31` is named "AMD Radeon RX 7900 XTX" | With another profile: no video decode, wrong name ("RX 9070 XT") |
+| 1 | RADV canned profile is the XT's: 84 CU, 320-bit, 4 of 24 cache channels off | `patches/mesa/0016` | **Done in `0018` (thread 02):** revision `0xC8` took Mesa's own `navi31` entry (96 CU, 384-bit, no GL2 channel off). Side-loaded on the XTX machine 2026-11-23: `metalbench render 2000` 4.86 -> 3.93 ms per frame. **Then (2026-11-26, branch `ownback/device-info`, not on hardware yet):** `navi31_xt` and the revision switch are gone (0016 adds only `navi31`), and with VermilionBoot b168 (ABI 1.13) RADV takes the device info from the kext, which reads the IP discovery table and the GC harvest registers as Linux does ([finding](../.agents/findings/2026-11-26-device-info.md)). With an older kext the `navi31` entry answers | Works, but extra cache flushes (`tcc_rb_non_coherent`), the GPU reports 84 cores |
+| 2 | Two shims compare the profile name to `"navi31_xt"` exactly | `patches/mesa/0017` (`acd_vcn`), `0016` (marketing name) | **Done:** the VCN shim matches `navi31` (`0017`); the name is the kext's (`PhxGpuId.h` `marketingName`, "AMD Radeon RX 7900 XTX", patch `0018`), and the plugin's `MTLDevice.name` is that name alone (2026-11-26, not on hardware yet) | With another profile: no video decode, wrong name ("RX 9070 XT") |
 | 3 | GFXHUB `SYSTEM_APERTURE_HIGH` hardcoded for 20 GiB (`0x00213fbf`) | `tools/phxctl/mesboot.c:131` | `0x00217fbf` for 24 GiB, better: derive from `FB_LOCATION_TOP` | Latent: nothing uses VRAM above 20 GiB today |
 | 4 | HUBP1 aperture in pipe-1 plans (`0x00213fff`) | `phx_s2_plan_*.inc` | `0x00217fff`, or derive | Latent; pipe 1 is the second-monitor path |
-| 5 | Metal core count 84 | `src/metal-plugin/nvmtl_corecount.c` | follow the profile | Cosmetic |
+| 5 | Metal core count 84 | `src/metal-plugin/nvmtl_corecount.c` | **Done:** `gpuCoreCount` is RADV's `activeComputeUnitCount` (`VK_AMD_shader_core_properties2`), 96 with the `navi31` entry; with b168 it is the kext's `cu_active_number` (unverified on hardware) | Cosmetic |
 | 6 | Docs said revision `0xCC` only | `README.md`, `docs/INSTALL.md`, `bringup_navi31.sh` | **Done (2026-11-25):** the docs name the XTX only; the XT is refused | Cosmetic |
 
 ## A 1440p monitor (LG ULTRAGEAR+, 2560x1440 at up to 240 Hz)
@@ -110,10 +110,10 @@ last until the restart.
 
 | Knob | What it does |
 |---|---|
-| `~/gpu/phxboot-p0modes` (present) | needed for all of the above: head 0 lists the monitor's modes instead of one |
+| `~/gpu/phxboot-p0modes-off` (present) | on by default; with the file head 0 lists one mode instead of the monitor's modes (the rest of this table needs them) |
 | `~/gpu/phxboot-vrrmin` (value: Hz) | Variable's lowest rate: `0` = the EDID's minimum (48 on the LG), or 24-240. Without the file: 60. A new value makes macOS treat the monitor as a new display (below) |
 | `~/gpu/phxboot-novrr` (present) | no Variable in System Settings. HDR goes with it |
-| `~/gpu/phxboot-nohdr` (present) | no High Dynamic Range in System Settings |
+| `~/gpu/phxboot-hdr` (present) | High Dynamic Range in System Settings. Off by default: HDR is broken in this preview |
 | `sudo sysctl -w debug.phxvrr_ramp=N` | the ramp in % per flip: 1-50, default 5; `0` = no ramp (the full range at once). On the LG, 5 flickered least; 10 and 20 flickered more |
 | `sudo sysctl -w debug.phxvrr_floor=N` | the floor in Hz, live (24-255), for trying values. The next mode switch puts back the boot value, and the label in System Settings does not change |
 | `sysctl debug.phxvrr_stat` | Adaptive Sync's state: on / off and why, OTG0's range registers, the ramp's window, the floor, the measured rate |
@@ -166,7 +166,8 @@ of the live stage (`vermilion-trust-bar1g-audio`; not booted yet, unverified). R
 
 Use upstream's guide ([INSTALL.md](INSTALL.md)) with these differences:
 
-- Flags: only `phxboot-sdma`, `phxboot-cg`, `phxboot-uclk` (`456`). No `phxboot-m7*`, `phxboot-aoc*`, `phxboot-b15*`.
+- Flags: none. The features are on by default (INSTALL.md 7.3); `phxboot-m7*`, `phxboot-aoc*`, `phxboot-b15*` stay
+  opt-in and are not used on one monitor.
 - Power off fully when coming from Linux.
 - First boot without desktop arm (apps get Metal, the GOP keeps the screen), then the squat boot.
 - Watch GPU temperature and power for the first minutes. Without clock gating the idle card runs hot.

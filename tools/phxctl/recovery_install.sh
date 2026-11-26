@@ -19,7 +19,7 @@
 #      the plugin, the translator, RADV, the shader caches (owned by _windowserver), an allow list of "*"
 #   3. /Library/Extensions/VermilionAccel.kext; /usr/local/sbin/phxctl, mesboot; /usr/local/bin/spirv-val
 #   4. <home>/gpu: the daemon, the bring-up and helper scripts, phxctl.bin, metaltest, the firmware, the flags in
-#      VERMILION_FLAGS (default "phxboot-sdma phxboot-cg phxboot-uclk=456", the first-boot set of docs/XTX.md), and
+#      VERMILION_FLAGS (default none: every proven feature is on by default in the daemon, 2026-11-26), and
 #      esp_flags.sh as the daemon's pre-hook (phxboot-pre.sh)
 #   5. /Library/LaunchDaemons/local.phxboot.plist from the template
 #   6. Software Update: no automatic download or install (the stack is pinned to macOS 26.7.1)
@@ -33,7 +33,7 @@ PB=${VERMILION_PLISTBUDDY:-/usr/libexec/PlistBuddy}   # VERMILION_PLISTBUDDY: th
 say() { echo "vermilion-install: $*"; }
 die() { echo "vermilion-install: ERROR: $*" >&2; exit 1; }
 for f in build/NVMTLDriver build/libnvmtl_translate.dylib build/libvulkan_radeon.dylib build/VermilionAccel.kext \
-         build/phxctl build/mesboot build/metaltest build/spirv-val tools/phxctl/phxboot-navi31.sh \
+         build/phxctl build/mesboot build/metaltest build/spirv-val build/phxaudio tools/phxctl/phxboot-navi31.sh \
          tools/phxctl/local.phxboot.plist.in tools/phxctl/esp_flags.sh fw/navi31/smu_13_0_0.bin; do
   [ -e "$P/$f" ] || die "payload incomplete: $P/$f missing"
 done
@@ -131,13 +131,14 @@ say "VermilionAccel.kext, phxctl, mesboot, spirv-val installed"
 G=$H/gpu; T=$P/tools/phxctl; UO=$UID_:$GID_
 mkdir -p "$G/phxctl"
 for f in phxboot-navi31.sh gfx_cg.sh sdma_idle.sh uclk.sh smumetrics.py ptwalk.sh m7_boot.sh m7_phase.sh dispovr.sh \
-         b15_boot.sh wm144.sh det.sh dalwm.sh dal.sh hubp_dlg.sh p0prefetch.sh; do put "$T/$f" "$G/$f" "$UO" 755; done
+         b15_boot.sh wm144.sh det.sh dalwm.sh dal.sh hubp_dlg.sh p0prefetch.sh idle_dpm.sh audio_match.sh; do put "$T/$f" "$G/$f" "$UO" 755; done
 for f in navi31_up.sh bringup_navi31.sh; do put "$T/$f" "$G/phxctl/$f" "$UO" 755; done
 put "$T/esp_flags.sh" "$G/phxboot-pre.sh" "$UO" 755
 put "$P/build/phxctl" "$G/phxctl.bin" "$UO" 755
 put "$P/build/metaltest" "$G/metaltest" "$UO" 755
+put "$P/build/phxaudio" "$G/phxaudio" "$UO" 755   # DP audio (on by default): the display engine's audio blocks
 put "$P/fw/navi31" "$G/fw/navi31" "$UO" u+rwX,go+rX
-for fl in ${VERMILION_FLAGS-phxboot-sdma phxboot-cg phxboot-uclk=456}; do
+for fl in ${VERMILION_FLAGS-}; do
   case "$fl" in *=*) printf '%s\n' "${fl#*=}" >"$G/${fl%%=*}"; fl=${fl%%=*};; *) : >"$G/$fl";; esac
   own "$UO" 644 "$G/$fl"
 done

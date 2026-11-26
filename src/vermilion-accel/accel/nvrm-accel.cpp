@@ -19,6 +19,9 @@
 #include <IOKit/IORangeAllocator.h>
 #include "IOAccelerator.h"
 #include "IOGraphicsAccelerator2.h"
+#ifdef NMX_ACCEL
+#include "nmx_stats.h"   // VermilionAccel 0.1.2: Device Utilization % and vramFreeBytes in PerformanceStatistics
+#endif
 #include "IOAccelEventMachineFast2.h"
 #include "IOAccelLegacyDisplayMachine.h"
 #include "IOAccelTask.h"
@@ -303,6 +306,17 @@ public:
     OSObject *new2DContext() APPLE_KEXT_OVERRIDE { NV2DContext *c = OSTypeAlloc(NV2DContext); return c; }
     OSObject *newVideoContext() APPLE_KEXT_OVERRIDE { NVVideoContext *c = OSTypeAlloc(NVVideoContext); return c; }
     OSObject *newSysMemory() APPLE_KEXT_OVERRIDE { NVSysMemory *m = OSTypeAlloc(NVSysMemory); return m; }
+#ifdef NMX_ACCEL
+    // 0.1.2 (plan A4): the family's start makes the statistics object here; ours adds Apple's AMD keys (nmx_stats.h).
+    // PhxBringup has started long before this accelerator (it only starts on a GPU the boot daemon claimed).
+    OSObject *newStatistics() APPLE_KEXT_OVERRIDE {
+        IOService *b = nullptr;
+        if (OSDictionary *m = serviceMatching("PhxBringup")) { b = copyMatchingService(m); m->release(); }
+        NMXAccelStatistics *s = NMXAccelStatistics::make(b);
+        if (b) b->release();
+        return s;
+    }
+#endif
     OSObject *newVidMemory() APPLE_KEXT_OVERRIDE { NVVidMemory *m = OSTypeAlloc(NVVidMemory); return m; }
     OSObject *newResource() APPLE_KEXT_OVERRIDE { NVResource *r = OSTypeAlloc(NVResource); OSAddAtomic64(1, &gCntResNew); return r; }
     OSObject *newMemoryMap() APPLE_KEXT_OVERRIDE { NVMemoryMap *m = OSTypeAlloc(NVMemoryMap); return m; }

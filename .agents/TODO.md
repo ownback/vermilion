@@ -14,6 +14,24 @@ Rules:
   them once the change is verified and PROJECT_KNOWLEDGE's known-good section says what is booted.
 - Something that works on a real Mac and not here goes in as a bug under the thread that owns it (ROADMAP, "Known limits").
 
+## Flag defaults (`ownback/flag-defaults`, 2026-11-26)
+
+- [ ] **Run the defaults on the XTX machine without its old flag files** (owner, one boot): move `~/gpu/phxboot-{sdma,cg,
+  uclk,vcn,gl,audio,irqwait,p0modes,idledpm,idledpm-dcf,wscdcopy,auto,nohdr,waitstep,vrrmin}` away, boot, check
+  that `/var/log/phxboot.log` shows every feature as before and no `note:` line. Keep `phxboot-bovram`: its list is no
+  longer the default (without the file the log says `bovram: no process list`). Until then the defaults are
+  host-tested only.
+- [ ] Ship the VCN helpers in the package (`vcnup/`; `vcn_up.sh` needs data captured on the reference machine): `vcn`
+  is on by default but skips with a `missing` line on a stranger's install. (`phxaudio` and `audio_match.sh` ship.)
+- [ ] `bovram` names no process by default (the XTX machine's list is its two game processes, in its own file); decide
+  a general rule (all but WindowServer?) after a measurement on another app.
+- [x] Fixed before #55's merge (seen in its clean-up pass): `irqwait` and `waitstep` no longer run on the safe
+  desktop (no `wscdcopy` line there either), the `phxboot-nohdr` note says HDR is off by default, and
+  `recovery_install.sh` (with `esp_stage.sh`) installs `phxaudio` and `audio_match.sh` like the package.
+- [ ] Left from #55's clean-up pass: `idle_dpm.sh`'s watchdog pins UCLK under `phxboot-uclk-off` (and `b15_boot.sh`
+  pins regardless); `phxboot-novrr` is not in the `-off` scheme; stale `phxboot-nohdr` / `phxboot-wscdcopy` comments
+  in `src/vermilion-accel/accel/phxfb.cpp` and `src/metal-plugin/nvmtl_scanout.c` (next kext / plugin change).
+
 ## Staged now
 
 State after thread 03's changes (verified, recorded in PROJECT_KNOWLEDGE, known-good): `EFI/OC` = change 23
@@ -243,14 +261,16 @@ PROJECT_KNOWLEDGE.
 - [x] **03: VermilionAccel with `debug.phxgl`** (not an EFI change): installed 23:05, booted 23:18 (UUID `2B25514A`),
   OpenGL over Metal verified 23:25 (finding section 8). Rollback:
   `~/vermilion-rollback/VermilionAccel.kext.pre-phxgl-20261123`, `kmutil load -p`, Allow, restart; or just
-  `rm ~/gpu/phxboot-gl` (GL off from the next boot) / `sysctl -w debug.phxgl=0`.
+  `touch ~/gpu/phxboot-gl-off` (GL off from the next boot; before the flag defaults: `rm ~/gpu/phxboot-gl`) /
+  `sysctl -w debug.phxgl=0`.
 
 - [ ] **Boots that stop without a macOS log** (watch item, counter in [OWNER-TESTS](OWNER-TESTS.md) 01): #1 05:09
   cold (b155), #2 15:45 warm (b159; OpenCore stopped with "Missing compatible GOP"). A third one on b159 or later
   means reverting to EFI change 19 (`~/vermilion-rollback/EFI-OC.change19-20261123`, with the plugin it trusts)
   before going on. Every thread that restarts asks the owner to glance at the screen.
 
-- [ ] **HDR off as a workaround since 2026-11-24 01:00** (`~/gpu/phxboot-nohdr`; remove it to get HDR back once fixed).
+- [ ] **HDR off as a workaround since 2026-11-24 01:00** (`~/gpu/phxboot-nohdr`; since the flag defaults HDR is off
+  without it too, and `~/gpu/phxboot-hdr` turns it on: make HDR the default again once fixed).
   After the HDMI / DP replug at 00:08 WindowServer composites in BGRA while the scan-out is 10-bit HDR, the plugin's
   CPU widen path presents stale frames: the picture freezes a few minutes after login (input works).
   [Finding](findings/2026-11-24-hdr-freeze-after-replug.md). Fix: the widen path in the plugin (a trust + EFI change)
@@ -335,6 +355,52 @@ PROJECT_KNOWLEDGE.
     BOs and a 2-minute HEVC video; UCLK follows the load, no `idledpm: ... underflow` line, the owner sees no glitch.
   - Rollback: `EFI/OC.prev`'s kext back, the three scripts from `~/vermilion-rollback/u1` (the daemon by rename),
     shut down fully, boot. Live, no restart: `sudo sh ~/gpu/uclk.sh pin` holds UCLK at the top level.
+- [ ] **A4 / A9 / A19: deploy the device info from the hardware** (branch `ownback/device-info`, after the merge and
+  after U1's boot: b168 carries b167, so U1's scripts must already be in `~/gpu`;
+  [finding](findings/2026-11-26-device-info.md) section 8). The parts can go in any order: Mesa answers from its
+  `navi31` entry with a kext before ABI 1.13, and the 192-byte QueryInfo call is unchanged. One boot per part, under
+  the machine lock:
+  - (a) VermilionBoot b168 on the EFI (rollback: `EFI/OC.prev`). Check: `phx-build` 168; `sysctl debug.phxdevinfo`
+    `valid gc-regs`, 96 CU, 24 RB, 24 TCC, 384-bit, MALL 96 MiB, vram 24576 MiB; `ioreg` `model`
+    "AMD Radeon RX 7900 XTX", `VRAM,totalMB` 24576.
+  - (b) RADV (patches 0016-0020) and the plugin, then `PHXTRUST_KEEP=1 sh scripts/build/trust.sh` and the EFI
+    (rollback: the old RADV / plugin copies and `EFI/OC.prev`). Check: the `radv-darwin: device info from the kext`
+    log line and its list of differing values; About This Mac and a Metal tool show the plain name and a working set
+    of about 23.4 GiB (the device-local heap: 23696 MiB hi + 256 MiB visible).
+  - (c) VermilionAccel 0.1.2 into the AuxKC, the Allow click, restart. Check: `ioreg -rc NMXAccel -k
+    PerformanceStatistics` has `Device Utilization %` (rises under load: owner's OK first) and `vramFreeBytes`;
+    Activity Monitor's GPU History moves.
+- [ ] **Device info follow-ups** ([finding](findings/2026-11-26-device-info.md) section 3), each its own change:
+  - per-SA CU masks: the `GRBM_GFX_INDEX` select and WGP reads as `gfx_v11_0_get_cu_info` (a register write: hw-safety
+    first);
+  - VRAM type and width from the VBIOS `vram_info` table (`PhxVbios.h`; the kext has no VBIOS image at run time yet);
+  - the CP firmware versions from the files the daemon loads (it hands the kext their headers);
+  - Mesa: the VCN `HW_IP_INFO` version from the record's `vcn_ip` (the kext already sends it), the VCN firmware
+    version;
+  - clocks and per-process GPU time (N1) with plan C5;
+  - the plugin's `architecture` string (M12);
+  - provenance comments that still say "RX 7900 XT" in plugin, decoder and `tools/phxctl` headers (comments only);
+  - **the system-memory hi cap** (hw-safety review, medium; finding section 7): decided `max_mem / 4` (8 GiB wired on
+    32 GB; Linux's `max_mem / 2` is for swappable pages). The real fix is VRAM BOs for every process by default (13
+    item 3), which leaves system memory as the fallback only. A memory-pressure test after the deploy (owner's OK:
+    GPU load);
+  - make the hi cap's check-and-count one atomic step (reserve with `OSAddAtomic64`, undo on failure);
+  - if GFXOFF is ever allowed: bracket the lazy GC register read with a GFXOFF disallow, as Linux does.
+- [ ] **Fable's follow-ups from #54** (seen in the clean-up pass, left alone because each changes machine code; none
+  has run on hardware):
+  - `phxn_info.gb_addr_config` in the 192-byte QueryInfo is now the live register: a RADV build before 0018 compares it
+    with its entry's 0x545 and refuses to start on any other value (expected equal on the XTX; check at the b168 boot);
+  - `busyStop`: when the call is still pending after its four tries it is not freed and `stop` goes on, so a tick
+    could run on a stopped object (it logs one line);
+  - the sampler's tick reads the fences through BAR0 with no check of the GPU's power state (system sleep);
+  - `vram_hi_free` is bounded by the system-memory cap for a process opted into VRAM BOs too, where it does not apply;
+  - `NMXAccelStatistics`: only a resetting read moves the baseline, so with `PerformanceStatisticsAccum` readers alone
+    `Device Utilization %` is the average since the first read; `vramFreeBytes` counts system-memory hi BOs as VRAM
+    in use;
+  - `phxdev::parse`: a harvest table that removes every UMC leaves `numUmc` unreduced; `2 * (WGP0 + WGP1)` can wrap
+    before the `> 32` check on a malformed table (bounds are safe either way);
+  - `phx_gpu_stats` and `phxn_devinfo` are matched on exact version and size: a later version needs both sides updated
+    together, or the keys / the kext's record silently fall away (RADV logs it).
 
 ## 01 GPU stability
 
@@ -343,8 +409,8 @@ PROJECT_KNOWLEDGE.
   240 Hz departs from Linux (carried over from before U1, not blocking). Two answers: keep UCLK at the top level at
   240 Hz until FAMS exists on macOS (K11 or later, own review; costs idle power at the owner's main mode), or the
   owner records an exception in decisions.md. U1's load check at 240 Hz is the evidence. Also: the power cost of the
-  pinned window at 1249 MHz (not measured), and `phxboot-idledpm` (+ `-dcf`) in the release first-boot flag set,
-  without which UCLK stays at 1249 all boot (owner's call).
+  pinned window at 1249 MHz (not measured). (`idledpm` and `idledpm-dcf` are on by default since
+  `ownback/flag-defaults`, so a release install no longer stays at 1249 all boot.)
 - [ ] **`idle_dpm.sh`: `SetFclkSwitchAllow 1` before the UCLK release** (S, own hw-safety review; U1 finding section 7
   item 6): Linux's optimize pass sends the FCLK message first (`dcn32_clk_mgr.c` v6.8 :633-641 before :710-720);
   `idle_dpm.sh` sends it after `uclk.sh unpin`, and only when the unpin passed.
@@ -357,10 +423,8 @@ PROJECT_KNOWLEDGE.
     which truncates the "not confirmed" and "read not answered" endings in its log.
   - `tests/kext/pipe0_1440_test.cpp`: no check reaches `macSet`'s "no DAL callback" and "a PMFW message is in
     flight" refusals (the block with `pmfwIdle` null asks for the current mode and ends at `kSame`).
-  - `b15_boot.sh` (upstream's XT recipe) still calls `uclk.sh pin 456` and logs "UCLK pinned 456 for this boot";
-    the pin is now the top level.
-  - The installers still write `phxboot-uclk=456` (`scripts/release/pkg/postinstall`, `recovery_install.sh`), and
-    INSTALL.md, docs/RELEASE.md and docs/XTX.md name that value; the content is no longer read.
+  - `b15_boot.sh` (upstream's XT recipe) still calls `uclk.sh pin 456` (the argument is ignored; the log text is
+    fixed, `ownback/flag-defaults`).
 
 - [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
       DPCD access through drm_dp_dpcd_access (32 tries; at once after a timeout, 500 us after a NACK / DEFER); the
@@ -755,8 +819,8 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   restart). (b) CPU idle package 39.5-41.3 W vs Linux 37.8 W, one thread 5.02-5.12 vs 5.16 GHz: the `_CST` idle kext
   was declined for ~2-3 W (decisions 2026-11-23); revisit only if a workload shows the clock gap. Effort M, a kext: EFI
   change. (c) WindowServer's ~280 wakeups/s on an idle desktop: compare with a real Mac first. Effort S.
-- [ ] **8. The 6 GiB Metal working set** (`phx_globals.cpp`) sized from VRAM, now that BOs can live there. Effort S.
-  Kext: EFI change + restart.
+- [~] **8. The 6 GiB Metal working set** (`phx_globals.cpp`) sized from VRAM: done in b168 (`ownback/device-info`,
+  23696 MiB hi pool, system-memory hi BOs under a quarter of the RAM); waits for its deploy (Staged now).
 - [ ] **9. Fable's follow-ups from #15** (each changes machine code: one kext build bump, b161, one EFI change):
   - ~~Check `gpuTimeReset`~~: answered by 03 (2026-11-23, [finding](findings/2026-11-23-apis-video.md) section 1):
     retiring the VCN queue there is harmless (VCN entries carry `kNoCtx`); the helper below may include or skip it.
@@ -801,8 +865,9 @@ Other open items from 02 (not ranked; none is a parity gap on its own):
       own EFI change, the owner's call when
 - [ ] Per-core clock SMC keys missing from SMCProcessorAMD (low priority; `tools/sensors/cpuclk.c` covers it)
 - [ ] `smumetrics.py` `CurrClock[GFXCLK]` always reads 1200 MHz: a mis-read field or a target
-- [ ] RADV's canned `navi31` firmware versions (ME 1486, PFP 1525, MEC 494) vs Linux's (2540 / 2710 / 2790): compare with
-      what the firmware macOS loads reports, and whether RADV keys anything off them
+- [~] RADV's canned `navi31` firmware versions (ME 1486, PFP 1525, MEC 494) vs Linux's (2540 / 2710 / 2790): with b168
+      RADV gets the pinned files' header versions (2420 / 2580 / 2650, flagged); the versions of the files actually
+      loaded are a device-info follow-up (Staged now). Whether RADV keys anything off them: still open
 - [ ] The `nvmtl-mesa ... Permission denied` line on stderr of command-line Metal tools, if a tool still prints it
 
 ## 10 ryzentosh
@@ -843,7 +908,7 @@ Other open items from 02 (not ranked; none is a parity gap on its own):
 - [ ] The connector table from the VBIOS parser (`PhxVbios.h` already produces the same table)
 - [ ] Machine-specific values into per-board / per-monitor data files with detection
 - [ ] Latent on the XTX ([docs/XTX.md](../docs/XTX.md)): `mesboot.c` `SYSTEM_APERTURE_HIGH` from `FB_LOCATION_TOP`
-      (sized for 20 GiB), the pipe-1 HUBP1 aperture, the Metal core count from the profile (`nvmtl_corecount.c`)
+      (sized for 20 GiB), the pipe-1 HUBP1 aperture
 - [ ] EDID: the E-DDC segment pointer and all 384 bytes (`PhxDdc.h`, `PhxEdid.h`); mode matching by EDID timings
       instead of the fixed tables
 - [ ] One boot log line with the PCI revision, DMCUB version, OTG0 totals, DP link rate / lanes, BAR0 length, VRAM

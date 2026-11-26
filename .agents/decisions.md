@@ -728,6 +728,32 @@ not the threat this guard answers: the machine lock and the review of every chan
 - Host-tested only (the mock suite, `tests/plugin/test_switch_files.sh`); not run on the XTX machine without the old
   files (unverified).
 
+## Every proven daemon feature is on by default; `-off` files turn them off (2026-11-26)
+
+- Same rule as the three display switches above: a real Mac has no switches, so what the XTX machine runs at every boot
+  is the default and a stranger's install (no flag files) gets it. A feature is turned off with an empty
+  `~/gpu/phxboot-<name>-off`. On by default: `auto`, `sdma`, `cg`, `uclk`, `p0modes`, `irqwait`, `waitstep` (200 us),
+  `wscdcopy`, `vcn`, `idledpm`, `idledpm-dcf`, `bovram` (on, but names no process by default: the reference machine's
+  own list is its two games, not a rule), `gl`, `audio`. The release package writes no flag file any more (it wrote
+  `sdma`, `cg`, `uclk=456`, `auto`, `nohdr`); `phxboot-uclk=456` is gone everywhere.
+- **Same programming, nothing added:** each of these runs on the XTX machine today, so the default adds no SMU, PSP or
+  DAL message and no register write beyond what it already does (hard rule 1). `phxboot-b15*`, `m7*`, `aoc-rate`,
+  `hotplug*`, `dpwatch`, `gamma`, `wstiled`, `dispovr`, `noflip` are not on the XTX machine and stay opt-in.
+- **HDR is off by default** (broken in this preview, `phxboot-nohdr` before). `phxboot-hdr` is the explicit opt-in. The
+  daemon writes `debug.phxfb0_hdr=0` unless that file exists.
+- **Opt-in by design:** `phxboot-autologin` (never an automatic login for a stranger), the second monitor (`m7*`),
+  the kill switch `phxboot-off`, diagnostics. State files (`nvstuck`, `safe`, the pending mark, the fails record,
+  `rate-last`) are not switches.
+- **Old files keep working:** an old opt-in file (`phxboot-sdma` ...) is redundant, never an opt-out; the daemon logs one
+  `note: ~/gpu/phxboot-X is no longer needed (on by default)` line per file per boot. Value files (`vrrmin`, `waitstep`,
+  `bovram`) still override the built-in value. `phxboot-uclk`'s content (456) was already not read (U1).
+- **Known limit:** the package ships `idle_dpm.sh`, `phxaudio` and `audio_match.sh` (added) but not yet the VCN helpers
+  (`vcnup/`: `vcn_up.sh` needs data captured on the reference machine); on a stranger's install `vcn` logs
+  `... missing` and skips. `bovram` names no process by default; it does nothing until a list is in `phxboot-bovram`
+  (the XTX machine keeps its file with its two game processes).
+- **Revisit:** if a default misbehaves on another board; the `-off` files are the user's way out.
+- Host-tested only (the mock suite); not run on the XTX machine without its old files (unverified).
+
 ## The UCLK floor through the DAL mailbox, at Linux's values (U1, 2026-11-26)
 
 - The memory clock hard minimum goes only through the DAL mailbox (DALSMC `SetHardMinByFreq` 9, then
@@ -740,3 +766,24 @@ not the threat this guard answers: the machine lock and the review of every chan
 - **Why:** hard rule 1 (no message Linux doesn't send), and the Linux-like value at each state.
 - **Revisit:** if the load check at 240 Hz without FAMS underflows (finding section 7), or when K11 moves the UCLK
   rule into the kernel with DC's raise and lower.
+
+## The device info from the hardware, VRAM pools, GPU utilization (A4 / A19, 2026-11-26)
+
+- RADV's device info comes from the kext (ABI 1.13), which reads what Linux amdgpu reads: the IP discovery table at
+  the top of VRAM through the MM_INDEX window, the GC harvest registers and `GB_ADDR_CONFIG` at the table's bases (only
+  when they are this ASIC's), the NBIO revision strap, PCI config space. The only register writes are the window's
+  two index writes (MM_INDEX_HI, MM_INDEX), which Linux makes for the same read; no firmware message. Mesa's `navi31` entry keeps only what is the driver's own on Linux too, and answers alone with an older kext.
+  `navi31_xt` is gone ([finding](findings/2026-11-26-device-info.md)).
+- Values whose only source is firmware or the VBIOS (clocks, the timestamp clock, CP firmware versions, VRAM type and
+  width) are flagged defaults, not hidden constants: each has a bit in `phxn_devinfo.flags`. The per-SA CU masks are
+  flagged too: Linux reads them after a `GRBM_GFX_INDEX` select, a write that needs its own hw-safety pass.
+- The hi VRAM pool is sized from `RCC_CONFIG_MEMSIZE` (23696 MiB on 24 GiB, was 6 GiB): rule 3. While most hi BOs are
+  still system memory, all clients' system-memory hi BOs together stay under a quarter of the RAM (`max_mem / 4`):
+  Linux TTM allows half, but for swappable pages, and these are wired (a failed allocation harms one app, memory
+  pressure the whole system).
+- Activity Monitor's `Device Utilization %` comes from a fence sampler in the kext (a thread call every 2 ms, only while
+  the GFX / compute queues have work), not from the PMFW metrics table: no firmware message. The metrics-table source
+  is plan C5's, with the sampler as its fallback.
+- **Revisit:** the CU masks with the select once hw-safety clears it; VRAM type / width from the VBIOS `vram_info`;
+  the firmware versions from the files the daemon loads; the sampler if its cost shows up in a profile; the
+  `max_mem / 4` cap once VRAM BOs are the default for every process (TODO 13 item 3).

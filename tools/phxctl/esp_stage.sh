@@ -16,7 +16,7 @@ set -eu
 ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 DEST=${1:?usage: esp_stage.sh <dest> [fw dir]}; FW=${2:-$HOME/gpu/fw/navi31}; OUT=${VERMILION_OUT:-$ROOT/build}
 md5of() { if command -v md5sum >/dev/null 2>&1; then md5sum "$1" | cut -d' ' -f1; else md5 -q "$1"; fi; }
-for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib VermilionAccel.kext phxctl mesboot metaltest spirv-val; do
+for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib VermilionAccel.kext phxctl mesboot metaltest spirv-val phxaudio; do
   [ -e "$OUT/$f" ] || { echo "esp_stage: $OUT/$f missing (docs/BUILD.md)" >&2; exit 1; }
 done
 grep -v '^#' "$ROOT/tools/firmware/fw.lock" | while read -r f sum size; do
@@ -24,7 +24,7 @@ grep -v '^#' "$ROOT/tools/firmware/fw.lock" | while read -r f sum size; do
   [ -f "$FW/$f" ] && [ "$(md5of "$FW/$f")" = "$sum" ] || { echo "esp_stage: $FW/$f missing or not the fw.lock revision" >&2; exit 1; }
 done
 rm -rf "$DEST/payload.new"; mkdir -p "$DEST/payload.new/build" "$DEST/payload.new/tools/phxctl" "$DEST/payload.new/fw/navi31" "$DEST/flags"
-for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib VermilionAccel.kext phxctl mesboot metaltest spirv-val; do
+for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib VermilionAccel.kext phxctl mesboot metaltest spirv-val phxaudio; do
   cp -R "$OUT/$f" "$DEST/payload.new/build/"
 done
 cp "$ROOT"/tools/phxctl/*.sh "$ROOT"/tools/phxctl/*.py "$ROOT/tools/phxctl/local.phxboot.plist.in" "$DEST/payload.new/tools/phxctl/"

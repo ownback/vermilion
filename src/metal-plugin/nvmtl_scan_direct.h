@@ -15,7 +15,8 @@
    - the write gate (nvmtl_sd_gate): nothing is submitted that writes a surface HUBP0 may still fetch (Linux's
      flip-complete test, the kext's PHXN_SCANSLOT_WRITABLE). If the surface on screen is to be written again and no other
      flip is coming, its VRAM is first copied to the third slot and HUBP0 flips there (the bounce);
-   - when to give up for a while (nvmtl_sd_fail). */
+   - when to give up for a while (nvmtl_sd_fail);
+   - ws-direct appearing while the copy path presents (nvmtl_sd_appeared_note: said once, takes effect at the next start). */
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -127,4 +128,17 @@ static inline void nvmtl_sd_fail(unsigned *fails, uint64_t nowNs, uint64_t *unti
 {
     if (++*fails >= NVMTL_SD_MAX_FAILS) *off = 1;
     *untilNs = nowNs + NVMTL_SD_COOLDOWN_NS;
+}
+
+/* ws-direct appeared while the copy path presents. The switch-off works live (the next present copies back and releases);
+   the switch-on does not: a move to direct would release the plane (the console shows for a gap, VRR drops and resumes),
+   and the bind drains the queue, which during an animation is the normal state, so it is left to the next WindowServer
+   start, where the direct choice is made anyway. The plugin says so once. wantedAtStart: the switch at the time this
+   GPU present start chose; wantedNow: now; *said: set by the first call that returns 1. 1 = log the line.
+   Host-tested only (tests/plugin/test_scan_direct.c); not run on hardware (unverified). */
+static inline int nvmtl_sd_appeared_note(int wantedAtStart, int wantedNow, int *said)
+{
+    if (wantedAtStart || !wantedNow || *said) return 0;
+    *said = 1;
+    return 1;
 }

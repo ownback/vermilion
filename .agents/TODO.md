@@ -690,6 +690,14 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   **Built 2026-11-25** (branch `ownback/ws-vram-scanout`, VermilionBoot b162 + NVMTLDriver, switch file `ws-direct`,
   hw-safety re-check OK; finding section 8). Not installed. Deploy: b162 alone (one boot), then plugin + VermilionTrust
   (one boot), then the switch file live; owner test and rollback in section 8.
+  **Follow-ups, built 2026-11-26** (branch `ownback/scanout-live-on`, plugin only, finding section 9): a `ws-direct`
+  created while WindowServer runs takes effect at the next start (a live move was built and dropped: acquire can end
+  GPU present for the process, VRR flap, frame loss at the move; the plugin logs it once); the 16 % gate waits are the
+  second surface's flip latching (inherent with two surfaces), now counted. Not installed; (unverified) on hardware.
+  **Known issue: screenshots are stale while direct scan-out is bound** (the pages are not drawn into). An idle page
+  copy was built and removed (it could stall presents); design note for a later fix in finding section 9: a copy that
+  never holds `g_scan_lock` across a GPU wait (own queue, try-lock, or the capture reading the VRAM slot), measured
+  on hardware before it ships.
 - [ ] **1b. Narrow render-pass dependencies** (plugin, S-M): every pass has image-less ALL_COMMANDS / MEMORY_* entry
   and exit dependencies, likely an L2 flush per pass in RADV (unverified); ~0.4-0.5 ms of WindowServer's frame is
   the ~13 us per-pass floor. Measure RADV's flush bits per pass (or A/B `NVMTL_RP_K1=1`) before changing it.

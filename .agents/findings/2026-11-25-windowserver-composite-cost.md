@@ -317,14 +317,15 @@ host tests pass.
 2. Boot 2: install NVMTLDriver (the runbook's "Deploying a plugin ...": old binary to `~/vermilion-rollback/`), then
    `PHXTRUST_KEEP=1 sh scripts/build/trust.sh`, then an EFI change with only `Kexts/VermilionTrust.kext`, one boot.
    Without the switch file the plugin runs today's copy path: check that nothing changed.
-3. No restart: `sudo touch /Library/GPUBundles/nvmtl/ws-direct`. WindowServer's plugin reads it within 1 s.
+3. No restart: `sudo touch /Library/GPUBundles/nvmtl/ws-direct`. WindowServer's plugin reads it within 1 s, but only the
+   next WindowServer start (restart or logout) chooses direct; the plugin logs that once (section 9).
 
 **Owner test.**
 1. Desktop: the log shows `ws gpu present: direct: ...` bind lines. The `direct:` part of `sysctl
    debug.phxscan_layout` shows slots bound and binds > 0.
 2. Move windows and scroll: no tearing, no flicker, no stale frame.
 3. Maps fullscreen 3D, then the section 6 capture: the `present` copy+wait (0.93-1.05 ms) should be gone (unverified).
-4. Screenshot (Cmd-Shift-3): note whether it is current or stale. Stale is a known cost, to be fixed.
+4. Screenshot (Cmd-Shift-3): stale while direct scan-out is bound (a known issue, section 9).
 5. An HDR toggle and a mode change: the log shows `direct scan-out ends ... copied back`, then the copy path or a new
    bind, with no black screen.
 6. `rm` the file: copy path again, desktop current.
@@ -344,3 +345,57 @@ host tests pass.
   - the Maps gain.
 - The plugin's handling of a WindowServer crash while bound: the kext's close path is the existing one, but it has not
   been exercised with direct slots.
+
+## 9. Direct scan-out follow-ups (2026-11-26, branch `ownback/scanout-live-on`)
+
+Host-tested only (`tests/plugin/test_scan_direct.c`); nothing installed. Everything this section says about hardware
+behaviour is (unverified). What it starts from was seen on the XTX machine, boot of 2026-11-26 00:42: `ws-direct`
+created while WindowServer ran did nothing, and after a restart with the file present both surfaces were drawn in VRAM
+slots 0 and 1 with no copy.
+
+**Switch-on is at the next WindowServer start (decided, not built live).** A first version moved the copy path to direct
+at a frame boundary. The clean-up pass read these risks from the code, and the move was dropped (a real Mac has no such
+toggle; direct scan-out is to be the default, so the file only matters at a start):
+- the start's acquire is refused while the release's console flip is pending; with no plane loss yet that sets
+  `state = -1`, GPU present off for the life of WindowServer;
+- the three tries were never given back, and nothing was logged when they were used up;
+- the quiet wait for no write in flight would mostly end in its 2 s fallback during an animation;
+- the release replaces the last flip with the console, whose CPU copy can show a frame the GPU is still drawing;
+- the kext drops the Adaptive Sync range at the release and restores it at the acquire (VRR off and on once).
+
+Now, when `ws-direct` appears while the copy path presents and it was not there at the start, the plugin logs once
+`ws-direct appeared: takes effect at the next WindowServer start` and does nothing else (`nvmtl_sd_appeared_note`).
+Removing the file still ends direct at the next present (copy back, release).
+
+**Writes that waited for a flip (16 %, 1.7 ms average).** The cause, from reading the code (the new counter is there
+to confirm it on the machine), is two surfaces, not a bug: CoreDisplay's next frame is written to the surface that is
+still on screen until the flip to the other one latches at the next vblank (average half a period; 1.7 ms is about
+0.4 of a 240 Hz period). The gate cannot let it through (HUBP0 may still fetch it) and the bounce is no help while a
+flip is pending (a second flip would replace the first). A third slot has no surface to hold: CoreDisplay draws into
+two. An earlier flip is not possible: the present runs when the GPU has finished the frame. So it is left as it is;
+the log line says how many of the waits found a flip still to latch at their first blocked poll (`dgatePend`). No
+register write is involved.
+
+**Stale screenshots: a known issue, not fixed.** The cause is the documented one (section 8, known costs): while
+bound, a surface's pages are not drawn into (the GPU writes the slot), so `screencapture` reads the frame from the
+bind. A fix was built in this branch (an idle copy of each changed surface's VRAM onto its pages, under
+`IOSurfaceLock`, on its own command buffer and fence) and removed again after the clean-up pass: a stale screenshot of
+a still desktop is a smaller problem than a stalled desktop, and the copy could stall presents:
+- every way out of direct waited up to 1 s for a running copy, on top of the drain, inside a present or the write gate;
+- the 4 Hz tick held `g_scan_lock` across `IOSurfaceLock`, the command-buffer allocation and the submit, and a plain
+  `IOSurfaceLock` can wait for GPU work on the surface;
+- the lock was held until the next taker of `g_scan_lock` (up to ~275 ms); a reap timeout unlocked while the copy
+  might still write; a slow copy failed the write gate (250 ms) and ended direct as a failure.
+
+Design note for a later fix, to be measured on hardware before it ships: the copy must never run with `g_scan_lock`
+held across a GPU wait. Options: (a) a copy on its own queue (or the transfer queue) that takes no plugin lock, with a
+fence polled with a zero timeout and a try-lock for the bookkeeping; (b) a `pthread_mutex_trylock` tick that skips when
+a present or the gate holds the lock, and never takes `IOSurfaceLock` inside it; (c) have the capture read the VRAM
+slot instead of the pages (screencapture is the only CPU reader that matters, and the plugin sees its read through the
+surface's own capture path). Whichever is chosen, the gate must not wait on it, and no way out may wait on it.
+
+**Open points that remain from the clean-up pass of 2026-11-26** (read from the code, none tested on hardware
+(unverified)):
+1. The live move that was dropped had risks (see the first paragraph of this section); nothing of them remains.
+2. The log line says "at the next WindowServer start"; the choice is made at every start of GPU present, so a restart
+   after a lost plane or a size change also takes the file.

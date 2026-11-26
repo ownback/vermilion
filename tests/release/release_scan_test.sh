@@ -76,6 +76,8 @@ d=$(case_dir edid-serial); edid "$d/k.bin" 0a0b0c0d
 check edid_serial 1 edid-serial "$d"
 d=$(case_dir edid-badsum); (export EDID_BADSUM=1; edid "$d/k.bin" 0a0b0c0d)
 check edid_header_pattern_bad_checksum 0 clean "$d"
+d=$(case_dir edid-after-ff); edid "$d/e.bin" 0a0b0c0d; { printf '\000\377\377\377\377\377\377'; tail -c +4 "$d/e.bin"; } >"$d/k.bin"; rm "$d/e.bin"
+check edid_serial_after_header_like_bytes 1 edid-serial "$d"
 d=$(case_dir edid-clean); edid "$d/k.bin" 00000000
 check edid_no_serial 0 clean "$d"
 d=$(case_dir edid-desc-serial); edid "$d/k.bin" 00000000 'ABC123456789

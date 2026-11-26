@@ -107,7 +107,7 @@ edid_serials() {
           if (substr(b, 109 + d * 36, 8) == "000000ff" && substr(b, 119 + d * 36, 26) !~ /^(0a)?(20|00)*$/) bad = 1
         if (bad) print f ": EDID at byte " (off + i - 1) / 2
       }
-      off += i + 15; s = substr(s, i + 16)
+      off += i + 1; s = substr(s, i + 2)   # one byte on: a real header can start 7 bytes into a rejected match
     }
   }'
 }

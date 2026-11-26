@@ -127,6 +127,11 @@
       "uefi_drivers_remove": ["ResetNvramEntry.efi"],
       "_uefi_drivers_remove": "Phase 2 item 1 (2026-11-24; not built or booted yet, unverified): no Reset NVRAM entry in the picker. Reset NVRAM deletes phxfb-squat, which macOS can't set again (DisableVariableWrite), so every later boot falls back to the firmware display (CLAUDE.md hard rule 1). Without the driver the picker has no entry and OpenCore has no reset. Check after the boot: the picker shows no Reset NVRAM, /var/log/phxboot.log still says 'squat boot ...: 1'. Rollback: EFI/OC.prev."
     },
+    "vermilion-trust-bar1g-audio-sse": {
+      "_comment": "Plan A7 (2026-11-26): vermilion-trust-bar1g-audio + RyzentoshSSE (ownback/ryzentosh-sse 0.1.0). passd looks for the AppleSSE service a T2 Mac has; without it passd retries 60 times every 0.5 s and Music's first launch waits ~30 s on accountsd (findings/2026-11-25-music-slow-load.md). The kext publishes AppleSSE and answers every call 'not supported'. Replaces the local.phxpassd login agent. Check: ioreg -c AppleSSE shows one service; no AppleSSE retry lines from passd after login; Music's first launch fast with local.phxpassd removed. Rollback: EFI/OC.prev.",
+      "inherits": "vermilion-trust-bar1g-audio",
+      "kexts_add": ["RyzentoshSSE"]
+    },
     "vermilion-pcilog": {
       "_comment": "Diagnostics, one boot at a time: vermilion + IOPCIFamily's own logging (pci_log_mode 0x6 = IOLog + os_log, which also prints 'config protect fail'; pci_log 0x677 = AER, init, power, config, state, interrupt, enumeration, life cycle). Logging only, no behaviour change. Added 2026-11-19 because the MT7922 and the I225-V get an empty capability list (findings/2026-11-19-wifi-mt7922.md).",
       "inherits": "vermilion",

@@ -712,3 +712,16 @@ not the threat this guard answers: the machine lock and the review of every chan
 - A failed firmware download in the post-install script is a warning, not a failed install: the Installer rolls
   nothing back, and the GPU simply stays on the basic display until `vermilion-firmware` succeeds.
 - The package changes neither Software Update nor sleep; INSTALL.md says to set them.
+
+## The UCLK floor through the DAL mailbox, at Linux's values (U1, 2026-11-26)
+
+- The memory clock hard minimum goes only through the DAL mailbox (DALSMC `SetHardMinByFreq` 9, then
+  `ReturnHardMinStatus`), as Linux's display code sends it on Navi 31. The driver-mailbox `SetHardMinByFreq` (0x1B) and
+  `SetHardMaxByFreq` (0x1C) are refused by VermilionBoot from b167: Linux sends neither on SMU 13.0.0
+  ([finding](findings/2026-11-26-u1-uclk-dal.md) section 2.3).
+- The pinned value is the top UCLK level read from the PMFW (1249 MHz on the XTX machine), not 456: Linux's value while
+  the display can't take a memory clock switch ("UCLK min = max"); 456 is a value Linux never sends. Released = level 0,
+  Linux's value after every mode set on this card. Costs idle power while pinned (not measured).
+- **Why:** hard rule 1 (no message Linux doesn't send), and the Linux-like value at each state.
+- **Revisit:** if the load check at 240 Hz without FAMS underflows (finding section 7), or when K11 moves the UCLK
+  rule into the kernel with DC's raise and lower.

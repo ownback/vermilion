@@ -10,9 +10,9 @@ Dependencies may sit in `deps/`, which git ignores: `deps/MacKernelSDK` (pass it
 
 | Script | Builds | Needs |
 |---|---|---|
-| `kext.sh` | `VermilionBoot.kext` | `MKSDK` (https://github.com/acidanthera/MacKernelSDK), the firmware of [FIRMWARE.md](FIRMWARE.md) (`PHX_FW`, default `~/gpu/fw/navi31`) for the generated `phx_c3_image.inc` |
+| `kext.sh` | `VermilionBoot.kext` | `MKSDK` (https://github.com/acidanthera/MacKernelSDK), the firmware of [FIRMWARE.md](FIRMWARE.md) (`PHX_FW`, default `~/gpu/fw/navi31`) for the generated `phx_c3_hash.inc` (hashes of the C3 slice; no firmware in the kext) |
 | `accel.sh` | `VermilionAccel.kext` (ad-hoc signed) | `MKSDK`; optional link gate with export lists from `linkgate_exports.sh` (needs `ipsw` and the target's KernelCollections) |
-| `plugin.sh` | `NVMTLDriver` (Metal plugin, ad-hoc signed) | `VULKAN_HEADERS` (Vulkan-Headers include dir) |
+| `plugin.sh` | `NVMTLDriver` (Metal plugin, ad-hoc signed): the release driver (quiet log) by default; `PLUGIN_CONFIG=logging` is the logging build for a debugging session, `PLUGIN_CONFIG=diag` is the logging build plus the measurement code | `VULKAN_HEADERS` (Vulkan-Headers include dir) |
 | `translator.sh` | `libnvmtl_translate.dylib` (shader translator, x86_64, ad-hoc signed) | Rust 1.87+ (`cargo`) with the `x86_64-apple-darwin` target; network for the first crate fetch (or `CARGO_NET_OFFLINE=true` with a filled cache); `TRANSLATOR_TEST=1` runs the wrapper tests ([`../src/translator/README.md`](../src/translator/README.md)) |
 | `radv.sh apply` / `radv.sh` | `libvulkan_radeon.dylib` (`RADV_PLATFORMS=macos`: the app-facing build with the Metal window surface, patch 0020, in its own build dir) | `MESA_DIR` = Mesa checkout at f5cb8ee0; meson, ninja, glslangValidator, python3 with mako, pyyaml, markupsafe, packaging |
 | `llvm.sh` | `build/air-runtime/` (`libLLVM.dylib`, `libzstd.1.dylib`, `MD5SUMS`, `LICENSES/`): the plugin's AIR bitcode reader, LLVM 21.1.8 + zstd 1.5.7 from the pinned release tarballs (x86_64, macOS 14 minimum) | `cmake`, `ninja`, `python3`, the Command Line Tools, about 12 GB of disk, 30 to 90 minutes; network for the two tarballs. Installed with `tools/phxctl/air_runtime_install.sh`; CI: `.github/workflows/air-reader.yml` |

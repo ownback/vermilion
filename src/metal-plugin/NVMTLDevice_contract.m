@@ -89,3 +89,35 @@ static void nvbt(const char *tag, int *count, int max);
 - (MTLSize)sparseTileSizeWithTextureType:(NSUInteger)a0 pixelFormat:(NSUInteger)a1 sampleCount:(NSUInteger)a2 sparsePageSize:(NSInteger)a3 { return MTLSizeMake(32, 32, 1); }
 - (MTLSize)tileSizeWithTextureType:(NSUInteger)a0 pixelFormat:(NSUInteger)a1 sampleCount:(NSUInteger)a2 { return MTLSizeMake(32, 32, 1); }
 @end
+
+// The driver-compiler SPI Apple's frameworks probe on a device. Apple's own compiler answers for the pipelines of this
+// driver, so none of these has an output of ours to translate or a variant to build.
+@implementation NVMTLDevice (CompilerSPI)
+- (char **)newTranslatedDriverCompilerOptions:(id)options compilerOptionsSize:(uint64_t *)size
+{
+    (void)options;
+    if (size) *size = 0;
+    return NULL;
+}
+- (void)freeTranslatedDriverCompilerOptions:(char **)options compilerOptionsSize:(uint64_t)size
+{
+    (void)options; (void)size;
+}
+- (char *)getComputeFunctionId:(const void *)script compilerOptions:(char **)options
+           compilerOptionsSize:(uint64_t)size
+{
+    (void)script; (void)options; (void)size;
+    return NULL;
+}
+- (char *)getComputeFunctionId:(const void *)script function:(id)function
+               compilerOptions:(char **)options compilerOptionsSize:(uint64_t)size
+{
+    (void)script; (void)function; (void)options; (void)size;
+    return NULL;
+}
+- (id)computeVariantWithCompilerOutput:(id)compilerOutput pipelineStatisticsOutput:(id)stats
+{
+    (void)compilerOutput; (void)stats;
+    return nil;
+}
+@end

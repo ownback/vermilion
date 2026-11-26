@@ -31,6 +31,7 @@ static int g_sampler_anisotropy, g_sampler_mirror_clamp;
 static int g_scalar_layout;
 
 void nvlog(const char *fmt, ...);
+void nvlog_error(const char *fmt, ...);
 
 static __thread uint32_t g_copy_aspect_override, g_copy_bpp_override;
 void nvmtl_vk_copy_aspect_override(uint32_t aspect, uint32_t bpp) { g_copy_aspect_override = aspect; g_copy_bpp_override = bpp; }
@@ -66,8 +67,8 @@ static inline const char *nvmtl_pick_vk(const char *staged, const char *dev) {
 #define NVMTL_LOADER nvmtl_pick_vk("/Library/GPUBundles/nvmtl/libvulkan.dylib", \
                                    "/Library/GPUBundles/nvmtl/libvulkan.dylib")
 /*
- * The Vulkan driver under this process's Metal device follows the GPU it runs on: NVK for NVIDIA (the NVAccel
- * accelerator), RADV for AMD and ANV for Intel (NMXAccel, the accelerator for the GPUs NMXGPU drives).
+ * The Vulkan driver under this process's Metal device follows the GPU it runs on: RADV for AMD and ANV for Intel
+ * (NMXAccel, the accelerator for the GPUs NMXGPU drives).
  */
 #include <IOKit/IOKitLib.h>
 static uint16_t g_vendor;
@@ -88,36 +89,31 @@ uint16_t nvmtl_vk_set_accelerator(mach_port_t accel)
 {
     uint16_t v = 0;
     if (accel && IOObjectConformsTo(accel, "NMXAccel")) { v = nvmtl_pci_vendor_of(accel); if (v != 0x1002 && v != 0x8086) v = 0; }
-    else if (accel && IOObjectConformsTo(accel, "NVAccel")) v = 0x10de;
     if (v && !g_vendor) g_vendor = v;
     return v;
 }
-/* a process that starts Vulkan before Metal makes a device: NVIDIA when its accelerator runs, else the AMD/Intel one */
+/* a process that starts Vulkan before Metal makes a device: the vendor of the NMXAccel GPU (AMD when there is none) */
 uint16_t nvmtl_vk_vendor(void)
 {
     if (g_vendor) return g_vendor;
-    io_service_t s = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("NVAccel"));
-    if (s) { IOObjectRelease(s); g_vendor = 0x10de; return g_vendor; }
-    s = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("NMXAccel"));
+    io_service_t s = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("NMXAccel"));
     uint16_t v = s ? nvmtl_pci_vendor_of(s) : 0;
     if (s) IOObjectRelease(s);
-    g_vendor = (v == 0x1002 || v == 0x8086) ? v : 0x10de;
+    g_vendor = v == 0x8086 ? v : 0x1002;
     return g_vendor;
 }
 static const char *nvmtl_vk_icd_json(void) {
     switch (nvmtl_vk_vendor()) {
-    case 0x1002: return "/Library/GPUBundles/nvmtl/radeon_icd.json";
     case 0x8086: return "/Library/GPUBundles/nvmtl/intel_icd.json";
-    default:     return "/Library/GPUBundles/nvmtl/nvk_icd.json";
+    default:     return "/Library/GPUBundles/nvmtl/radeon_icd.json";
     }
 }
 #define NVMTL_ICD    nvmtl_vk_icd_json()
 static inline const char *nvmtl_icd_lib_path(void) {
     const char *e = getenv("NVMTL_ICD_LIB"); if (e && access(e, R_OK) == 0) return e;
     switch (nvmtl_vk_vendor()) {
-    case 0x1002: return "/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib";
     case 0x8086: return "/Library/GPUBundles/nvmtl/libvulkan_intel.dylib";
-    default:     return "/Library/GPUBundles/nvmtl/libvulkan_nouveau.dylib";
+    default:     return "/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib";
     }
 }
 #define NVMTL_ICD_LIB nvmtl_icd_lib_path()
@@ -264,7 +260,6 @@ static PFN_vkGetInstanceProcAddr pvkGetInstanceProcAddr; static PFN_vkCreateInst
 // sysconf(_SC_PHYS_PAGES) returns -1 there; NVK then fails "Failed to query total system memory", the device never comes
 // up and the app has no Metal device (measured 10-12: Chrome on an RTX 5060 had no WebGL with its GPU sandbox on, and
 // WebGL on the GPU with it off). The kernel's host_info answers the same number through a Mach call sandboxes allow.
-#include "nvmtl_fd_token.h"
 static long nvmtl_sysconf(int name)
 {
     long v = sysconf(name);
@@ -623,10 +618,22 @@ static VkBool32 VKAPI_PTR nvmtl_vkmsg_cb(VkDebugUtilsMessageSeverityFlagBitsEXT 
     (void)type; (void)user;
     const char *id = d && d->pMessageIdName ? d->pMessageIdName : "?", *m = d && d->pMessage ? d->pMessage : "(no message)";
     uint64_t rep; int full;
+#if NVMTL_RELEASE
+    if (!(sev & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT)) return VK_FALSE;
+#endif
     if (!nvmtl_vkmsg_budget(nvmtl_vkmsg_key(id, m), &rep, &full)) return VK_FALSE;
     const char *b = strrchr(id, '/'); b = b ? b + 1 : id;
     char t[600]; snprintf(t, sizeof t, "nvk-reason: %s %s: %s", (sev & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) ? "E" : "W", b, m);
     for (char *c = t; *c; c++) if ((unsigned char)*c < 0x20) *c = ' ';
+#if NVMTL_RELEASE
+    // the driver's errors go to the unified log at error level, once per message and then every 4096th; its warnings
+    // are for a logging build
+    if (sev & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+        if (rep) nvlog_error("%s   [logged %llu times now%s]", t, (unsigned long long)rep, full ? ", table full" : "");
+        else     nvlog_error("%s%s", t, full ? "   [table full]" : "");
+    }
+    return VK_FALSE;
+#endif
     extern const char *nvmtl_log_path(void);
     FILE *f = fopen(nvmtl_log_path(), "a");
     if (f) {
@@ -723,7 +730,7 @@ static void nvmtl_vkmsg_arm(void)
     }
     PFN_vkCreateDebugUtilsMessengerEXT c = (PFN_vkCreateDebugUtilsMessengerEXT)pvkGetInstanceProcAddr(g_inst, "vkCreateDebugUtilsMessengerEXT");
     VkDebugUtilsMessengerCreateInfoEXT mi = { VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT, NULL, 0,
-        VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
+        (NVMTL_RELEASE ? 0 : VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT,
         VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT,
         nvmtl_vkmsg_cb, NULL };
     VkResult r = c ? c(g_inst, &mi, NULL, &g_vkmsg) : VK_ERROR_EXTENSION_NOT_PRESENT;
@@ -780,8 +787,6 @@ static int nvmtl_vk_initialize(void)
             nvlog("vk: driver opened directly: %s (image %s)", NVMTL_ICD_LIB, nvmtl_image_ident((const void *)pvkGetInstanceProcAddr, vid, sizeof vid));
             { int rb = nvmtl_rebind_import((const void *)pvkGetInstanceProcAddr, "_sysconf", (void *)nvmtl_sysconf);
               if (rb <= 0) nvlog("vk: memory-size fallback missing: _sysconf not rebound in %s (%d) -- sandboxed apps may have no device", NVMTL_ICD_LIB, rb); }
-            if (nvmtl_vk_vendor() == 0x10de) { int rb = nvmtl_rebind_import((const void *)pvkGetInstanceProcAddr, "_open", (void *)nvmtl_icd_open);
-              if (rb <= 0) nvlog("vk: owned handle fallback missing: _open not rebound in %s (%d)", NVMTL_ICD_LIB, rb); }
             pnvk_stage_import = (void (*)(const nvmtl_vram_rec *))dlsym(g_lib, "nvmtl_nvk_stage_import");
             pnvk_surface_dirty = (uint32_t (*)(VkDevice, uint32_t, uint32_t))dlsym(g_lib, "nvmtl_nvk_surface_dirty");
             pnvk_sample_depth_contract = (VkResult (*)(VkDevice, uint32_t *, uint32_t *))dlsym(g_lib, "nvmtl_nvk_sample_depth_contract_v1");
@@ -1983,18 +1988,13 @@ static int nvmtl_vk_image_create_typed_lifetime_body(uint32_t w, uint32_t h, uin
 
     return 0;
 }
-#include <sys/sysctl.h>
-/* A GPU with no display of its own (laptops whose screen is on the Intel or AMD GPU; the kernel sets
-   debug.nvaccel_headless) hands frames to that GPU's WindowServer, which reads an IOSurface from system memory and
-   cannot page our VRAM copy off. Apple's two-GPU Macs copy the discrete GPU's frames the same way. So on such a GPU,
-   IOSurface textures are private per process and copied out after every GPU write. */
+/* The GPU is an app-only device (WindowServer draws into NMXGPU's framebuffer), so IOSurface textures are private per
+   process and copied out to system memory after every GPU write, as Apple's two-GPU Macs copy the discrete GPU's
+   frames. */
 static int nvmtl_gpu_headless(void)
 {
     static int h = -1;
-    /* AMD/Intel (NMXAccel): WindowServer draws into NMXGPU's framebuffer, so this device is always an app-only GPU */
-    if (h < 0 && nvmtl_vk_vendor() != 0x10de) { h = 1; nvlog("AMD/Intel GPU: IOSurfaces are copied out to system memory"); }
-    if (h < 0) { int v = 0; size_t n = sizeof v; h = sysctlbyname("debug.nvaccel_headless", &v, &n, NULL, 0) == 0 && v;
-                 if (h) nvlog("headless GPU: the display belongs to another GPU - IOSurfaces are copied out to system memory"); }
+    if (h < 0) { h = 1; nvlog("AMD/Intel GPU: IOSurfaces are copied out to system memory"); }
     return h;
 }
 int nvmtl_vk_surface_share_on(void)
@@ -4673,68 +4673,6 @@ static VkPipeline nvmtl_compute_variant(nvk_pipeline *p, const uint32_t l[3])
     }
     pthread_mutex_unlock(&g_var_lock);
     return found;
-}
-
-int nvmtl_vk_cmd_dispatch_sass(nvk_cmdbuf *c,
-                               const void *sass, uint32_t sass_len,
-                               uint32_t regs, uint32_t smem, uint32_t barriers, uint32_t nparams,
-                               const uint32_t threads[3], const uint32_t tg[3])
-{
-    static int (*hook)(void *, const void *, uint32_t, uint32_t, uint32_t, uint32_t,
-                       const uint64_t *, uint32_t, const uint32_t *, const uint32_t *);
-    static int looked;
-    uint64_t params[16];
-    uint32_t grid[3];
-
-    if (!c || !c->cb || !sass || !sass_len) return -1;
-    if (nvmtl_vk_vendor() != 0x10de) return -3;     /* NVIDIA machine code: the caller dispatches the SPIR-V instead */
-    if (nparams > 16) { nvlog("sass dispatch: %u parameters is more than 16 — REFUSED", nparams); return -2; }
-
-    if (!looked) {
-
-        const char *path = getenv("NVMTL_NVK_DYLIB");
-        void *h = dlopen(path && *path ? path : "/Library/GPUBundles/nvmtl/libvulkan_nouveau.dylib",
-                         RTLD_NOW | RTLD_LOCAL);
-        looked = 1;
-        if (!h) nvlog("sass dispatch: cannot open NVK: %s", dlerror());
-        else {
-            hook = (int (*)(void *, const void *, uint32_t, uint32_t, uint32_t, uint32_t,
-                            const uint64_t *, uint32_t, const uint32_t *, const uint32_t *))
-                       dlsym(h, "nvmtl_nvk_dispatch_sass_v1");
-            nvlog("sass dispatch: NVK hook %s", hook ? "found" : "MISSING — this NVK predates it");
-        }
-    }
-    if (!hook) return -3;
-
-    for (int d = 0; d < 3; d++) {
-        if (!tg[d] || !threads[d]) return -4;
-        if (threads[d] % tg[d]) {
-            nvlog("sass dispatch: %u threads is not a whole number of %u-wide groups on axis %d — "
-                  "REFUSED, the SPIR-V path owns the partial tail", threads[d], tg[d], d);
-            return -5;
-        }
-        grid[d] = threads[d] / tg[d];
-    }
-
-    if (!c->table) { nvlog("sass dispatch: no bind table"); return -6; }
-    nvmtl_bindtable *t = (nvmtl_bindtable *)c->table;
-    for (uint32_t i = 0; i < nparams; i++) {
-        nvmtl_slot *s = &t->s[0][i];
-        if (s->kind != NVMTL_SLOT_BUF || !s->address) {
-            nvlog("sass dispatch: parameter %u wants a buffer at [[buffer(%u)]] and slot kind is %u "
-                  "— REFUSED", i, i, s->kind);
-            return -7;
-        }
-        params[i] = s->address + (uint64_t)s->off;
-    }
-
-    int rc = hook(c->cb, sass, sass_len, regs, smem, barriers, params, nparams, tg, grid);
-    if (rc) { nvlog("sass dispatch: NVK refused it, rc=%d", rc); return -8; }
-    if (nvmtl_trace_on())
-        nvtrace("SASS DISPATCH %u B, regs %u, %u param(s) | tg %ux%ux%u grid %ux%ux%u | p0 0x%llx",
-                sass_len, regs, nparams, tg[0], tg[1], tg[2], grid[0], grid[1], grid[2],
-                nparams ? (unsigned long long)params[0] : 0ull);
-    return 0;
 }
 
 void nvmtl_vk_cmd_dispatch_threads(nvk_cmdbuf *c, nvk_pipeline *p, const uint32_t threads[3], const uint32_t tgIn[3])

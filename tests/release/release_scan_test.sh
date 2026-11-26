@@ -60,19 +60,24 @@ echo "gc_11_0_0_me.bin $m $(wc -c < "$d/gc.bin" | tr -d ' ')" > "$T/fw.lock"
 check firmware 1 firmware "$d"
 : > "$T/fw.lock"
 
-edid() {  # edid <file> <serial hex, 8 digits> [<13 text bytes>]: one 128-byte EDID block between NUL padding; with
-          # a third argument, its first descriptor (byte 54) is a 0xFF serial-string descriptor holding that text
-  local s=$2
-  { printf '\000\001\002'; printf '\000\377\377\377\377\377\377\000'; printf '\036\155\001\002'
-    printf "\\$(printf '%03o' 0x${s:0:2})\\$(printf '%03o' 0x${s:2:2})\\$(printf '%03o' 0x${s:4:2})\\$(printf '%03o' 0x${s:6:2})"
-    if [ $# -ge 3 ]; then
-      head -c 38 /dev/zero; printf '\000\000\000\377\000%s' "$3"; head -c 56 /dev/zero
-    else
-      head -c 112 /dev/zero
-    fi; printf '\000\000'; } > "$1"
+edid() {  # edid <file> <serial hex, 8 digits> [<13 text bytes>]: one 128-byte EDID block (valid checksum) between NUL
+          # padding; with a third argument, its first descriptor (byte 54) is a 0xFF serial-string descriptor holding
+          # that text. EDID_BADSUM=1 leaves the checksum wrong (a header-like pattern in code, not an EDID).
+  python3 -I -c '
+import os, sys
+e = bytearray(128); e[0:8] = bytes([0, 255, 255, 255, 255, 255, 255, 0]); e[8:12] = bytes([0x1e, 0x6d, 1, 2])
+e[12:16] = bytes.fromhex(sys.argv[2])
+if len(sys.argv) > 3:
+    e[54:59] = bytes([0, 0, 0, 0xff, 0]); e[59:72] = sys.argv[3].encode()[:13].ljust(13, b"\0")
+e[127] = (-sum(e[:127]) + (1 if os.environ.get("EDID_BADSUM") else 0)) % 256
+open(sys.argv[1], "wb").write(b"\0\1\2" + bytes(e) + b"\0\0")' "$@"
 }
 d=$(case_dir edid-serial); edid "$d/k.bin" 0a0b0c0d
 check edid_serial 1 edid-serial "$d"
+d=$(case_dir edid-badsum); (export EDID_BADSUM=1; edid "$d/k.bin" 0a0b0c0d)
+check edid_header_pattern_bad_checksum 0 clean "$d"
+d=$(case_dir edid-after-ff); edid "$d/e.bin" 0a0b0c0d; { printf '\000\377\377\377\377\377\377'; tail -c +4 "$d/e.bin"; } >"$d/k.bin"; rm "$d/e.bin"
+check edid_serial_after_header_like_bytes 1 edid-serial "$d"
 d=$(case_dir edid-clean); edid "$d/k.bin" 00000000
 check edid_no_serial 0 clean "$d"
 d=$(case_dir edid-desc-serial); edid "$d/k.bin" 00000000 'ABC123456789

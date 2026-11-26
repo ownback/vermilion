@@ -85,7 +85,7 @@ static void nvmtl_x420_census_locked(char *out, size_t n)
              d[X4_FB], d[X4_FB_KB] >> 10, d[X4_CIN], d[X4_CIN_KB], d[X4_CIN_NS] / 1e3, d[X4_VRAMFULL], d[X4_IMGFAIL],
              d[X4_MPIMGFAIL], d[X4_TRIM], d[X4_TRIM_KB] >> 10, d[X4_TRIM_NS] / 1e3, g_x4_k_ent, g_x4_k_imp, g_x4_k_b >> 20, g_x4_k_idle_b >> 20);
 }
-static void nvmtl_x420_emit(const char *line) { if (line[0]) syslog(LOG_NOTICE, "%s", line); }
+static void nvmtl_x420_emit(const char *line) { if (line[0]) nvmtl_diag_syslog("%s", line); }
 static void nvmtl_x420_add2(int k, uint64_t a, int k2, uint64_t b)
 {
     char line[900];
@@ -138,7 +138,7 @@ static void nvmtl_x420_import_failed(int stage, int vr, size_t size)
     }
     nvmtl_x420_census_locked(line, sizeof line);
     pthread_mutex_unlock(&g_x4_lock);
-    if (first[0]) syslog(LOG_NOTICE, "%s", first);
+    if (first[0]) nvlog_error("%s", first);
     nvmtl_x420_emit(line);
 }
 /* nvmtl_vk_buffer_destroy: an imported buffer goes (not ours if it is not in the live set) */
@@ -311,6 +311,6 @@ static void nvmtl_x420_mp_refused(IOSurfaceRef surf, uint32_t w, uint32_t h, int
     g_x4[X4_REFUSED]++; if (step == 1) g_x4[X4_REFUSED_IMPORT]++;
     nvmtl_x420_census_locked(line, sizeof line);
     pthread_mutex_unlock(&g_x4_lock);
-    if (first[0]) syslog(LOG_NOTICE, "%s", first);
+    if (first[0]) nvlog_error("%s", first);
     nvmtl_x420_emit(line);
 }

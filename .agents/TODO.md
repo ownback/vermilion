@@ -198,6 +198,23 @@ PROJECT_KNOWLEDGE.
   on every present with no end. (5) The present line is written between `t1` and `t2`, so it counts as
   flicker-probe time in the `ws gpu present split` averages. (6) `gpu_us` of a `widen-cpu` present is the barriers
   only.
+- [ ] **Plugin: NVIDIA leftovers after the removal, from the clean-up of #49** (plugin; each is a behaviour change
+  because it changes the binary; finding `2026-11-26-metal-feature-answers.md`, "NVIDIA code still there").
+  (1) `nvk_cmdbuf.direct_sass` (`nvmtl_vk.h`): nothing sets it since `NVMTLSass.m` went, `nvmtl_wit_record` still tests
+  it; remove the field, the test and the comment above it. (2) `-[NVMTLDevice name]`: the `"NVIDIA GPU"` fallback and
+  the `" (NVK "` cut never match on RADV (with A4's GPU name). (3) The sample-position error text "checked NVIDIA
+  runtime payload contract" and the `nvk-reason:` log prefix of the Vulkan driver's messages (check the tools that
+  parse the log before renaming). (4) `nvmtl_vk_accel_surface_wait` still looks up an `NVAccel` service that does
+  not exist here. (5) `-supportsFamily:` uses the numbers 2001, 4001, 4002, 5001 where the SDK has names. (6)
+  `-vendorName` tests the vendor twice (`0x1002 ? AMD : 0x8086 ? Intel : AMD`); the one-test form compiles differently.
+- [ ] **Plugin tests need the logging build since #49** (docs and steps, S). The default `sh scripts/build/plugin.sh`
+  is now the release driver, which forgets `NVMTL_TEST_BACKEND_DOWN` at load: `test_dead_cmdbuf.m`,
+  `test_texture_nil_log.m` and `test_feature_answers.m` run against a release binary would start the real backend
+  (unverified: not run that way). Their headers now say `PLUGIN_CONFIG=logging`; the deploy steps in this file that
+  say "`sh scripts/build/plugin.sh`, then the tests against `build/NVMTLDriver`" (crash fixes, private pool) still
+  describe one build for both. Decide: build twice (logging for the tests, release to install), or let a release
+  build keep that one test switch. Also: `PLUGIN_DEFS=-DNVMTL_DIAG` alone now gives a release build with the
+  measurement code; the measurement build is `PLUGIN_CONFIG=diag`.
 - [ ] **Phase 2 item 2: deploy the Maps CPU fixes** (branch `ownback/maps-gpu-saturation`; finding section 4): async
   `replaceRegion:` uploads, bounded, on by default outside WindowServer; cache-hit touches once a minute. A plugin
   install = trust + EFI change, one boot. Check: Maps' log has `vk: async texture upload ON` and `async texture upload
@@ -290,7 +307,50 @@ PROJECT_KNOWLEDGE.
   listed again; the match key is only on the attached controller; a second `on` says "already attached", `off` exits 2,
   `sysctl -w debug.phxaudio_match=0` gives "Resource busy".
 
+- [ ] **U1: deploy the UCLK hard minimum through the DAL mailbox** (branch `ownback/uclk-dal`, after the merge;
+  [finding](findings/2026-11-26-u1-uclk-dal.md) sections 5 and 6). One boot, under the machine lock: VermilionBoot
+  b167 on the EFI and `uclk.sh`, `idle_dpm.sh`, `phxboot-navi31.sh` into `~/gpu` together (b167 refuses the old
+  scripts' driver-mailbox 0x1B; on b162 the new scripts' DAL messages pass its allow-list, but b162's own 0x1B 456 in
+  `macSet` stays). b167 carries b163 (C3 image at run time, not booted yet): b163's check is part of this boot.
+  - Rollback copies: the replaced kext to `EFI/OC.prev` (EFI rule); `mkdir -p ~/vermilion-rollback/u1 && cp -p
+    ~/gpu/uclk.sh ~/gpu/idle_dpm.sh ~/gpu/phxboot-navi31.sh ~/vermilion-rollback/u1/`.
+  - Install: `sh scripts/dev/preflight.sh build/VermilionBoot.kext --opencore`, the kext to `EFI/OC/Kexts/`;
+    `install -m 755 tools/phxctl/uclk.sh tools/phxctl/idle_dpm.sh ~/gpu/`; the daemon by rename. Restart
+    (`boot-cycle` skill).
+  - Check (read-only, no owner): `phx-build` 167; two `uclk: DAL hard min UCLK 1249 MHz (top; levels 96 456 772
+    1249): (OK), status 0x24 done` lines and no `msg 0x1b` in `/var/log/phxboot.log`; `idledpm: ... on: UCLK
+    unpinned`; `debug.phxpipe0_stat` `uclk_pins=0`; `debug.phxdal_stat` `timeouts 0 dead 0`; SMU metrics UCLK 1249
+    before the release, 96 after; idle board power at 1440p240 HDR back to 28-33 W after the release.
+  - Check with GPU load (**owner's OK first**): at 1440p240 HDR after the release, `vkbench bandwidth 5 256` with VRAM
+    BOs and a 2-minute HEVC video; UCLK follows the load, no `idledpm: ... underflow` line, the owner sees no glitch.
+  - Rollback: `EFI/OC.prev`'s kext back, the three scripts from `~/vermilion-rollback/u1` (the daemon by rename),
+    shut down fully, boot. Live, no restart: `sudo sh ~/gpu/uclk.sh pin` holds UCLK at the top level.
+
 ## 01 GPU stability
+
+- [ ] **UCLK at 240 Hz without FAMS** ([finding](findings/2026-11-26-u1-uclk-dal.md) section 7 item 1, hw-safety
+  review of U1): Linux's 96 MHz floor at 240 Hz goes with FAMS, which macOS doesn't do, so `idle_dpm.sh`'s release at
+  240 Hz departs from Linux (carried over from before U1, not blocking). Two answers: keep UCLK at the top level at
+  240 Hz until FAMS exists on macOS (K11 or later, own review; costs idle power at the owner's main mode), or the
+  owner records an exception in decisions.md. U1's load check at 240 Hz is the evidence. Also: the power cost of the
+  pinned window at 1249 MHz (not measured), and `phxboot-idledpm` (+ `-dcf`) in the release first-boot flag set,
+  without which UCLK stays at 1249 all boot (owner's call).
+- [ ] **`idle_dpm.sh`: `SetFclkSwitchAllow 1` before the UCLK release** (S, own hw-safety review; U1 finding section 7
+  item 6): Linux's optimize pass sends the FCLK message first (`dcn32_clk_mgr.c` v6.8 :633-641 before :710-720);
+  `idle_dpm.sh` sends it after `uclk.sh unpin`, and only when the unpin passed.
+- [ ] **U1 leftovers from the clean-up pass** (S; each one changes shipped text or a test count, so none was done in
+  the no-behaviour-change pass):
+  - `uclk.sh`: names for the DALSMC ids (2, 0xB, 9, 0x15), the status bits 0x24, the PMFW gate 0x4E6A00 and the
+    10 ms step; `tests/mock/uclk_mut.sh` matches the script's text, so its sed patterns change with it.
+  - `uclk.sh`'s status text "not confirmed in ~2 s": the bound is 200 reads 10 ms apart plus each read's own time
+    (a `sudo phxctl` process per read), so it can be several seconds. `idle_dpm.sh` cuts the line at 90 characters,
+    which truncates the "not confirmed" and "read not answered" endings in its log.
+  - `tests/kext/pipe0_1440_test.cpp`: no check reaches `macSet`'s "no DAL callback" and "a PMFW message is in
+    flight" refusals (the block with `pmfwIdle` null asks for the current mode and ends at `kSame`).
+  - `b15_boot.sh` (upstream's XT recipe) still calls `uclk.sh pin 456` and logs "UCLK pinned 456 for this boot";
+    the pin is now the top level.
+  - The installers still write `phxboot-uclk=456` (`scripts/release/pkg/postinstall`, `recovery_install.sh`), and
+    INSTALL.md, docs/RELEASE.md and docs/XTX.md name that value; the content is no longer read.
 
 - [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
       DPCD access through drm_dp_dpcd_access (32 tries; at once after a timeout, 500 us after a NACK / DEFER); the
@@ -495,8 +555,16 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
 - [ ] `recovery_install.sh` / `esp_stage.sh`: the air-runtime reader; pick the APFS Data role in Recovery (3
       candidates found)
 - [ ] GitHub Releases and CI (mock tests on a Linux runner, a macOS runner building kexts, plugin, translator)
-- [ ] `INSTALL.md` rewritten for the one-kext release (it is upstream's manual XT guide); recovery and troubleshooting:
-      black screen after a failed switch, the squat loop, booting `OC.prev`
+- [x] `INSTALL.md` (the root user guide; `docs/INSTALL.md` stays the expert reference) rewritten for `0.1.0-preview`,
+      2026-11-26 (`ownback/install-doc`; unverified on a clean machine); recovery and troubleshooting: black screen
+      after a failed switch, the squat loop, booting `OC.prev`
+
+- [x] Release package fixes from #42's clean-up review (`ownback/pkg-fixes`): the uninstaller removes the AIR reader,
+      removes the empty `~/gpu`, `~/gpu/phxctl`, `~/gpu/fw`, no longer deletes a restored
+      `/usr/local/libexec/vermilion`, and restores the login-window value without `lib.sh`; the test hooks are
+      stripped from the shipped scripts; `distribution.xml` has its own installation check; `fetch_firmware.sh --from`
+      reports the SHA-256; the `--rebuild-kc` help names `vermilion-uninstall`; the test payload has `spirv-val` in
+      `bin`. A real Installer run of the check stays **unverified**.
 
 ## 07 Wireless and Continuity
 

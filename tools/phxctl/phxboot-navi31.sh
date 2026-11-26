@@ -455,6 +455,16 @@ ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not l
 [ $DESK = 1 ] && nvram phxfb-boot=1
 # PhxAccel lives in the AuxKC, which does not always load it at boot
 kmutil showloaded 2>/dev/null | grep -q org.vermilion.accel || kmutil load -p "$ACCEL" 2>&1 | tail -2
+# A GOP boot without VermilionAccel (the Allow click is still missing: the AuxKC loads the kext only after it) has no
+# NMXAccel and no PhxAMDFB, and a bring-up here would fail: so nothing touches the GPU, nothing counts as a failed
+# attempt, and the user is told what to click (the daemon never arms a squat boot until this passes: the re-arm below
+# needs a finished GOP bring-up and claim, which needs the kext and the firmware).
+if [ $SQUAT = 0 ] && ! kmutil showloaded 2>/dev/null | grep -q org.vermilion.accel; then
+  REC_L=skip; rec_save "VermilionAccel not loaded: no clean fallback boot"
+  echo "VermilionAccel not loaded (the Allow click is missing?): no bring-up this boot, the GPU is not touched"
+  notice "Graphics acceleration needs your approval: open System Settings > Privacy & Security, click Allow next to the Vermilion system software, then restart."
+  bye
+fi
 echo "== bring-up + claim =="
 # The in-progress mark from here on (before 2026-11-25 it was set only after the claim): a hang in the bring-up, the
 # claim or the desktop attempt leaves it, and the next boot counts it as an unfinished attempt. A clean shutdown or
@@ -722,12 +732,14 @@ cg_boot(){
   [ -e "$G/phxboot-cg" ] || return 0
   [ -e "$G/gfx_cg.sh" ] || { echo "cg: $G/gfx_cg.sh missing"; return 0; }
   echo "cg: $(PHXCTL=$G/phxctl.bin sh "$G/gfx_cg.sh" on 2>&1 | tail -1 | cut -c1-120)"; }
-# Memory clock hard minimum (MHz in $G/phxboot-uclk, e.g. 456): without the DAL hand-off a UCLK switch under GPU load
-# underflows the display (glitches under video decode); needs kext >= b71
+# Memory clock hard minimum (flag $G/phxboot-uclk): without the DAL hand-off a UCLK switch under GPU load underflows the
+# display (glitches under video decode). U1 (finding 2026-11-26-u1-uclk-dal.md): `uclk.sh pin` = the DAL hard minimum at
+# the top UCLK level, what Linux's DC holds while the mode can't take a UCLK switch; the flag's content (456 on older
+# installs) is no longer read. Needs kext >= b75 (the DAL selector); idle_dpm.sh lets it go at the settled desktop.
 uclk_boot(){
   [ -e "$G/phxboot-uclk" ] || return 0
   [ -e "$G/uclk.sh" ] || { echo "uclk: $G/uclk.sh missing"; return 0; }
-  echo "uclk: $(PHXCTL=$G/phxctl.bin sh "$G/uclk.sh" pin "$(cat "$G/phxboot-uclk")" 2>&1 | tail -1 | cut -c1-120)"; }
+  echo "uclk: $(PHXCTL=$G/phxctl.bin sh "$G/uclk.sh" pin 2>&1 | tail -1 | cut -c1-120)"; }
 # Idle power root cause: the RLC grants CGCG only once both SDMA engines report idle; never-started engines stay "busy" and
 # the card idles at ~150 W with PMFW activity 100 %. Start their queue 0 idle, before cg_boot.
 sdma_boot(){
@@ -922,7 +934,9 @@ else
   if [ -e "$AUTO" ]; then
     if [ "$REC_F" -gt 0 ] && [ $((REC_C + 1)) -lt "$(rec_need)" ]; then echo "phxfb-squat NOT re-armed: the last accelerated attempt failed ($FAILS: fails=$REC_F, this is clean fallback boot $((REC_C + 1)) of $(rec_need); it re-arms by itself $(rec_when))"
     else gopnote=""; [ "$REC_F" -gt 0 ] && gopnote=", clean fallback boot $((REC_C + 1)) of $(rec_need) after $REC_F failed attempt(s)"
-      rearm "GOP boot, phxboot-auto present$gopnote"; fi
+      if rearm "GOP boot, phxboot-auto present$gopnote" && nvram phxfb-squat >/dev/null 2>&1; then
+        # (the last boot's own notice, a failure it explains, is shown instead: notice_carry)
+        [ -n "$CARRY" ] || notice "Graphics acceleration is ready. Restart to turn on the accelerated desktop."; fi; fi
   fi
 fi
 echo "done $(date '+%T')"

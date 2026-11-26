@@ -21,8 +21,10 @@ src/**/build/
 *.kext/
 # codeless kexts kept as plist source for the EFI (efi/README.md)
 !efi/kexts/*.kext/
-# Local build inputs that must never be committed: AMD firmware and the header generated from it
+# Local build inputs that must never be committed: AMD firmware and the header of its hashes (no firmware bytes)
 *.bin
+src/vermilion-boot/phx_c3_hash.inc
+# the generated C3 image of builds before b163 (AMD firmware bytes); a checkout that built one still has it
 src/vermilion-boot/phx_c3_image.inc
 *.o
 *.bundle/

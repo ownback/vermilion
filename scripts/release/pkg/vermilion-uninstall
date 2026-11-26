@@ -17,14 +17,15 @@
 PKGID=org.vermilion.pkg
 LIBEXEC_DEFAULT=${VERMILION_ROOT:-}/usr/local/libexec/vermilion
 if [ -f "$LIBEXEC_DEFAULT/lib.sh" ]; then . "$LIBEXEC_DEFAULT/lib.sh"; else
+  # lib.sh is gone (an uninstall run after /usr/local/libexec/vermilion was removed): the parts of it main() uses
   [ "${VERMILION_TEST:-0}" = 1 ] || PATH=/usr/bin:/bin:/usr/sbin:/sbin
   export PATH
   R=${VERMILION_ROOT:-}; LIBEXEC=$R/usr/local/libexec/vermilion; SUPPORT="$R/Library/Application Support/Vermilion"
   say() { echo "Vermilion: $*"; }
   fail() { echo "Vermilion: ERROR: $*" >&2; exit 1; }
-  user_home() {   # lib.sh's, for an uninstall run after /usr/local/libexec/vermilion is gone
-  [ -z "${VERMILION_UHOME:-}" ] || { echo "$VERMILION_UHOME"; return; }
-  dscl . -read "/Users/$1" NFSHomeDirectory 2>/dev/null | awk '{ print $2 }'
+  user_home() {   # user_home <user>
+    [ -z "${VERMILION_UHOME:-}" ] || { echo "$VERMILION_UHOME"; return; }
+    dscl . -read "/Users/$1" NFSHomeDirectory 2>/dev/null | awk '{ print $2 }'
   }
 fi
 

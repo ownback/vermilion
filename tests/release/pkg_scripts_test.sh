@@ -78,7 +78,8 @@ payload() {
   echo "driver $tag" >"$P/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/NVMTLDriver"
   echo "vk $tag" >"$P/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib"; echo '*' >"$P/Library/GPUBundles/nvmtl-allow.txt"
   echo "accel $tag" >"$P/Library/Extensions/VermilionAccel.kext/Contents/Info.plist"
-  for f in phxctl mesboot; do echo "$f $tag" >"$P/usr/local/sbin/$f"; done; echo "spirv-val $tag" >"$P/usr/local/bin/spirv-val"   # spirv-val is in bin, as make-pkg.sh lays it out
+  for f in phxctl mesboot; do echo "$f $tag" >"$P/usr/local/sbin/$f"; done
+  echo "spirv-val $tag" >"$P/usr/local/bin/spirv-val"   # spirv-val is in bin, as make-pkg.sh lays it out
   cp "$SR/pkg/vermilion-uninstall" "$P/usr/local/sbin/"; cp "$SR/pkg/vermilion-firmware" "$P/usr/local/sbin/"
   echo "daemon $tag" >"$LX/gpu/phxboot-navi31.sh"; echo "up $tag" >"$LX/gpu/phxctl/navi31_up.sh"; echo "bin $tag" >"$LX/gpu/phxctl.bin"
   cp "$R/tools/phxctl/local.phxboot.plist.in" "$LX/"; cp "$SR/pkg/lib.sh" "$LX/lib.sh"; echo "0.1.0-$tag" >"$LX/VERSION"

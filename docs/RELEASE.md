@@ -119,9 +119,8 @@ Two checks refuse a wrong Mac, with the same rules (`lib.sh`: macOS build `EXPEC
 package is opened and shows a plain message (exit code 1 build, 2 no XTX, 3 another 744c board); the preinstall
 script checks again as root, which also covers `installer -pkg` from a terminal. `system.run` needs
 `allow-external-scripts="yes"` in `<options>`; with it the Installer first tells the user that the package runs a
-program to check whether it can be installed. **(unverified):** that the Installer
-runs `system.run` scripts from an unsigned package and shows the message; `install-check.sh` itself ran on the XTX
-machine and exited 0.
+program to check whether it can be installed. **(unverified):** that the Installer runs `system.run` scripts from an
+unsigned package and shows the message; `install-check.sh` itself ran on the XTX machine and exited 0.
 
 The test hooks of `lib.sh` and the scripts (`VERMILION_TEST`, `_ROOT`, `_NOCHOWN`, `_USER`, `_UHOME`, `_FETCH`) are
 cut out of every shipped copy by `scripts/release/strip-hooks.sh` (make-pkg.sh fails if one is left), so the caller's

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
-# lib.sh: shared by the package's preinstall and postinstall scripts and by vermilion-uninstall (sourced; POSIX sh).
-# make-pkg.sh puts one copy next to the scripts and one in /usr/local/libexec/vermilion (docs/RELEASE.md).
+# lib.sh: shared by the package's preinstall and postinstall scripts, by install-check.sh and by vermilion-uninstall
+# (sourced; POSIX sh). make-pkg.sh puts one copy next to the scripts, one next to install-check.sh in the package's
+# resources and one in /usr/local/libexec/vermilion (docs/RELEASE.md).
 #
 #@test-hooks-begin (strip-hooks.sh drops these lines, and every hook below, from the copies make-pkg.sh ships)
 # Test hooks (tests/release/pkg_scripts_test.sh): VERMILION_TEST=1 keeps the caller's PATH, so a test can put fake
@@ -54,7 +55,7 @@ gpu_list() {
 }
 
 # check_gpu: refuse unless an RX 7900 XTX is present and no other 1002:744c board is. GPU_FAIL (other | none) tells a
-# refuse() that wants a code which case it is (resources/install-check.sh).
+# refuse() that wants a code which case it is (install-check.sh).
 check_gpu() {
   found=0 other=""
   list=$(gpu_list)

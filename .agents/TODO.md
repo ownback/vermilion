@@ -503,7 +503,7 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
       `/usr/local/libexec/vermilion`, and restores the login-window value without `lib.sh`; the test hooks are
       stripped from the shipped scripts; `distribution.xml` has its own installation check; `fetch_firmware.sh --from`
       reports the SHA-256; the `--rebuild-kc` help names `vermilion-uninstall`; the test payload has `spirv-val` in
-      `bin`. A real Installer run of the check stays **unverified**
+      `bin`. A real Installer run of the check stays **unverified**.
 
 ## 07 Wireless and Continuity
 

@@ -358,14 +358,8 @@ PROJECT_KNOWLEDGE.
   - if GFXOFF is ever allowed: bracket the lazy GC register read with a GFXOFF disallow, as Linux does.
 - [ ] **Fable's follow-ups from #54** (seen in the clean-up pass, left alone because each changes machine code; none
   has run on hardware):
-  - **Mesa 0018, before RADV is installed with b168:** with the kext's device info (`have_dev`) the
-    `AMDGPU_INFO_FW_VERSION` answer for `AMDGPU_INFO_FW_VCN` is never written (`ac_darwin_drm.c`: the VCN branch became
-    the `else` of `if (have_dev)`), so RADV would read VCN firmware version 0 and `ac_video.c`'s version checks would
-    turn decode / encode features off. Make the VCN answer independent of `have_dev`; add a case to `acd_devinfo_test`;
   - `phxn_info.gb_addr_config` in the 192-byte QueryInfo is now the live register: a RADV build before 0018 compares it
     with its entry's 0x545 and refuses to start on any other value (expected equal on the XTX; check at the b168 boot);
-  - `devInfoGc` fills `devGc` with no lock (from `adoptQueue`, QueryInfo and the sysctl): two callers can read at once,
-    and a reader can see `read` set while the struct copy is still in progress. Take a lock or publish with one store;
   - `busyStop`: when the call is still pending after its four tries it is not freed and `stop` goes on, so a tick
     could run on a stopped object (it logs one line);
   - the sampler's tick reads the fences through BAR0 with no check of the GPU's power state (system sleep);

@@ -226,7 +226,9 @@ public:
     void gpuStats(phx_gpu_stats *s);
     phxdev::Discovery devDisc{};
     phxdev::Early devEarly{};
-    phxdev::GcRegs devGc{};
+    phxdev::GcRegs devGc{};                  // written once, by the devGcState 0 -> 1 winner; read only at state 2
+    volatile UInt32 devGcState{0};           // 0 not read, 1 being written, 2 published (devInfoGc)
+    phxdev::GcRegs devGcRead() const;        // devGc once published, else empty (read = false)
     thread_call_t busyCall{nullptr};
     volatile UInt32 busyArmed{0}, busyStopping{0};
     uint64_t busyNextAbs{0};

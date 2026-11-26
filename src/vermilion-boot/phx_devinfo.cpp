@@ -40,7 +40,8 @@ void PhxBringup::devInfoEarly() {
     devEarly = phxdev::Early{};
     devDisc = phxdev::Discovery{};
     devDisc.err = phxdev::kErrShort;
-    devGc = phxdev::GcRegs{};
+    devGc = phxdev::GcRegs{};   // start: before adoptQueue, QueryInfo or the sysctl can read it
+    devGcState = 0;
     if (!pci) return;
     devEarly.deviceId = pci->configRead16(phxgpu::kCfgDevice);
     devEarly.pciRev = pci->configRead8(phxgpu::kCfgRevision);
@@ -85,8 +86,11 @@ void PhxBringup::devInfoEarly() {
 
 // The GC harvest registers and GB_ADDR_CONFIG, once the GFX block is up (Linux's get_gb_addr_config, gfx_v11_0_setup_rb
 // and gfx_v11_0_get_tcc_info read them; none needs an SE / SA select). Only on the layout the discovery table confirmed.
+// adoptQueue, QueryInfo and the sysctl call it without a common lock, so the record is published once: the registers go
+// into a local, one caller wins devGcState 0 -> 1 and copies it, then a release store sets 2; readers (devGcRead) copy
+// devGc only after an acquire load sees 2. A caller that loses the race has only read registers.
 void PhxBringup::devInfoGc() {
-    if (devGc.read || !mmio || !gpuReady() || !phxdev::basesKnown(devDisc)) return;
+    if (__atomic_load_n(&devGcState, __ATOMIC_ACQUIRE) != 0 || !mmio || !gpuReady() || !phxdev::basesKnown(devDisc)) return;
     phxdev::GcRegs g{};
     g.gbAddrConfig = rreg(phxdev::regAbs(devDisc, phxdev::kGbAddrConfig));
     g.ccSaDisable = rreg(phxdev::regAbs(devDisc, phxdev::kCcSaUnitDisable));
@@ -97,7 +101,10 @@ void PhxBringup::devInfoGc() {
     g.userTccDisable = rreg(phxdev::regAbs(devDisc, phxdev::kCgtsUserTccDisable));
     if (g.gbAddrConfig == 0xffffffffu || g.ccSaDisable == 0xffffffffu) return;   // not powered: try again later
     g.read = true;
+    UInt32 idle = 0;
+    if (!__atomic_compare_exchange_n(&devGcState, &idle, 1u, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) return;
     devGc = g;
+    __atomic_store_n(&devGcState, 2u, __ATOMIC_RELEASE);
     IOLog("PhxBringup: device info: GB_ADDR_CONFIG 0x%08x, SA disable 0x%08x/0x%08x, RB disable 0x%08x/0x%08x, "
           "TCC disable 0x%08x/0x%08x\n", g.gbAddrConfig, g.ccSaDisable, g.userSaDisable, g.ccRbDisable, g.userRbDisable,
           g.tccDisable, g.userTccDisable);
@@ -106,14 +113,20 @@ void PhxBringup::devInfoGc() {
 void PhxBringup::devInfo(phxn_devinfo *out) {
     devInfoGc();
     const phxgpu::Board b = phxgpu::classify(phxgpu::kVendorAmd, devEarly.deviceId, devEarly.pciRev);
-    phxdev::build(devDisc, devEarly, devGc, out, phxgpu::marketingName(b));
+    phxdev::build(devDisc, devEarly, devGcRead(), out, phxgpu::marketingName(b));
+}
+
+phxdev::GcRegs PhxBringup::devGcRead() const {
+    if (__atomic_load_n(&devGcState, __ATOMIC_ACQUIRE) != 2) return phxdev::GcRegs{};
+    return devGc;
 }
 
 // GB_ADDR_CONFIG and the GC version for phxn_info (ABI 1.0): the hardware's once known, else this ASIC's (the values
 // Linux reads on Navi 31; RADV checks them against its own).
 uint32_t PhxBringup::devGbAddrConfig() {
     devInfoGc();
-    return devGc.read ? devGc.gbAddrConfig : kGbAddrConfig;
+    const phxdev::GcRegs g = devGcRead();
+    return g.read ? g.gbAddrConfig : kGbAddrConfig;
 }
 uint32_t PhxBringup::devGcVersion() const {
     return devDisc.err == phxdev::kOk ? (static_cast<uint32_t>(devDisc.gcMajor) << 16 | static_cast<uint32_t>(devDisc.gcMinor) << 8 | devDisc.gcRev)

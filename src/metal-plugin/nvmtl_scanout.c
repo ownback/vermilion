@@ -11,7 +11,8 @@
  * Cobalt64 does. The display pipe's own copies keep going to the console surface, which is off screen meanwhile.
  * Any failure gives the plane back and leaves this process on the CPU copy for good.
  *
- * Direct scan-out (kext b162, nvmtl_scan_direct.h; on by default, off with /Library/GPUBundles/nvmtl/ws-direct-off): with CDCOPY, the two display
+ * Direct scan-out (kext b162, nvmtl_scan_direct.h; on by default, off with /Library/GPUBundles/nvmtl/ws-direct-off):
+ * with CDCOPY (NVMTL_WS_PRESENT_CDCOPY, still set only by the daemon's phxboot-wscdcopy flag), the two display
  * surfaces' own GPU memory is bound to VRAM slots 0 and 1, so CoreDisplay draws them in VRAM and a present is the flip
  * alone, no copy. Slot 2 only takes the bounce (the surface on screen written again with no other flip coming). Before
  * a command buffer that writes a bound surface is submitted, nvmtl_vk_scanout_write_gate waits until HUBP0 cannot be
@@ -20,8 +21,8 @@
  * it), with the submit lock held so nothing writes them in between; the copy path then runs as before.
  *
  * The switch is live one way: creating ws-direct-off ends direct at the next present. Removing it while the copy path
- * presents does nothing until the next WindowServer start (one log line says so): a move would release the plane and the bind
- * drains the queue (nvmtl_sd_appeared_note). While bound, a surface's pages are not drawn into; once nothing is presented
+ * presents does nothing until the next WindowServer start (one log line says so): a move would release the plane and
+ * the bind drains the queue (nvmtl_sd_appeared_note). While bound, a surface's pages are not drawn into; once nothing is presented
  * for 100 ms (NVMTL_SD_SYNC_IDLE_NS) each surface that changed has its VRAM copied onto its pages so a screenshot reads the
  * current frame (nvmtl_scan_sync_*; host-tested only, unverified on hardware).
  */
@@ -134,8 +135,8 @@ static int nvmtl_sd_wanted(void)
 }
 /* Async GPU present (on unless ws-gpu-present-async-off; NVMTLWSPresent.m reads the same file): presents run on the
    execution worker, never on the committing thread the write gate may hold, so the flip that frees a surface cannot
-   wait behind its own gate. */
-static int nvmtl_sd_async_file(void)
+   wait behind its own gate. Read only when GPU present starts (nvmtl_scan_direct_input_locked). */
+static int nvmtl_sd_async_on(void)
 {
     struct stat st;
     return stat("/Library/GPUBundles/nvmtl/ws-gpu-present-async-off", &st) != 0;
@@ -440,7 +441,7 @@ static void nvmtl_scan_direct_input_locked(uint32_t sid, uint32_t w, uint32_t h,
     memset(in, 0, sizeof *in);
     in->wanted = nvmtl_sd_wanted() && !g_sd_off && now >= g_sd_until;
     in->kextOk = (q->flags & NVMTL_SCANQ_DIRECT_OK) && g_scan.n48n && g_scan.bohandle;
-    in->async = nvmtl_sd_async_file();
+    in->async = nvmtl_sd_async_on();
     in->hubpFormat = q->hubp_format; in->pitchPx = q->pitch_px; in->pitch = pitch;
     unsigned a = 0, b = 0;
     pthread_mutex_lock(&g_sd_lock);

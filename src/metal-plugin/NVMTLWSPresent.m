@@ -228,9 +228,10 @@ static void nvmtl_ws_note_display(NVMTLCommandBuffer *cb, BOOL waited) {
     objc_setAssociatedObject(cb, nvmtl_ws_waited_key, waited ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
 // Async GPU present, ON by default (opt-out /Library/GPUBundles/nvmtl/ws-gpu-present-async-off; the old opt-in file
-// ws-gpu-present-async is ignored), with GPU present: WindowServer does not wait for its swap commit any more; the copy and the flip run when the GPU has finished it, on the execution worker (serial with the GPU work
-// that follows, so the surface is copied before anything can draw into it again). The display pipe's CPU copy then goes
-// to the console surface, which is off screen, so neither its wait (ws-screen-wait) nor its timing matter.
+// ws-gpu-present-async is ignored), with GPU present: WindowServer does not wait for its swap commit any more; the copy
+// and the flip run when the GPU has finished it, on the execution worker (serial with the GPU work that follows, so the
+// surface is copied before anything can draw into it again). The display pipe's CPU copy then goes to the console
+// surface, which is off screen, so neither its wait (ws-screen-wait) nor its timing matter.
 static BOOL nvmtl_ws_gpu_async_on(void) {
     static _Atomic int on = 0; static _Atomic uint64_t checked;
     const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);

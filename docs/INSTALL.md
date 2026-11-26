@@ -677,18 +677,22 @@ boot-args for one boot.
 
 ### 8.6 Turning GPU present, async present and direct scan-out off
 
-Since 2026-11-26 the Metal plugin runs three display features by default, with no file to create. Each has an opt-out
-file in `/Library/GPUBundles/nvmtl` (create it as root; no reboot for the plugin, which re-reads them every second):
+Since 2026-11-26 the Metal plugin runs three display features by default, with no file to create (direct scan-out
+only together with the `phxboot-wscdcopy` flag of section 7.3, which is still opt-in). Each has an opt-out
+file in `/Library/GPUBundles/nvmtl` (create it as root; no reboot for the plugin, which re-reads them every second).
+The defaults were built and host-tested on 2026-11-26; no boot of the XTX machine has run without the old opt-in
+files yet (unverified).
 
 | Feature | Turn it off | Takes effect |
 |---|---|---|
 | GPU present: the plugin copies WindowServer's frame into VRAM and flips the display itself | `sudo touch /Library/GPUBundles/nvmtl/ws-gpu-present-off` | The plane goes back at the next present. The boot daemon also stops allowing the scanout, from the next boot |
-| Async GPU present: WindowServer does not wait for its swap commit | `sudo touch /Library/GPUBundles/nvmtl/ws-gpu-present-async-off` | within a second. Direct scan-out and `phxboot-wscdcopy` need it, so they stop too |
+| Async GPU present: WindowServer does not wait for its swap commit | `sudo touch /Library/GPUBundles/nvmtl/ws-gpu-present-async-off` | within a second in the plugin. Direct scan-out and `phxboot-wscdcopy` need it and are chosen at a start, so reboot after creating the file: what a running desktop with `phxboot-wscdcopy` does when async goes off is (unverified) |
 | Direct scan-out: CoreDisplay draws the two display surfaces in VRAM and a present is the flip alone | `sudo touch /Library/GPUBundles/nvmtl/ws-direct-off` (or `sudo sysctl debug.phxscan_direct=0`) | the next present copies back and releases; the copy path runs |
 
-Remove the file to turn a feature on again. Switching on needs a WindowServer restart for the plugin (log out and in,
-or reboot): GPU present and async turn on live, but direct scan-out is chosen only when GPU present starts, and the
-plugin logs `ws-direct-off removed: direct scan-out takes effect at the next WindowServer start`.
+Remove the file to turn a feature on again, then reboot. Async turns on within a second where GPU present runs. GPU
+present does not come back in a running WindowServer (the plugin keeps it off for the process, and the daemon allows
+the scanout only at boot). Direct scan-out is chosen only when GPU present starts, and the plugin logs
+`ws-direct-off removed: direct scan-out takes effect at the next WindowServer start`.
 
 The old opt-in files `ws-gpu-present`, `ws-gpu-present-async` and `ws-direct` are ignored now. A machine that has them
 keeps working (the features are on) and the daemon logs `note: ... is no longer used`; you can delete them. The safe

@@ -190,9 +190,10 @@ add each change here with the thread's number.
     `phxfb-squat` at SUCCESS). `wstiled` is absent on purpose (C3 measured worse). Previous daemons:
     `~/vermilion-rollback/phxboot-navi31.sh.pre-gl`, `.pre-wstiled`, `.pre-bovram`, `.pre-thread02`, `.pre-thread01`,
     `~/gpu/phxboot-navi31.sh.prev`.
-  - `/Library/GPUBundles/nvmtl/ws-gpu-present` and `ws-gpu-present-async` (GPU present on; the old opt-in files, ignored since
-    2026-11-26: GPU present, async and direct scan-out are on by default, opt-outs `ws-gpu-present-off`,
-    `ws-gpu-present-async-off`, `ws-direct-off`; [INSTALL.md](INSTALL.md) 8.6). The `ws-direct` file there is the same.
+  - `/Library/GPUBundles/nvmtl/ws-gpu-present`, `ws-gpu-present-async` and `ws-direct`: the old opt-in files, ignored
+    by a plugin and daemon built since 2026-11-26 (GPU present, async and direct scan-out are on by default; opt-outs
+    `ws-gpu-present-off`, `ws-gpu-present-async-off`, `ws-direct-off`; [INSTALL.md](INSTALL.md) 8.6). The installed
+    plugin and daemon still read them until that build is installed.
   - Network: `NetworkInterfaces.plist` / `preferences.plist` with Ethernet `en0`, Wi-Fi `en1` (2026-11-23; backup
     `~/vermilion-rollback/netcfg-20261122/`).
   - `pmset -a disablesleep 1`; `ConfigDataInstall = 1`.

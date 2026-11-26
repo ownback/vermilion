@@ -877,7 +877,7 @@ if [ $DESK = 1 ]; then
   #    final 0-users guard IMMEDIATELY before the killall, nothing slow between arm-confirm and kill, so the
   #    window where the stale-cache boot WindowServer could hit the assert on its own is as small as possible.
   if who 2>/dev/null | grep -q . ; then m2_fail "a user logged in during arm -- refusing the WindowServer restart"; fi
-  # 5a) GPU present (2026-10-25): with $GPUPRESENT the plugin copies WindowServer's frames into VRAM slots on the GPU
+  # 5a) GPU present (2026-10-25): with GPUPRESENT=1 the plugin copies WindowServer's frames into VRAM slots on the GPU
   #     and flips HUBP0 itself (PhxBringup scanout, debug.phxscan); it needs the scanout allowed before WindowServer
   #     comes back, and phxfb's own flip left off (both would program HUBP0)
   #     On by default; off on the safe desktop and with $GPUPRESENT_OFF.

@@ -657,6 +657,22 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   with the copy possibly pending; the tick holds `g_scan_lock` across `IOSurfaceLock` and the submit; the IOSurface
   lock is held until the next tick (up to 250 ms); a slow copy fails the write gate as a flip timeout; a copy per
   change for content that updates a few times a second; `g_scan.syncIdx` unused.
+  **On by default, built 2026-11-26** (branch `ownback/direct-default`: opt-outs `ws-gpu-present-off`,
+  `ws-gpu-present-async-off`, `ws-direct-off`; decisions.md, INSTALL.md 8.6). Not installed, (unverified) on hardware.
+  Open points from its clean-up pass (read from the code; behaviour changes, own commits):
+  - The daemon leaves phxfb's flip off whenever GPU present is on, now the default. Where the plugin cannot start GPU
+    present (a mode whose rows are not the kext's pitch: below 1440p; any size but the first), the desktop then runs
+    on the CPU copy with no flip, where the old default had the flip.
+  - The safe desktop: only the daemon knows it. The plugin now tries GPU present there too, the kext refuses the query
+    (`debug.phxscan` 0), and the plugin asks again every 2 s for the life of WindowServer (eight log lines; the plane
+    numbers in them are not set by the plugin when the query fails).
+  - `ws-gpu-present-async-off` created on a running desktop with `phxboot-wscdcopy`: CDCOPY is read once and direct
+    stays bound (async is read only at a start), while presents move to the committing thread. Not tested.
+  - Direct scan-out by default still needs `phxboot-wscdcopy`, and a start that does not learn both display surfaces
+    within 2 s stays on the copy path until GPU present starts again.
+  - The mock suite's plain `world` now carries `ws-gpu-present-off`, so most scenarios run the opt-out, not the
+    default; `gpdef_release` passes when `scripts/release` is missing.
+  - `src/vermilion-boot/phx_globals.cpp` still names the `ws-direct` file in a comment (kext source, not touched here).
 - [ ] **1b. Narrow render-pass dependencies** (plugin, S-M): every pass has image-less ALL_COMMANDS / MEMORY_* entry
   and exit dependencies, likely an L2 flush per pass in RADV (unverified); ~0.4-0.5 ms of WindowServer's frame is
   the ~13 us per-pass floor. Measure RADV's flush bits per pass (or A/B `NVMTL_RP_K1=1`) before changing it.

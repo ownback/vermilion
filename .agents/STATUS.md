@@ -29,7 +29,8 @@ code, none a real EDID; the scan moves on one byte after a rejected match; `.git
 set neither `~/gpu/phxboot-auto` nor `phxfb-squat`, so a stranger's first boot would stay on the firmware display;
 the fix (postinstall arms both, read-back, a plain message when NVRAM writes are off) is in progress on the same
 branch, with the post-install text order and stale "section 3" comments. Agent on A2+A3 (`ownback/plugin-release`).
-**#47** open: the B1 design (K1-K14, T1, U1; 18-20 boots; hw-safety review folded in; Fable pass running).
+**#47** merged: the B1 design (K1-K14, T1, U1; 18-20 boots; hw-safety review folded in; K1-K3 = b164-b166).
+Agent on U1 (`ownback/uclk-dal`: Linux's DAL-mailbox UCLK floor instead of the driver-mailbox 0x1B, hw-safety review).
 **U1, hard rule 1, live:** `uclk.sh pin` sends the driver-mailbox SMU message 0x1B (SetHardMinByFreq, UCLK 456 MHz,
 `/var/log/phxboot.log`: `msg 0x1b arg 0x000201c8`) on every boot; #47's review says Linux sets UCLK on SMU 13.0.0
 through the DAL mailbox from its display code instead. Removing the pin brings back the display underflows it was added

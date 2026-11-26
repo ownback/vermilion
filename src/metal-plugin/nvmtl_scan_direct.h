@@ -16,8 +16,7 @@
      flip-complete test, the kext's PHXN_SCANSLOT_WRITABLE). If the surface on screen is to be written again and no other
      flip is coming, its VRAM is first copied to the third slot and HUBP0 flips there (the bounce);
    - when to give up for a while (nvmtl_sd_fail);
-   - ws-direct appearing while the copy path presents (nvmtl_sd_appeared_note: said once, takes effect at the next start);
-   - when a bound surface's pages are brought up to date for CPU readers (nvmtl_sd_sync_due). */
+   - ws-direct appearing while the copy path presents (nvmtl_sd_appeared_note: said once, takes effect at the next start). */
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -143,27 +142,3 @@ static inline int nvmtl_sd_appeared_note(int wantedAtStart, int wantedNow, int *
     *said = 1;
     return 1;
 }
-
-/* Stale pages. While a display surface is bound its pages are not drawn into (the GPU writes the slot's VRAM), so a CPU
-   reader (screencapture) saw the frame from when the pair was bound. Each surface carries a token that changes whenever
-   its VRAM may have: a write to it finished (CoreDisplay drew a frame, nvmtl_vk_scanout_write_note(sid, -1)) or it was
-   flipped. Once nothing has been presented for NVMTL_SD_SYNC_IDLE_NS, no write to it is in flight and no copy of it is
-   running, a copy of its VRAM to its pages is started (read only on the VRAM side, so HUBP0 is not disturbed). It does
-   not hold the scan-out lock while it runs: the write gate holds writes to the surface until the copy's fence has
-   signalled (nvmtl_sd_sync_blocks_write), and whoever next takes the lock reaps it. The surface is clean only if the copy
-   succeeded and the token is still the one it started with (a write that finished meanwhile keeps it dirty).
-   Host-tested only; not run on hardware (unverified). */
-#define NVMTL_SD_SYNC_IDLE_NS 100000000ull        /* 100 ms without a present: the desktop is still */
-typedef struct {
-    uint32_t synced;     /* the token the pages were last brought up to date at */
-    uint32_t startTok;   /* the token the running copy started at */
-    int inflight;        /* a copy is running */
-} nvmtl_sd_sync;
-static inline int nvmtl_sd_sync_due(const nvmtl_sd_sync *s, uint32_t tok, int writeInFlight, uint64_t sincePresentNs)
-{
-    return tok != s->synced && !s->inflight && !writeInFlight && sincePresentNs >= NVMTL_SD_SYNC_IDLE_NS;
-}
-static inline void nvmtl_sd_sync_begin(nvmtl_sd_sync *s, uint32_t tok) { s->inflight = 1; s->startTok = tok; }
-static inline void nvmtl_sd_sync_end(nvmtl_sd_sync *s, int ok) { s->inflight = 0; if (ok) s->synced = s->startTok; }
-/* A write to the surface waits while its pages are being written. */
-static inline int nvmtl_sd_sync_blocks_write(const nvmtl_sd_sync *s) { return s->inflight; }

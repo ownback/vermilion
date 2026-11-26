@@ -9,79 +9,56 @@ The evidence for every row is in the audit findings, by row number:
 [last threads' state](findings/2026-11-24-audit-thread-handover.md). States: **works**, **broken**, **missing**,
 **not standard** (works, but not as Apple would ship it). Size: S about a day, M days, L weeks.
 
-## Resumed (2026-11-26 03:10, the owner's call); EFI change 40 installed, not booted
+## 2026-11-26: merged today; the boot queue (live is still EFI change 39)
 
-**EFI change 40** (plan A7): stage `vermilion-trust-bar1g-audio-sse` (#44) = change 39 + RyzentoshSSE 0.1.0
-(ownback/ryzentosh-sse `45c3c26`, executable sha256 `ab3874fa…`, preflight passed). `config.plist` differs from 39
-only by the one Kernel/Add entry; every other file byte-identical. The live Vermilion kexts were copied from the ESP
-into `~/vermilion-build/efi40-kexts`. `EFI/OC.prev` = change 39, also in `~/vermilion-rollback/EFI-OC.change39-20261126`.
-The `local.phxpassd` login agent is removed (copy in `~/vermilion-rollback/local.phxpassd.plist.20261126`).
-Expected after the boot: `ioreg -c AppleSSE` one service, no passd AppleSSE retry lines, the usual checks
-(`phx-build` 162, `denied_unlisted=0`, `SUCCESS`, 240 Hz, direct scan-out). Then tag ryzentosh-sse `v0.1.0` and make
-the component a pinned download. The machine lock is held until the post-boot check.
-Merged 2026-11-26 morning: **#43** (F1: VermilionBoot b163 holds no AMD firmware; review fixes: `phxctl c3image`
-retries 5 s on EBUSY and exits 3, usage, index regenerates the hashes) and **#45** (package fixes; review fixes:
-`allow-external-scripts` for the Installer check, a spent rollback folder no longer decides a later uninstall).
-**#46** merged (release-scan needs a valid EDID checksum: b163's 38 `edid-serial` findings were header-like bytes in
-code, none a real EDID; the scan moves on one byte after a rejected match; `.gitignore` again covers the old generated
-`phx_c3_image.inc`, AMD bytes, still present in six old thread worktrees on old branches).
-**#48** open: root `INSTALL.md` rewritten for 0.1.0-preview. Its author found a **release blocker**: the package
-set neither `~/gpu/phxboot-auto` nor `phxfb-squat`, so a stranger's first boot would stay on the firmware display;
-the fix (postinstall arms both, read-back, a plain message when NVRAM writes are off) is in progress on the same
-branch, with the post-install text order and stale "section 3" comments. Agent on A2+A3 (`ownback/plugin-release`).
-**#47** merged: the B1 design (K1-K14, T1, U1; 18-20 boots; hw-safety review folded in; K1-K3 = b164-b166).
-**Boot queue** (one change per boot; files staged in `~/vermilion-build`):
-40 RyzentoshSSE (installed) → 41 VermilionBoot b163 (EFI) + `phxctl.bin`, `m7_boot.sh` (#43) and the daemon's #48
-commit into `~/gpu` (`efi41/`; the live daemon equals main minus that commit; its new code runs only on GOP boots) →
-42 NVMTLDriver release `b1900d21` (`plugin-d47dff1/`) + VermilionTrust with its cdhash (EFI) → C our AIR reader
-(`air/`) + VermilionTrust (EFI) → U1 when reviewed.
-**Boot queue update (U1, #51):** 41 becomes VermilionBoot **b167** (#52: b163's F1 + U1) with `uclk.sh`, `idle_dpm.sh`,
-the daemon (#48 + #52), `phxctl.bin` and `m7_boot.sh`, all from main after #52 merges; 42 the plugin from #51
-(direct scan-out live switch-on, release cdhash `8f6e0a38`, supersedes #49's `b1900d21`).
-**Boot 41 staged** (`~/vermilion-build/efi41`, from main `e6cb80f`): VermilionBoot b167 (sha256 `0124b9a9`,
-preflight passed, release-scan clean), `phxctl.bin`, `m7_boot.sh`, `uclk.sh`, `idle_dpm.sh`, `phxboot-navi31.sh`
-(rebuild the daemon copy from main at deploy time if #53 or the flag-defaults PR merged first). Checks after the boot:
-`phx-build` 167, `uclk: DAL hard min UCLK 1249 MHz ... (OK), status 0x24 done`, no `msg 0x1b`, `uclk_pins=0`,
-`debug.phxdal_stat` `timeouts 0 dead 0`, `idledpm: ... on:`, `SUCCESS`, 240 Hz, idle power after the release.
-**#52** merged (U1): `uclk.sh pin` sets DALSMC SetHardMinByFreq (9) to the PMFW's top UCLK level (1249 MHz here,
-Linux's "UCLK min = max"), `unpin` level 0 (96 MHz), with ReturnHardMinStatus polled as Linux does (stops at the first
-failed read); the kext's own UCLK step uses the DAL mailbox, `debug.phxpipe0_uclk` takes only 0, and its debug selector
-refuses driver-mailbox 0x1B/0x1C. hw-safety: "SAFE WITH CHANGES", the blocking point fixed. Linux traces from the XTX
-machine: 72 of 78 mode sets end at a 96 MHz minimum; 456 was never sent. Open for the owner (TODO 01, before U1 too):
-at 240 Hz Linux releases UCLK to 96 only with FAMS, which macOS doesn't have.
-**#51** open: direct scan-out idle screenshot sync and a flip-wait counter. Its Fable pass found the live switch-on
-could end GPU present for the life of WindowServer: the live move is dropped (log only), the sync's lock and
-half-frame issues are being fixed. **Release gap found:** the package creates none of `ws-gpu-present`,
-`ws-gpu-present-async`, `ws-direct`, so a stranger's WindowServer would get no GPU present: next PR makes all three
-the default (files become `-off` opt-outs; the safe desktop still turns GPU present off): **#53** (stacked on #51).
-**Release gap 2:** the reference machine runs with 18 `~/gpu/phxboot-*` flags (audio, auto, autologin, bovram, cg, gl,
-idledpm, idledpm-dcf, irqwait, nohdr, p0modes, sdma, uclk, vcn, vrrmin, waitstep, wscdcopy; nvstuck is state); the
-package sets 5. A stranger would get no DP audio, OpenGL, video decode, idle power management, extra modes or VRR
-floor. Next, after #51/#53/#52 merge: every proven feature on by default, `-off` opt-outs, autologin stays opt-in.
-**#49** merged: the plugin's release build (A2: quiet log, errors at os_log error level, env switches ignored except
-the daemon's two; NVIDIA paths removed) and Metal feature answers (A3: Mac Catalyst families YES; finding
-`2026-11-26-metal-feature-answers.md`). Release cdhash `b1900d21`; a VermilionTrust + EFI change when deployed.
-**#48** merged (INSTALL.md; the package no longer writes `phxfb-squat`; the daemon's GOP-boot re-arm (after a
-bring-up that needs the firmware and VermilionAccel) arms the desktop; HDR off by flag; notices for Allow and restart.
-**#50** merged: T1 by static analysis (REA on 25G241's SkyLight, Metal, CoreDisplay, GPUWrangler). SkyLight has no
-device-added observer; `WSSystemCanCompositeWithMetal` decides once per process after `IOKitWaitQuiet` (at most 60 s)
-and `CoreDisplay::GPU::UpdateAcceleratorForMetal` once per GPU object, so skipping the restart alone probably fails
-(~70 %). Metal itself appends a late device. Follow-up if the one-boot T1 test fails: keep the registry busy until
-NMXAccel registers (under 60 s), which needs the bring-up in the kernel (B1 K8). Merged. The T1 boot's plugin-log
-check needs the logging plugin build (the release build logs errors only).
-Agent on U1 (`ownback/uclk-dal`: Linux's DAL-mailbox UCLK floor instead of the driver-mailbox 0x1B, hw-safety review).
-**U1, hard rule 1, live:** `uclk.sh pin` sends the driver-mailbox SMU message 0x1B (SetHardMinByFreq, UCLK 456 MHz,
-`/var/log/phxboot.log`: `msg 0x1b arg 0x000201c8`) on every boot; #47's review says Linux sets UCLK on SMU 13.0.0
-through the DAL mailbox from its display code instead. Removing the pin brings back the display underflows it was added
-for. Owner's call asked (2026-11-26): keep it until U1 is designed, reviewed and booted, or stop it now.
-b163 built from main `cddcdd9` in `~/vermilion-build/b163` (release-scan clean with #46). It is **EFI change 41**,
-after 40 passes: b163 + `phxctl` + `m7_boot.sh` from main into `~/gpu`. The C3 path runs only for a second monitor
-(`~/gpu/phxboot-m7`, not set here), so on this machine the check is `phx-build` 163, `debug.phxc3_image` reads 0,
-`SUCCESS`, 240 Hz. Agents: B1 design (resumed). The ryzentosh-sse checkout was re-cloned (the old one is
-`~/Projects/ryzentosh-sse.old-history-20261126`).
+**Live on the XTX machine:** EFI change 39 (VermilionBoot b162, NVMTLDriver `1c15df79`, VermilionTrust 18 cdhashes),
+direct scan-out on. **EFI change 40 is installed, not booted:** stage `vermilion-trust-bar1g-audio-sse` (#44) =
+change 39 + RyzentoshSSE 0.1.0 (ownback/ryzentosh-sse `45c3c26`, executable sha256 `ab3874fa…`); `config.plist`
+differs from 39 only by its Kernel/Add entry. `EFI/OC.prev` = change 39 (also
+`~/vermilion-rollback/EFI-OC.change39-20261126`); the `local.phxpassd` login agent is removed (copy in
+`~/vermilion-rollback/local.phxpassd.plist.20261126`). The machine lock is held until change 40's post-boot check.
 
-Owner's Maps test with direct scan-out (change 39): the same as before. WindowServer no longer copies (presents mostly
-< 8 ms apart), so the choppiness is Maps' own rendering in the Metal driver: the next item is measuring Maps' GPU passes.
+**Merged 2026-11-26** (each with its Fable pass; review fixes on top where noted):
+
+| PR | What | Notes |
+|---|---|---|
+| #43 | F1: VermilionBoot b163 holds no AMD firmware (the C3 image at run time) | `phxctl c3image` retries EBUSY 5 s |
+| #44 | EFI stage with RyzentoshSSE (plan A7) | installed as change 40 |
+| #45 | Release package fixes from #42's review | `allow-external-scripts`; spent rollback folders |
+| #46 | release-scan: an EDID needs a valid checksum; `phx_c3_image.inc` ignored again | b163's 38 findings were false |
+| #47 | B1 design: GPU bring-up in the kernel, K1-K14, T1, U1, 18-20 boots | hw-safety review folded in |
+| #48 | Root `INSTALL.md` for 0.1.0-preview; the daemon arms the desktop after a GOP bring-up | notices for Allow, restart |
+| #49 | Plugin release build (A2), NVIDIA paths removed, Metal feature answers (A3) | Mac Catalyst families YES |
+| #50 | T1 by static analysis: the first WindowServer probably won't adopt a late device (~70 %) | fix needs B1 K8 |
+| #51 | Direct scan-out: `ws-direct` appearing applies at the next start; flip-wait counter | live move, idle copy dropped |
+| #52 | U1: the UCLK floor through the DAL mailbox as Linux does; VermilionBoot b167 refuses 0x1B/0x1C | hw-safety OK |
+| #53 | GPU present, async present and direct scan-out on by default (`-off` opt-outs) | safe desktop back-off |
+
+**Release gaps found and closed today:** the package would have armed a dark first boot (#48: the daemon arms it after
+a bring-up that needs the firmware and VermilionAccel); the Installer check could never run (#45); a stranger got no
+GPU present or direct scan-out (#53). **Open release gap:** the package sets 5 of the reference machine's 18
+`~/gpu/phxboot-*` flags (no DP audio, OpenGL, video decode, idle power management, extra modes, VRR floor for a
+stranger): agent on `ownback/flag-defaults` (every proven feature on by default, `-off` opt-outs, autologin opt-in,
+HDR off by default). Agent on A4+A9 (`ownback/device-info`: GPU name, VRAM, RADV device info from the hardware, the
+XT profile dropped; VermilionBoot b168).
+
+**U1 and hard rule 1:** until boot 41, every boot still sends the driver-mailbox SMU message 0x1B (UCLK 456 MHz),
+which Linux never sends on SMU 13.0.0. Boot 41 (b167) replaces it with Linux's DAL-mailbox messages: the top level
+(1249 MHz) while pinned, level 0 (96 MHz) after the release. **For the owner (TODO 01, older than U1):** at 240 Hz
+Linux releases UCLK only with FAMS, which macOS doesn't have; keep UCLK at the top level at 240 Hz, or record an
+exception.
+
+**Boot queue** (one EFI change per boot; files in `~/vermilion-build`; each needs the owner at the machine):
+
+| Boot | Change | Staged | Check after the boot |
+|---|---|---|---|
+| 40 | RyzentoshSSE (EFI) | installed | `ioreg -c AppleSSE` one service; no passd retry lines; Music's first launch fast |
+| 41 | VermilionBoot b167 (EFI) + `uclk.sh`, `idle_dpm.sh`, `phxctl.bin`, `m7_boot.sh`, the daemon into `~/gpu` | `efi41/` (main `e6cb80f`; take the daemon from main at deploy) | `phx-build` 167; `uclk: DAL hard min UCLK 1249 MHz ... status 0x24 done`; no `msg 0x1b`; `uclk_pins=0`; `debug.phxdal_stat` `timeouts 0 dead 0`; `SUCCESS`; 240 Hz |
+| 42 | NVMTLDriver from main (release build, #51, #53) + VermilionTrust with its cdhash (EFI) | rebuild from main at deploy | `denied_unlisted=0`; direct scan-out with no switch file |
+| C | our AIR reader + VermilionTrust (EFI) | `air/` | AIR translation works, `denied_unlisted=0` |
+
+Then: ryzentosh-sse `v0.1.0` (after boot 40) and its pinned download; Maps' per-frame GPU passes (the choppiness is
+Maps' own rendering, WindowServer no longer copies); B1 K1-K3 (b164-b166).
 
 ## Boot B (2026-11-26 00:42, XTX machine): EFI change 39 passed; direct scan-out on
 

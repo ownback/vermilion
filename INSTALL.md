@@ -135,15 +135,16 @@ What the package does:
 2. It copies every file it is about to replace to `/Library/Application Support/Vermilion/rollback/<time>/`.
 3. It installs the Metal driver (`/Library/GPUBundles`), VermilionAccel (`/Library/Extensions`), and `phxctl`,
    `mesboot`, `spirv-val`, `vermilion-uninstall` and `vermilion-firmware` (`/usr/local`).
-4. It installs the boot daemon, its scripts and three first-boot flags (`phxboot-sdma`, `phxboot-cg`,
-   `phxboot-uclk` = `456`) into your `~/gpu`, and writes the LaunchDaemon `local.phxboot`. It does not start it: it
-   runs at the next boot.
+4. It installs the boot daemon and its scripts into your `~/gpu`, and writes the LaunchDaemon `local.phxboot`. It
+   creates no flag files: every proven feature is on by default (the table in section 6 turns one off). It does not
+   start the daemon: it runs at the next boot.
 5. **It downloads AMD's firmware.** No firmware is inside the package. The post-install script fetches the 20 files
    from linux-firmware (a GitLab mirror, then git.kernel.org) at one pinned commit into `~/gpu/fw/navi31`, and checks
    each file's MD5 and SHA-256 against the list in the package. A file that does not match is refused.
 6. It installs the AIR reader (LLVM) into the Metal driver bundle.
-7. It creates two flag files in `~/gpu`: `phxboot-auto` (the daemon may arm the accelerated desktop by itself) and
-   `phxboot-nohdr` (HDR stays off: it is broken in this preview).
+7. It writes no flag files. The daemon arms the accelerated desktop by itself after a finished first boot, and HDR
+   stays off (it is broken in this preview; `touch ~/gpu/phxboot-hdr` tries it). Automatic login and the second
+   monitor stay off: they need their own file.
 
 It never writes the system volume, NVRAM or the EFI partition, and it does not start the daemon.
 
@@ -174,8 +175,8 @@ first one had the firmware and VermilionAccel loaded.
 1. **After the restart, do not log in for about 3 minutes.** The daemon brings the GPU up in that time.
 2. Read the log: `tail -60 /var/log/phxboot.log`. Each boot starts with a line `== <date> <time> phxboot(navi31, ...)`.
    Read the last boot's section. A good first boot shows `navi31 up: compute + gfx queues ready`, `NMXAccel up`,
-   `no desktop arm: GOP + Metal for apps`, then `phxfb-squat re-armed for the next boot (GOP boot, phxboot-auto
-   present; read-back ok)` and `done`.
+   `no desktop arm: GOP + Metal for apps`, then `phxfb-squat re-armed for the next boot (GOP boot, automatic desktop
+   on; read-back ok)` and `done`.
 3. **A notification says "Graphics acceleration is ready. Restart to turn on the accelerated desktop."** It appears
    after you log in. If it says "Graphics acceleration needs your approval", the Allow click (section 3.4) is still
    missing: do it and restart. In that case the daemon touched nothing on the GPU.
@@ -293,6 +294,35 @@ Never Reset NVRAM to fix a boot problem. Never restart into macOS from Linux or 
 | Turn the GPU path off without uninstalling | `touch ~/gpu/phxboot-off` (in Terminal, over SSH, or in Recovery under `/Volumes/<Data volume>/Users/<you>/gpu/`), then restart. `rm ~/gpu/phxboot-off` turns it on again. |
 | Recovery or Safe Mode shows no picture | Expected *(unverified)*. Boot an EFI copy without VermilionBoot. |
 
+### Turn one feature off
+
+Every feature below is on by default. To turn one off, create an empty file with the name in the second column in
+`~/gpu` (`touch ~/gpu/phxboot-cg-off`) and restart; `rm` the file to turn it on again. Leave the other features alone
+unless the log points at one (`/var/log/phxboot.log`, one line per feature). An old `~/gpu/phxboot-<name>` file from an
+earlier install does nothing now; the log says so in one `note:` line.
+
+| Feature | Create this file to turn it off |
+|---|---|
+| Automatic arming of the accelerated desktop after a finished boot | `phxboot-auto-off` |
+| SDMA idle (idle power) | `phxboot-sdma-off` |
+| GFX clock gating (idle power and heat) | `phxboot-cg-off` |
+| Memory clock pin | `phxboot-uclk-off` |
+| Idle memory and fabric clocks | `phxboot-idledpm-off` (and `phxboot-idledpm-dcf-off` for the DCFCLK part only) |
+| 1440p modes in System Settings | `phxboot-p0modes-off` |
+| Fence waits by interrupt | `phxboot-irqwait-off` |
+| Fence wait step | `phxboot-waitstep-off` (or a value 20-1000 in `phxboot-waitstep`) |
+| CoreDisplay's surfaces for GPU present | `phxboot-wscdcopy-off` |
+| Video decode engine (VCN) | `phxboot-vcn-off` |
+| VRAM buffers for named apps | `phxboot-bovram-off` (or a comma-separated list in `phxboot-bovram`) |
+| OpenGL over Metal | `phxboot-gl-off` |
+| DisplayPort audio | `phxboot-audio-off` |
+| Adaptive Sync ("Variable") | `phxboot-novrr` |
+| GPU present, async present, direct scan-out | `/Library/GPUBundles/nvmtl/ws-gpu-present-off`, `ws-gpu-present-async-off`, `ws-direct-off` |
+
+HDR is off by default (broken in this preview); `touch ~/gpu/phxboot-hdr` turns it on to try it. Automatic login
+(`phxboot-autologin`, holding the user name), the second monitor (`phxboot-m7*`) and `touch ~/gpu/phxboot-off` (the
+kill switch, above) are opt-in and stay off until you create their file. Details: [docs/INSTALL.md](docs/INSTALL.md), 7.3.
+
 ### Black screen after a failed boot
 
 1. Power off fully (hold the power button), then power on.
@@ -346,8 +376,7 @@ in Apple's NVRAM GUID:
 printf '\007\000\000\000\061' | sudo tee /sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82 >/dev/null
 ```
 
-Then power off fully (not a restart) and boot macOS. `~/gpu/phxboot-auto` (the package creates it) makes the daemon
-re-arm the variable after each good boot.
+Then power off fully (not a restart) and boot macOS. The daemon re-arms the variable after each good boot (unless `~/gpu/phxboot-auto-off` exists).
 
 **To delete `phxfb-squat` or `phxfb-boot` from Linux** (the uninstaller says so when macOS could not delete them): the
 files are immutable. For each variable, in the same directory and GUID:

@@ -14,6 +14,17 @@ Rules:
   them once the change is verified and PROJECT_KNOWLEDGE's known-good section says what is booted.
 - Something that works on a real Mac and not here goes in as a bug under the thread that owns it (ROADMAP, "Known limits").
 
+## Flag defaults (`ownback/flag-defaults`, 2026-11-26)
+
+- [ ] **Run the defaults on the XTX machine without its old flag files** (owner, one boot): move `~/gpu/phxboot-{sdma,cg,
+  uclk,vcn,gl,audio,irqwait,p0modes,idledpm,idledpm-dcf,wscdcopy,auto,nohdr,waitstep,bovram,vrrmin}` away, boot, check
+  that `/var/log/phxboot.log` shows every feature as before and no `note:` line. Until then the defaults are
+  host-tested only.
+- [ ] Ship the VCN and audio helpers in the package (`vcnup/`, `phxaudio`, `audio_match.sh`): `vcn` and `audio` are on
+  by default but skip with a `missing` line on a stranger's install.
+- [ ] `bovram` default is the XTX machine's two game processes; decide a general rule (all but WindowServer?) after a
+  measurement on another app.
+
 ## Staged now
 
 State after thread 03's changes (verified, recorded in PROJECT_KNOWLEDGE, known-good): `EFI/OC` = change 23
@@ -333,8 +344,8 @@ PROJECT_KNOWLEDGE.
   240 Hz departs from Linux (carried over from before U1, not blocking). Two answers: keep UCLK at the top level at
   240 Hz until FAMS exists on macOS (K11 or later, own review; costs idle power at the owner's main mode), or the
   owner records an exception in decisions.md. U1's load check at 240 Hz is the evidence. Also: the power cost of the
-  pinned window at 1249 MHz (not measured), and `phxboot-idledpm` (+ `-dcf`) in the release first-boot flag set,
-  without which UCLK stays at 1249 all boot (owner's call).
+  pinned window at 1249 MHz (not measured). (`idledpm` and `idledpm-dcf` are on by default since
+  `ownback/flag-defaults`, so a release install no longer stays at 1249 all boot.)
 - [ ] **`idle_dpm.sh`: `SetFclkSwitchAllow 1` before the UCLK release** (S, own hw-safety review; U1 finding section 7
   item 6): Linux's optimize pass sends the FCLK message first (`dcn32_clk_mgr.c` v6.8 :633-641 before :710-720);
   `idle_dpm.sh` sends it after `uclk.sh unpin`, and only when the unpin passed.
@@ -347,10 +358,8 @@ PROJECT_KNOWLEDGE.
     which truncates the "not confirmed" and "read not answered" endings in its log.
   - `tests/kext/pipe0_1440_test.cpp`: no check reaches `macSet`'s "no DAL callback" and "a PMFW message is in
     flight" refusals (the block with `pmfwIdle` null asks for the current mode and ends at `kSame`).
-  - `b15_boot.sh` (upstream's XT recipe) still calls `uclk.sh pin 456` and logs "UCLK pinned 456 for this boot";
-    the pin is now the top level.
-  - The installers still write `phxboot-uclk=456` (`scripts/release/pkg/postinstall`, `recovery_install.sh`), and
-    INSTALL.md, docs/RELEASE.md and docs/XTX.md name that value; the content is no longer read.
+  - `b15_boot.sh` (upstream's XT recipe) still calls `uclk.sh pin 456` (the argument is ignored; the log text is
+    fixed, `ownback/flag-defaults`).
 
 - [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
       DPCD access through drm_dp_dpcd_access (32 tries; at once after a timeout, 500 us after a NACK / DEFER); the

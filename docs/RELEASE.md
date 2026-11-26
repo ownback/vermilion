@@ -72,7 +72,7 @@ The bundle is not relocatable and not version-checked (an install over the same 
 | `VermilionAccel.kext` | `/Library/Extensions` (the package ends by asking for the Allow click, a known step: [INSTALL.md](../INSTALL.md#34-the-allow-click)) | always (owner decision) |
 | `phxctl`, `mesboot`, `vermilion-uninstall`, `vermilion-firmware` | `/usr/local/sbin` | always |
 | Boot daemon, bring-up scripts, `phxctl.bin`, `metaltest`: a pristine copy, `fetch_firmware.sh` + `fw.lock`, the LaunchDaemon template, `lib.sh`, the AIR reader's files (removed after use) | `/usr/local/libexec/vermilion` | always |
-| the same daemon and scripts, the first-boot flags `phxboot-sdma`, `phxboot-cg`, `phxboot-uclk=456` (only the ones that aren't there), the firmware | **the desktop user's `~/gpu`**, written by the post-install script | B1 |
+| the same daemon and scripts, the firmware (no flag files: every proven feature is on by default in the daemon) | **the desktop user's `~/gpu`**, written by the post-install script | B1 |
 | `local.phxboot.plist` (written, not loaded) | `/Library/LaunchDaemons` | B1 |
 
 **Deviation from the first design:** the design put the daemon in a root-owned system path with no file in the user's
@@ -111,9 +111,10 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    them, and the post-install text repeats it. (The design had Software Update's automatic install off, as
    `recovery_install.sh` does.)
 
-The first-boot flags include `~/gpu/phxboot-auto` and `~/gpu/phxboot-nohdr` (HDR is broken in this preview); both get
-an `N` line in the rollback `MANIFEST`, so the uninstaller removes them. **The package does not write NVRAM.** The
-daemon arms the accelerated desktop: on a GOP boot whose bring-up and claim finished, with `phxboot-auto` present, it sets
+The package writes no flag files (2026-11-26): the daemon's features are on by default (`phxboot-<name>-off` turns one off), HDR
+is off by default (broken in this preview), and automatic login and the second monitor stay off without their file. The
+MANIFEST therefore has no flag lines; an uninstall leaves the user's own flag files alone. **The package does not write NVRAM.** The
+daemon arms the accelerated desktop: on a GOP boot whose bring-up and claim finished, unless `phxboot-auto-off` exists, it sets
 `phxfb-squat` for the next boot (read back) and posts "Graphics acceleration is ready". That needs the firmware and
 VermilionAccel, so a missing firmware or Allow click never arms a dark squat boot; a GOP boot without VermilionAccel
 loaded starts no bring-up, counts no failure and posts "Graphics acceleration needs your approval". The uninstaller

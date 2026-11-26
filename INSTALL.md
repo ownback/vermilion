@@ -86,11 +86,9 @@ Unlike a driver Apple ships, it:
 
 ## 3. Install
 
-The order: the OpenCore part first, one restart, then the package, the Allow click and a second restart. I took
-this order from the package's welcome page ("needs the OpenCore part of the same release") and the OpenCore zip's
-notes (the zip and the package are a pair: update both). The package's closing text lists the Allow click first and
-"make sure the OpenCore part is in place" second, so it does not insist on an order *(unverified: neither order has
-run on a clean machine)*.
+The order: the OpenCore part first, one restart, then the package, the Allow click and a second restart. It is the
+order of the package's welcome page ("needs the OpenCore part of the same release"), its closing text and the
+OpenCore zip's notes (the zip and the package are a pair). *(Unverified: the order has not run on a clean machine.)*
 
 ### 3.1 Download and check
 
@@ -144,7 +142,11 @@ What the package does:
    each file's MD5 and SHA-256 against the list in the package. A file that does not match is refused.
 6. It installs the AIR reader (LLVM) into the Metal driver bundle.
 
-It never writes the system volume, NVRAM or the EFI partition, and it does not start the daemon.
+7. It creates `~/gpu/phxboot-auto` (arms the accelerated desktop) and sets the NVRAM variable `phxfb-squat=1`, then reads
+   it back. If macOS cannot write it (OpenCore's `DisableVariableWrite`), the install still finishes and says so: the
+   first boot will not be the accelerated desktop until you set the variable (section 6, "Set `phxfb-squat` by hand").
+
+It never writes the system volume or the EFI partition, and it does not start the daemon.
 
 **If the download fails** (no network, or a mismatch), the install still finishes with a warning, and the GPU stays on
 the basic display. Run `sudo vermilion-firmware` with a network connection. Offline, use
@@ -171,20 +173,11 @@ the [known limits](README.md#known-limits).
    `done`. About 2.5 minutes after boot, DisplayPort audio appears.
 3. **Wait for `done` before you restart or shut down.** A boot that ends before `done` counts as a failed attempt
    (section 6).
-4. The first boot has **no desktop arm**: apps get Metal while the screen stays on the card's firmware display. To turn
-   on the accelerated desktop, once the first boot has reached `done`:
-
-   ```sh
-   touch ~/gpu/phxboot-auto
-   sudo nvram phxfb-squat=1
-   ```
-
-   Restart. The screen stays dark until the daemon arms the display, then the login window restarts once. After the
-   login the log shows `Metal device ready`, `AGDC up`, `restarting WindowServer once`, `SUCCESS at <time>` and
-   `done`. If `nvram` cannot write (OpenCore's `DisableVariableWrite`, as on the reference machine), set
-   `phxfb-squat` from another OS.
-   *(unverified as a stranger's path: the release package and snippet set neither the flag nor the variable; the
-   steps are from the reference machine's expert guide, [docs/INSTALL.md](docs/INSTALL.md) 8.1 and 8.2.)*
+4. The package armed the accelerated desktop (step 7 of section 3.3). The screen stays dark until the daemon arms the
+   display, then the login window restarts once. After the login the log shows `Metal device ready`, `AGDC up`,
+   `restarting WindowServer once`, `SUCCESS at <time>` and `done`. If the package said `phxfb-squat` could not be set,
+   do section 6, "Set `phxfb-squat` by hand", first; until then the first boot is a basic-display boot where apps get
+   Metal (`no desktop arm: GOP + Metal for apps` in the log). *(unverified: no stranger has done this first boot.)*
 
 ## 4. Check that it works
 
@@ -322,6 +315,15 @@ Do not use OpenCore's "Reset NVRAM" picker entry, and do not hold keys at power-
 every later boot runs on the firmware display with a phantom display, and you cannot get the variable back from
 macOS. Keep `ResetNvramEntry.efi` out of `UEFI > Drivers`. If it has already happened, set `phxfb-squat` from another
 OS or from Recovery's Terminal with `nvram` where it can write *(unverified)*.
+
+### Set `phxfb-squat` by hand
+
+Needed only if the package said it could not set the variable. From a Terminal in macOS, as an admin, try
+`sudo nvram phxfb-squat=1`, then `nvram phxfb-squat` (it must print the value). If macOS cannot write NVRAM
+(OpenCore's `DisableVariableWrite`, as on the reference machine), set it from another OS, such as Linux
+(`efivarfs` or your distribution's tool for the variable in the Apple NVRAM GUID `7C436110-AB2A-4BBB-A880-FE41995C9F82`) and
+power off fully before the next macOS boot *(unverified: the exact command depends on the OS)*. Make sure
+`~/gpu/phxboot-auto` exists (`touch ~/gpu/phxboot-auto`) so the daemon re-arms it after each good boot.
 
 ### Linux or Windows to macOS: power off fully
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 # SPDX-License-Identifier: MIT
 # oc_zip_test.sh: hardware-free test of scripts/release/make-oc-zip.sh and config-snippet.plist: the snippet holds the
-# entries of INSTALL.md section 3 and no machine identity, and the zip holds exactly what docs/RELEASE.md lists.
+# entries of INSTALL.md section 1 ("What the OpenCore snippet changes") and no machine identity, and the zip holds exactly what docs/RELEASE.md lists.
 # Uses dummy kexts (tests/release/dummy.sh). Needs python3 and zip. Bash 3.2.
 set -u
 HERE=$(cd "$(dirname "$0")" && pwd); R=$HERE/../..
@@ -14,7 +14,7 @@ check() { if eval "$2"; then ok; else bad "$1"; fi; }   # check <name> <shell co
 SNIP=$R/scripts/release/config-snippet.plist
 VER=0.1.0-preview
 
-# the snippet: well-formed, with the entries of INSTALL.md section 3, and nothing that names a machine
+# the snippet: well-formed, with the entries of INSTALL.md section 1 ("What the OpenCore snippet changes"), and nothing that names a machine
 check "snippet lints" 'python3 -I -c "import plistlib,sys; plistlib.load(open(sys.argv[1],\"rb\"))" "$SNIP"'
 python3 -I - "$SNIP" <<'EOF'
 import plistlib, sys
@@ -43,7 +43,7 @@ for e in errs: print("  " + e)
 sys.exit(1 if errs else 0)
 EOF
 snip_rc=$?
-check "snippet has the INSTALL.md section 3 entries" "[ $snip_rc = 0 ]"
+check "snippet has the INSTALL.md section 1 entries" "[ $snip_rc = 0 ]"
 check "snippet has no machine identity" 'python3 -I "$R/scripts/release/check-snippet.py" "$SNIP"'
 
 # the guard itself: a snippet that carries SMBIOS is refused, at any depth

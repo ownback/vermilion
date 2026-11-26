@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- SPDX-License-Identifier: MIT
 
-     Vermilion: the OpenCore entries of INSTALL.md section 3, as a fragment of config.plist. Merge it by hand (or with
+     Vermilion: the OpenCore entries of INSTALL.md section 1 ("What the OpenCore snippet changes"), as a fragment of config.plist. Merge it by hand (or with
      your own tooling) into YOUR config.plist, then run ocvalidate. It holds no SMBIOS, serial, MLB, ROM or UUID of
      any machine and never will: make your own.
 

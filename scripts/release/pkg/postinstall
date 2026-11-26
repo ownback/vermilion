@@ -7,8 +7,10 @@
 #   3. AMD's firmware, fetched from linux-firmware at the commit pinned in fw.lock (md5 and SHA-256 checked);
 #      the package contains none. A failed fetch is a warning: the install stays, the GPU stays on the basic display;
 #   4. the AIR reader (libLLVM + libzstd) into the Metal driver bundle, through air_runtime_install.sh;
-#   5. the shared shader cache folders, the first-boot flags (only those that are not there), the install marker.
-# It never touches the system volume, NVRAM, the EFI partition or Software Update, and it does not start the daemon.
+#   5. the shared shader cache folders, the first-boot flags (only those that are not there; phxboot-auto arms the
+#      accelerated desktop), the NVRAM variable phxfb-squat=1 with a read-back (a failure is a warning: OpenCore's
+#      DisableVariableWrite blocks it), the install marker.
+# It never touches the system volume, the EFI partition or Software Update, and it does not start the daemon.
 # VERMILION_FW_FROM=<dir> makes the firmware step offline.
 #@test-hooks-begin
 # VERMILION_FETCH=<command> replaces the firmware step (tests).
@@ -79,13 +81,23 @@ for c in aircache spvcache; do
   [ -e "$GB/nvmtl/$c" ] || printf 'N %s\n' "$GB/nvmtl/$c" >>"$RB/MANIFEST"
   mkdir -p "$GB/nvmtl/$c"; chown_ 88:0 "$GB/nvmtl/$c"; chmod 755 "$GB/nvmtl/$c"
 done
-for fl in phxboot-sdma phxboot-cg phxboot-uclk=456; do   # the first-boot set of docs/XTX.md (recovery_install.sh's default)
+for fl in phxboot-sdma phxboot-cg phxboot-uclk=456 phxboot-auto; do   # the first-boot set of docs/XTX.md, plus the desktop arm
   name=${fl%%=*}
   [ ! -e "$G/$name" ] || continue
   printf 'N %s\n' "$G/$name" >>"$RB/MANIFEST"
   case $fl in *=*) printf '%s\n' "${fl#*=}" >"$G/$name" ;; *) : >"$G/$name" ;; esac
   chown_ "$UO" "$G/$name"; chmod 644 "$G/$name"
 done
+# the accelerated desktop: phxfb-squat is a one-shot NVRAM variable the daemon re-arms after each good boot (phxboot-auto)
+SQUAT_OK=0
+if nvram phxfb-squat=1 >/dev/null 2>&1 && nvram phxfb-squat >/dev/null 2>&1; then
+  SQUAT_OK=1; say "NVRAM: phxfb-squat=1 set and read back"
+else
+  echo "Vermilion: WARNING: the NVRAM variable phxfb-squat could not be set (or not read back)." >&2
+  echo "Vermilion: This is normal when OpenCore blocks NVRAM writes from macOS (DisableVariableWrite). The install is complete," >&2
+  echo "Vermilion: but the first boot will not be the accelerated desktop until the variable is set from another OS" >&2
+  echo "Vermilion: (INSTALL.md section 6, \"Set phxfb-squat by hand\"). Never Reset NVRAM." >&2
+fi
 { echo "version $VERSION"; echo "date $(date '+%F %T')"; echo "user $U"; } >"$SUPPORT/installed"
 sync
 
@@ -93,15 +105,16 @@ cat <<EOF
 
 Vermilion $VERSION is installed.$([ $FW_OK = 1 ] || echo " (Firmware is still missing: see the warning above.)")
 
-Next, in this order:
+Next, in this order (the OpenCore part of the same release is already in place and has booted once):
   1. Allow the kext. Open System Settings > Privacy & Security, scroll to Security, click Allow next to the message
      about blocked system software, enter your password, and restart when macOS asks. Until then VermilionAccel
      does not load and you stay on the basic display. After every update that changes this kext, click Allow again.
-  2. Make sure the OpenCore part is in place: the kexts and snippet of Vermilion-<version>-OpenCore.zip
-     (INSTALL.md section 3). One EFI change per boot.
+  2. Restart. (If the OpenCore part is not in place yet, stop: install Vermilion-<version>-OpenCore.zip first,
+     INSTALL.md section 3.2, restart once, then run this package. One EFI change per boot.)
   3. Do not log in for about 3 minutes after the restart; /var/log/phxboot.log tells what happened.
   4. Software Update must not install macOS by itself and the Mac must not sleep (INSTALL.md section 1): this
      package does not change either setting. To undo this install: sudo vermilion-uninstall
-Rollback copies of every replaced file: $RB
+$([ $SQUAT_OK = 1 ] || echo "WARNING: phxfb-squat could not be set: see the message above and INSTALL.md section 6.
+")Rollback copies of every replaced file: $RB
 EOF
 exit 0

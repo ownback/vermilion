@@ -111,7 +111,9 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    them, and the post-install text repeats it. (The design had Software Update's automatic install off, as
    `recovery_install.sh` does.)
 
-What it never does: write the system volume, NVRAM, or the EFI partition (the OpenCore part is the user's, or
+The post-install script also creates `~/gpu/phxboot-auto` (the flag list's `N` line is in the rollback MANIFEST, so the uninstaller removes it) and runs `nvram phxfb-squat=1` with a read-back; if either fails (OpenCore's `DisableVariableWrite`), the install stays and the script says the variable could not be set and points to INSTALL.md section 6. The uninstaller deletes `phxfb-squat`. **(unverified on a Mac.)**
+
+What it never does: write the system volume or the EFI partition (the OpenCore part is the user's, or
 ryzentosh's).
 
 Two checks refuse a wrong Mac, with the same rules (`lib.sh`: macOS build `EXPECT_BUILD`, an RX 7900 XTX and no other

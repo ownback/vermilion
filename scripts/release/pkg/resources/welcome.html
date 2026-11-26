@@ -4,7 +4,7 @@
 <p>A driver for the AMD Radeon RX 7900 XTX on macOS Tahoe 26.7.1 (build 25G241), for the PC it was written on. Use it
 only if you can recover a Mac that does not boot to a picture.</p>
 <p>This installer needs the OpenCore part of the same release (<code>Vermilion-&lt;version&gt;-OpenCore.zip</code>) and
-installs only in macOS: it never writes the system volume, NVRAM or the EFI partition. It downloads AMD's firmware from
+installs only in macOS: it never writes the system volume or the EFI partition, and its only NVRAM write is the variable <code>phxfb-squat</code>. It downloads AMD's firmware from
 linux-firmware while it installs (no firmware is inside this package) and keeps a copy of every file it replaces.</p>
 <p>This package is not signed with an Apple Developer ID. Check it against <code>SHA256SUMS</code> from the release page.
 To remove everything later, run <code>vermilion-uninstall</code> as root in Terminal.</p>

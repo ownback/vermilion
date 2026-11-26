@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Vermilion contributors <vermilion@example.invalid>
 Date: Mon, 23 Nov 2026 00:00:00 +0000
-Subject: [PATCH 19/19] radv/darwin: the kext line goes to the unified log, stderr
- only with RADV_DARWIN_VERBOSE=1
+Subject: [PATCH 19/20] radv/darwin: the kext line goes to the unified log,
+ stderr only with RADV_DARWIN_VERBOSE=1
 
 Every command-line Metal or Vulkan tool printed the native-kext line on
 stderr. It now goes to os_log (with the chosen profile's name) and to
@@ -12,10 +12,10 @@ stderr only when RADV_DARWIN_VERBOSE=1.
  1 file changed, 11 insertions(+), 4 deletions(-)
 
 diff --git a/src/amd/common/darwin/ac_darwin_drm.c b/src/amd/common/darwin/ac_darwin_drm.c
-index 5c9e562..2f97e18 100644
+index aa8e3dd..228c956 100644
 --- a/src/amd/common/darwin/ac_darwin_drm.c
 +++ b/src/amd/common/darwin/ac_darwin_drm.c
-@@ -275,10 +275,17 @@ acd_native_handshake(struct acd_kext *kext, const struct amdgpu_device *canned,
+@@ -239,10 +239,17 @@ acd_native_handshake(struct acd_core *c, const struct amdgpu_device *canned)
     static bool logged;
     if (!logged) {
        logged = true;
@@ -26,14 +26,14 @@ index 5c9e562..2f97e18 100644
 +      /* the unified log always (log show --predicate 'eventMessage CONTAINS "radv-darwin"'); stderr of every
 +       * command-line Metal or Vulkan tool only with RADV_DARWIN_VERBOSE=1 */
 +      os_log(OS_LOG_DEFAULT, "radv-darwin: native kext: ABI %u.%u, build %u, VMID %u, max %u IBs/submit, GB_ADDR_CONFIG "
-+                             "0x%08x, VRAM %llu MiB visible + %llu MiB hi, GTT cap %llu MiB, profile %{public}s",
++                             "0x%08x, VRAM %llu MiB visible + %llu MiB hi, GTT cap %llu MiB, device info %{public}s",
 +             h.abi, h.minor, h.build, h.vmid, h.max_ibs, gb, (unsigned long long)(info.vram_vis_total >> 20),
-+             (unsigned long long)(info.vram_hi_total >> 20), (unsigned long long)(info.gtt_cap >> 20), canned->name);
++             (unsigned long long)(info.vram_hi_total >> 20), (unsigned long long)(info.gtt_cap >> 20), c->have_dev ? "from the kext" : canned->name);
 +      if (env_is_1("RADV_DARWIN_VERBOSE"))
 +         fprintf(stderr, "radv-darwin: native kext: ABI %u.%u, build %u, VMID %u, max %u IBs/submit, GB_ADDR_CONFIG "
-+                         "0x%08x, VRAM %llu MiB visible + %llu MiB hi, GTT cap %llu MiB, profile %s\n",
++                         "0x%08x, VRAM %llu MiB visible + %llu MiB hi, GTT cap %llu MiB, device info %s\n",
 +                 h.abi, h.minor, h.build, h.vmid, h.max_ibs, gb, (unsigned long long)(info.vram_vis_total >> 20),
-+                 (unsigned long long)(info.vram_hi_total >> 20), (unsigned long long)(info.gtt_cap >> 20), canned->name);
++                 (unsigned long long)(info.vram_hi_total >> 20), (unsigned long long)(info.gtt_cap >> 20), c->have_dev ? "from the kext" : canned->name);
     }
     return 0;
  }

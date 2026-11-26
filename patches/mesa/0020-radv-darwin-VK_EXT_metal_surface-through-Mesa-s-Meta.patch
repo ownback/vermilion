@@ -1,7 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Vermilion contributors <vermilion@example.invalid>
 Date: Mon, 23 Nov 2026 00:00:00 +0000
-Subject: [PATCH 20/20] radv/darwin: VK_EXT_metal_surface through Mesa's Metal WSI
+Subject: [PATCH 20/20] radv/darwin: VK_EXT_metal_surface through Mesa's Metal
+ WSI
 
 Built with -Dplatforms=macos, RADV now offers VK_KHR_surface, VK_EXT_metal_surface
 and swapchains on macOS through src/vulkan/wsi/wsi_common_metal.c. RADV cannot

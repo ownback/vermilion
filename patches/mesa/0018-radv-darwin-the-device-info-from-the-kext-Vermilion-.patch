@@ -1,0 +1,548 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Vermilion contributors <vermilion@example.invalid>
+Date: Thu, 26 Nov 2026 00:00:00 +0000
+Subject: [PATCH 18/20] radv/darwin: the device info from the kext (Vermilion
+ ABI 1.13)
+
+The kext reads the GPU's configuration the way Linux amdgpu does (the IP discovery table
+in VRAM, the GC harvest registers, PCI config space) and returns it with QueryInfo when
+the struct out is n48n_info_dev (704 B). With a kernel of ABI minor 13 or later, its
+values answer AMDGPU_INFO_DEV_INFO (shader engines, arrays, CUs and their masks, RBs,
+TCCs, GPRs, caches, MALL, VRAM type and width, PCIe, clocks), the GFX / compute
+HW_IP_INFO versions, FW_VERSION of ME / PFP / MEC, the marketing name and the live
+GB_ADDR_CONFIG for READ_MMR_REG. The canned entry keeps only the driver's own values (VA
+layout, page sizes, ids_flags). The first DEV_INFO logs which values differ from the
+entry. An older kernel, or a record without N48N_DEV_VALID, leaves the canned entry
+answering, as before.
+
+ac_darwin_devinfo.h holds the mapping; host test test/acd_devinfo_test.c.
+---
+ include/darwin/navi48_native_abi.h            |  43 +++++
+ src/amd/common/darwin/ac_darwin_devinfo.h     | 128 ++++++++++++++
+ src/amd/common/darwin/ac_darwin_drm.c         |  47 +++++-
+ src/amd/common/darwin/ac_darwin_kext.c        |  17 ++
+ src/amd/common/darwin/ac_darwin_kext.h        |   1 +
+ src/amd/common/darwin/test/acd_devinfo_test.c | 157 ++++++++++++++++++
+ 6 files changed, 390 insertions(+), 3 deletions(-)
+ create mode 100644 src/amd/common/darwin/ac_darwin_devinfo.h
+ create mode 100644 src/amd/common/darwin/test/acd_devinfo_test.c
+
+diff --git a/include/darwin/navi48_native_abi.h b/include/darwin/navi48_native_abi.h
+index 0ca139d..5141cb5 100644
+--- a/include/darwin/navi48_native_abi.h
++++ b/include/darwin/navi48_native_abi.h
+@@ -520,6 +520,49 @@ N48N_STATIC_ASSERT(sizeof(struct n48n_ctx) == 16, "n48n_ctx is 16 B");
+ N48N_STATIC_ASSERT(sizeof(struct n48n_cs_ib) == 32, "n48n_cs_ib is 32 B");
+ N48N_STATIC_ASSERT(sizeof(struct n48n_cs_in) == 32, "n48n_cs_in header is 32 B");
+ N48N_STATIC_ASSERT(sizeof(struct n48n_info) == 192, "n48n_info is 192 B");
++
++/* Vermilion kext ABI 1.13 (PhxBringup b168, its PhxNativeABI.h phxn_devinfo): the device info, read from the hardware
++ * the way Linux amdgpu gets it (the IP discovery table in VRAM, the GC harvest registers, PCI config space). QueryInfo
++ * with a struct out of sizeof(n48n_info_dev) returns n48n_info followed by it; a kernel without it refuses that size.
++ * Each field holds what Linux's AMDGPU_INFO_DEV_INFO / HW_IP_INFO / FW_VERSION answer holds for it, in the same units.
++ * The N48N_DEV_* flags say which values have no read-only source and are the kext's documented defaults. */
++#define N48N_ABI_MINOR_DEVINFO  13u
++#define N48N_DEVINFO_VERSION    1u
++#define N48N_DEV_VALID          (1u << 0)   /* the IP discovery table parsed */
++#define N48N_DEV_GC_REGS        (1u << 1)   /* the GC harvest registers and GB_ADDR_CONFIG were read */
++#define N48N_DEV_CU_PER_SA_FULL (1u << 2)   /* cu_bitmap: every active SA has the table's CU count */
++#define N48N_DEV_VRAM_FROM_UMC  (1u << 3)   /* vram_type / vram_bit_width from the UMC IP and count, not the VBIOS */
++#define N48N_DEV_CLOCKS_DEFAULT (1u << 4)   /* clocks and gpu_counter_khz: Linux's values for this board */
++#define N48N_DEV_FW_DEFAULT     (1u << 5)   /* fw_*: the pinned firmware files' header versions */
++struct n48n_devinfo {                       /* 512 B */
++    uint32_t version, size, flags;
++    int32_t discovery_err;
++    uint32_t device_id, pci_rev, chip_rev, external_rev;
++    uint32_t family, gc_ip, vcn_ip, umc_ip; /* IP versions: major << 16 | minor << 8 | revision */
++    uint32_t discovery_version, vcn_config, num_umc, vram_mb;
++    uint32_t num_se, num_sa_per_se, num_cu_per_sa, cu_active_number;
++    uint32_t sa_active_mask, num_rb_pipes, num_tcc_blocks, num_hw_gfx_contexts;
++    uint64_t enabled_rb_pipes_mask, tcc_disabled_mask;
++    uint32_t cu_bitmap[4][4];
++    uint32_t gb_addr_config, num_gprs, max_gs_waves_per_vgt, gs_vgt_table_depth;
++    uint32_t gs_prim_buffer_depth, double_offchip_lds, wave_size, max_waves_per_simd;
++    uint32_t max_scratch_slots_per_cu, lds_size, num_sc_per_sa, num_packer_per_sc;
++    uint32_t tcp_cache_kb, num_sqc_per_wgp, sqc_inst_cache_kb, sqc_data_cache_kb;
++    uint32_t gl1c_cache_kb, gl2c_cache_kb, vram_type, vram_bit_width;
++    uint64_t mall_size;
++    uint32_t pcie_gen, pcie_num_lanes, gpu_counter_khz, reserved0;
++    uint64_t max_engine_khz, min_engine_khz, max_memory_khz, min_memory_khz;
++    uint32_t fw_me, fw_me_feature, fw_pfp, fw_pfp_feature;
++    uint32_t fw_mec, fw_mec_feature, reserved1[2];
++    char name[64];                          /* the marketing name, NUL-terminated */
++    uint32_t reserved[26];
++};
++struct n48n_info_dev {                      /* 704 B */
++    struct n48n_info info;
++    struct n48n_devinfo dev;
++};
++N48N_STATIC_ASSERT(sizeof(struct n48n_devinfo) == 512, "n48n_devinfo is 512 B");
++N48N_STATIC_ASSERT(sizeof(struct n48n_info_dev) == 704, "n48n_info_dev is 704 B");
+ N48N_STATIC_ASSERT(__builtin_offsetof(struct n48n_gem_va, va_address) == 16, "gem_va.va_address at 16");
+ N48N_STATIC_ASSERT(__builtin_offsetof(struct n48n_gem_va, vm_timeline_point) == 40, "gem_va.vm_timeline_point at 40");
+ N48N_STATIC_ASSERT(__builtin_offsetof(struct n48n_gem_va, input_fence_syncobj_handles) == 56, "gem_va.input_fence_syncobj_handles at 56");
+diff --git a/src/amd/common/darwin/ac_darwin_devinfo.h b/src/amd/common/darwin/ac_darwin_devinfo.h
+new file mode 100644
+index 0000000..7659113
+--- /dev/null
++++ b/src/amd/common/darwin/ac_darwin_devinfo.h
+@@ -0,0 +1,128 @@
++/*
++ * SPDX-License-Identifier: MIT
++ *
++ * The kext's device info (Vermilion ABI 1.13, struct n48n_devinfo) as the AMDGPU_INFO answers RADV reads: the
++ * hardware's values over the canned entry's. The kext reads them the way Linux amdgpu does (the IP discovery table,
++ * the GC harvest registers, PCI config space); the entry keeps only what is the driver's own on Linux too (the VA
++ * layout, page and fragment sizes, ids_flags, the CE RAM and the gfx9 prim / pos buffers). Header-only so the host
++ * test (test/acd_devinfo_test.c) builds it without the rest of the backend.
++ */
++#ifndef AC_DARWIN_DEVINFO_H
++#define AC_DARWIN_DEVINFO_H
++
++#include <stdbool.h>
++#include <stdint.h>
++#include <stdio.h>
++
++#include "drm-uapi/amdgpu_drm.h"
++#include "navi48_native_abi.h"
++
++static inline bool
++acd_devinfo_usable(const struct n48n_devinfo *k)
++{
++   return k->version == N48N_DEVINFO_VERSION && k->size == sizeof(*k) && (k->flags & N48N_DEV_VALID) && k->num_se &&
++          k->num_sa_per_se && k->num_cu_per_sa && k->family;
++}
++
++/* DEV_INFO: returns how many fields changed; names (may be NULL) gets them, comma-separated (truncated to n). */
++static inline unsigned
++acd_devinfo_apply(struct drm_amdgpu_info_device *di, const struct n48n_devinfo *k, char *names, size_t n)
++{
++   unsigned changed = 0;
++   size_t o = 0;
++   if (names && n)
++      names[0] = 0;
++#define ACD_DEV_SET(field, value)                                                                                   \
++   do {                                                                                                             \
++      const __typeof__(di->field) v_ = (__typeof__(di->field))(value);                                             \
++      if (di->field != v_) {                                                                                       \
++         changed++;                                                                                                 \
++         if (names && n && o + 1 < n) {                                                                             \
++            int w_ = snprintf(names + o, n - o, "%s%s", o ? "," : "", #field);                                     \
++            o = w_ > 0 && (size_t)w_ < n - o ? o + (size_t)w_ : n - 1;                                             \
++         }                                                                                                          \
++      }                                                                                                             \
++      di->field = v_;                                                                                               \
++   } while (0)
++   ACD_DEV_SET(device_id, k->device_id);
++   ACD_DEV_SET(chip_rev, k->chip_rev);
++   ACD_DEV_SET(external_rev, k->external_rev);
++   ACD_DEV_SET(pci_rev, k->pci_rev);
++   ACD_DEV_SET(family, k->family);
++   ACD_DEV_SET(num_shader_engines, k->num_se);
++   ACD_DEV_SET(num_shader_arrays_per_engine, k->num_sa_per_se);
++   ACD_DEV_SET(gpu_counter_freq, k->gpu_counter_khz);
++   ACD_DEV_SET(max_engine_clock, k->max_engine_khz);
++   ACD_DEV_SET(max_memory_clock, k->max_memory_khz);
++   ACD_DEV_SET(min_engine_clock, k->min_engine_khz);
++   ACD_DEV_SET(min_memory_clock, k->min_memory_khz);
++   ACD_DEV_SET(cu_active_number, k->cu_active_number);
++   bool cu = false;
++   for (unsigned i = 0; i < 4; i++)
++      for (unsigned j = 0; j < 4; j++) {
++         cu |= di->cu_bitmap[i][j] != k->cu_bitmap[i][j];
++         di->cu_bitmap[i][j] = k->cu_bitmap[i][j];
++      }
++   if (cu) {
++      changed++;
++      if (names && n && o + 1 < n) {
++         int w = snprintf(names + o, n - o, "%scu_bitmap", o ? "," : "");
++         o = w > 0 && (size_t)w < n - o ? o + (size_t)w : n - 1;
++      }
++   }
++   ACD_DEV_SET(enabled_rb_pipes_mask, (uint32_t)k->enabled_rb_pipes_mask);
++   ACD_DEV_SET(enabled_rb_pipes_mask_hi, (uint32_t)(k->enabled_rb_pipes_mask >> 32));
++   ACD_DEV_SET(num_rb_pipes, k->num_rb_pipes);
++   ACD_DEV_SET(num_hw_gfx_contexts, k->num_hw_gfx_contexts);
++   if (k->vram_type)
++      ACD_DEV_SET(vram_type, k->vram_type);
++   if (k->vram_bit_width)
++      ACD_DEV_SET(vram_bit_width, k->vram_bit_width);
++   ACD_DEV_SET(gc_double_offchip_lds_buf, k->double_offchip_lds);
++   ACD_DEV_SET(wave_front_size, k->wave_size);
++   ACD_DEV_SET(num_shader_visible_vgprs, k->num_gprs);
++   ACD_DEV_SET(num_cu_per_sh, k->num_cu_per_sa);
++   ACD_DEV_SET(num_tcc_blocks, k->num_tcc_blocks);
++   ACD_DEV_SET(gs_vgt_table_depth, k->gs_vgt_table_depth);
++   ACD_DEV_SET(gs_prim_buffer_depth, k->gs_prim_buffer_depth);
++   ACD_DEV_SET(max_gs_waves_per_vgt, k->max_gs_waves_per_vgt);
++   if (k->pcie_gen)
++      ACD_DEV_SET(pcie_gen, k->pcie_gen);
++   if (k->pcie_num_lanes)
++      ACD_DEV_SET(pcie_num_lanes, k->pcie_num_lanes);
++   ACD_DEV_SET(tcc_disabled_mask, k->tcc_disabled_mask);
++   ACD_DEV_SET(tcp_cache_size, k->tcp_cache_kb);
++   ACD_DEV_SET(num_sqc_per_wgp, k->num_sqc_per_wgp);
++   ACD_DEV_SET(sqc_data_cache_size, k->sqc_data_cache_kb);
++   ACD_DEV_SET(sqc_inst_cache_size, k->sqc_inst_cache_kb);
++   ACD_DEV_SET(gl1c_cache_size, k->gl1c_cache_kb);
++   ACD_DEV_SET(gl2c_cache_size, k->gl2c_cache_kb);
++   ACD_DEV_SET(mall_size, k->mall_size);
++#undef ACD_DEV_SET
++   return changed;
++}
++
++/* HW_IP_INFO of GFX / compute: the GC version from the discovery table (as Linux: major, minor, IP_VERSION). */
++static inline void
++acd_devinfo_hw_ip(struct drm_amdgpu_info_hw_ip *ip, uint32_t gc_ip)
++{
++   if (!gc_ip)
++      return;
++   ip->hw_ip_version_major = gc_ip >> 16;
++   ip->hw_ip_version_minor = (gc_ip >> 8) & 0xff;
++   ip->ip_discovery_version = gc_ip;
++}
++
++/* FW_VERSION of the CP firmware the kext knows (ME, PFP, MEC); other types keep their answer. */
++static inline void
++acd_devinfo_fw(struct drm_amdgpu_info_firmware *fw, uint32_t type, const struct n48n_devinfo *k)
++{
++   if (type == AMDGPU_INFO_FW_GFX_ME && k->fw_me)
++      *fw = (struct drm_amdgpu_info_firmware){.ver = k->fw_me, .feature = k->fw_me_feature};
++   else if (type == AMDGPU_INFO_FW_GFX_PFP && k->fw_pfp)
++      *fw = (struct drm_amdgpu_info_firmware){.ver = k->fw_pfp, .feature = k->fw_pfp_feature};
++   else if (type == AMDGPU_INFO_FW_GFX_MEC && k->fw_mec)
++      *fw = (struct drm_amdgpu_info_firmware){.ver = k->fw_mec, .feature = k->fw_mec_feature};
++}
++
++#endif /* AC_DARWIN_DEVINFO_H */
+diff --git a/src/amd/common/darwin/ac_darwin_drm.c b/src/amd/common/darwin/ac_darwin_drm.c
+index e5c9bff..aa8e3dd 100644
+--- a/src/amd/common/darwin/ac_darwin_drm.c
++++ b/src/amd/common/darwin/ac_darwin_drm.c
+@@ -7,6 +7,7 @@
+ #include "ac_darwin_drm.h"
+ #include "ac_darwin_kext.h"
+ #include "ac_darwin_budget.h"
++#include "ac_darwin_devinfo.h"
+ 
+ #include <errno.h>
+ #include <os/log.h>
+@@ -73,6 +74,8 @@ struct acd_core {
+    uint32_t minor; /* ABI minor the kernel reported */
+    bool shared; /* the process-wide core (false: the private HOST_BO stand-in core) */
+    bool used_vcn;
++   bool have_dev;               /* ABI 1.13: the kext's device info (dev) answers DEV_INFO, HW_IP, FW and GB_ADDR_CONFIG */
++   struct n48n_devinfo dev;
+    struct acd_kext *kext; /* NULL in the HOST_BO stand-in */
+    struct amdgpu_va_manager *va_mgr;
+    struct util_sync_provider *sync; /* master; every device holds a clone */
+@@ -161,8 +164,10 @@ env_is_1(const char *name)
+ 
+ /* Hello, live checks and the info snapshot; every failure is one clear stderr line. */
+ static int
+-acd_native_handshake(struct acd_kext *kext, const struct amdgpu_device *canned, uint32_t *minor_out)
++acd_native_handshake(struct acd_core *c, const struct amdgpu_device *canned)
+ {
++   struct acd_kext *kext = c->kext;
++   uint32_t *minor_out = &c->minor;
+    struct acd_hello h;
+    int r = acd_kext_hello(kext, &h);
+    if (r) {
+@@ -187,6 +192,17 @@ acd_native_handshake(struct acd_kext *kext, const struct amdgpu_device *canned,
+       return r;
+    }
+ 
++   /* ABI 1.13: the device info from the hardware. Without it (an older kernel, or a discovery table that did not
++    * parse) the canned entry answers, as before. */
++   if (h.minor >= N48N_ABI_MINOR_DEVINFO) {
++      int dr = acd_kext_query_devinfo(kext, &c->dev);
++      c->have_dev = !dr && acd_devinfo_usable(&c->dev);
++      if (!c->have_dev)
++         os_log_error(OS_LOG_DEFAULT, "radv-darwin: no usable device info from the kext (%d, flags 0x%x, discovery %d): "
++                                      "the canned %{public}s entry answers", dr, c->dev.flags, c->dev.discovery_err,
++                      canned->name);
++   }
++
+    /* GB_ADDR_CONFIG: the tiling layout the canned info and S1d's image assume. QueryInfo carries the live value
+     * (n48n_info.gb_addr_config); ReadRegs is root-only and refused for a user-application (G4 APP) session, so it is
+     * only the fallback for a kernel that left the field 0. */
+@@ -198,7 +214,8 @@ acd_native_handshake(struct acd_kext *kext, const struct amdgpu_device *canned,
+          return r;
+       }
+    }
+-   if (gb != acd_canned_gb_addr_config(canned) && !env_is_1("RADV_DARWIN_ALLOW_ADDRCFG")) {
++   /* with the kext's device info the value is the hardware's, like everything else RADV is told */
++   if (!c->have_dev && gb != acd_canned_gb_addr_config(canned) && !env_is_1("RADV_DARWIN_ALLOW_ADDRCFG")) {
+       fprintf(stderr, "radv-darwin: live GB_ADDR_CONFIG 0x%08x != canned %s 0x%08x (set "
+                       "RADV_DARWIN_ALLOW_ADDRCFG=1 to override)\n",
+               gb, canned->name, acd_canned_gb_addr_config(canned));
+@@ -251,7 +268,7 @@ acd_core_create(const struct amdgpu_device *canned, bool host_bo, struct acd_cor
+    if (!host_bo) {
+       int r = acd_kext_open(&c->kext);
+       if (r == 0)
+-         r = acd_native_handshake(c->kext, canned, &c->minor);
++         r = acd_native_handshake(c, canned);
+       if (r) {
+          acd_kext_destroy(c->kext);
+          pthread_mutex_destroy(&c->bo_lock);
+@@ -376,6 +393,8 @@ acd_device_get_sync_provider(acd_device_handle dev)
+ const char *
+ acd_get_marketing_name(acd_device_handle dev)
+ {
++   if (dev->core->have_dev && dev->core->dev.name[0])
++      return dev->core->dev.name; /* the kext's (PhxGpuId.h): "AMD Radeon RX 7900 XTX" */
+    if (!strcmp(dev->canned->name, "phoenix"))
+       return "AMD Radeon 780M Graphics";
+    if (!strcmp(dev->canned->name, "navi31"))
+@@ -541,6 +560,9 @@ acd_info(struct acd_device *dev, const struct drm_amdgpu_info *info)
+          *(struct drm_amdgpu_info_hw_ip *)out = d->hw_ip_gfx;
+       else if (info->query_hw_ip.type == AMDGPU_HW_IP_COMPUTE)
+          *(struct drm_amdgpu_info_hw_ip *)out = d->hw_ip_compute;
++      if (dev->core->have_dev &&
++          (info->query_hw_ip.type == AMDGPU_HW_IP_GFX || info->query_hw_ip.type == AMDGPU_HW_IP_COMPUTE))
++         acd_devinfo_hw_ip(out, dev->core->dev.gc_ip); /* the GC version from the discovery table */
+       else if (info->query_hw_ip.type == AMDGPU_HW_IP_VCN_ENC && acd_vcn(dev))
+          *(struct drm_amdgpu_info_hw_ip *)out = (struct drm_amdgpu_info_hw_ip){
+             .hw_ip_version_major = 4,
+@@ -561,16 +583,35 @@ acd_info(struct acd_device *dev, const struct drm_amdgpu_info *info)
+          *(struct drm_amdgpu_info_firmware *)out = d->fw_gfx_pfp;
+       else if (info->query_fw.fw_type == AMDGPU_INFO_FW_GFX_MEC)
+          *(struct drm_amdgpu_info_firmware *)out = d->fw_gfx_mec;
++      if (dev->core->have_dev)
++         acd_devinfo_fw(out, info->query_fw.fw_type, &dev->core->dev);
+       else if (info->query_fw.fw_type == AMDGPU_INFO_FW_VCN)
+          *(struct drm_amdgpu_info_firmware *)out = (struct drm_amdgpu_info_firmware){.ver = 0x09118016};
+       return 0;
+    case AMDGPU_INFO_READ_MMR_REG:
+       info_read_mmr_reg(d, info->read_mmr_reg.dword_offset, info->read_mmr_reg.count,
+                         info->read_mmr_reg.instance, out);
++      /* the live GB_ADDR_CONFIG, the one register RADV reads on GFX11 (ac_drm_query_gpu_info) */
++      if (dev->core->have_dev && (dev->core->dev.flags & N48N_DEV_GC_REGS) &&
++          info->read_mmr_reg.dword_offset <= ACD_GB_ADDR_CONFIG_REG &&
++          ACD_GB_ADDR_CONFIG_REG < info->read_mmr_reg.dword_offset + info->read_mmr_reg.count)
++         ((uint32_t *)out)[ACD_GB_ADDR_CONFIG_REG - info->read_mmr_reg.dword_offset] = dev->core->dev.gb_addr_config;
+       return 0;
+    case AMDGPU_INFO_DEV_INFO: {
+       struct drm_amdgpu_info_device *di = out;
+       *di = d->dev;
++      if (dev->core->have_dev) {
++         /* the hardware's values over the entry's; the entry keeps the driver's own (VA layout, page sizes, flags) */
++         static bool logged;
++         char diff[512];
++         const unsigned n = acd_devinfo_apply(di, &dev->core->dev, diff, sizeof(diff));
++         if (!logged) {
++            logged = true;
++            os_log(OS_LOG_DEFAULT, "radv-darwin: device info from the kext (flags 0x%x): %u values differ from Mesa's "
++                                   "%{public}s entry%{public}s%{public}s", dev->core->dev.flags, n, d->name, n ? ": " : "", diff);
++         }
++         return 0;
++      }
+       if (!strcmp(d->name, "phoenix"))
+          di->device_id = 0x1900; /* Hawk Point 780M; same gfx1103 silicon as the canned 0x15bf */
+       return 0;
+diff --git a/src/amd/common/darwin/ac_darwin_kext.c b/src/amd/common/darwin/ac_darwin_kext.c
+index 88b7500..0bcffed 100644
+--- a/src/amd/common/darwin/ac_darwin_kext.c
++++ b/src/amd/common/darwin/ac_darwin_kext.c
+@@ -288,6 +288,23 @@ acd_kext_query_info(struct acd_kext *k, struct n48n_info *info)
+    return sz == sizeof(*info) ? 0 : -EIO;
+ }
+ 
++/* ABI 1.13: QueryInfo with the larger struct also returns the device info; an older kernel refuses the size. */
++int
++acd_kext_query_devinfo(struct acd_kext *k, struct n48n_devinfo *dev)
++{
++   struct n48n_info_dev both;
++   size_t sz = sizeof(both);
++   memset(&both, 0, sizeof(both));
++   memset(dev, 0, sizeof(*dev));
++   int r = kcall(k, ACD_SEL_QUERY_INFO, NULL, 0, NULL, 0, NULL, NULL, &both, &sz);
++   if (r)
++      return r;
++   if (sz != sizeof(both))
++      return -EIO;
++   *dev = both.dev;
++   return 0;
++}
++
+ int
+ acd_kext_read_regs(struct acd_kext *k, uint32_t dword_offset, uint32_t count, uint32_t *vals)
+ {
+diff --git a/src/amd/common/darwin/ac_darwin_kext.h b/src/amd/common/darwin/ac_darwin_kext.h
+index b5c6832..4b60306 100644
+--- a/src/amd/common/darwin/ac_darwin_kext.h
++++ b/src/amd/common/darwin/ac_darwin_kext.h
+@@ -131,6 +131,7 @@ struct acd_hello {
+ 
+ int acd_kext_hello(struct acd_kext *k, struct acd_hello *out);
+ int acd_kext_query_info(struct acd_kext *k, struct n48n_info *info);
++int acd_kext_query_devinfo(struct acd_kext *k, struct n48n_devinfo *dev); /* ABI 1.13 */
+ int acd_kext_read_regs(struct acd_kext *k, uint32_t dword_offset, uint32_t count, uint32_t *vals);
+ 
+ struct acd_bo_created {
+diff --git a/src/amd/common/darwin/test/acd_devinfo_test.c b/src/amd/common/darwin/test/acd_devinfo_test.c
+new file mode 100644
+index 0000000..51dae61
+--- /dev/null
++++ b/src/amd/common/darwin/test/acd_devinfo_test.c
+@@ -0,0 +1,157 @@
++/*
++ * SPDX-License-Identifier: MIT
++ * Host test of the kext device info mapping (ac_darwin_devinfo.h).  Build and run:
++ *   clang -std=gnu11 -Wall -Wextra -I include -I include/darwin -I src/amd/common/darwin \
++ *     src/amd/common/darwin/test/acd_devinfo_test.c -o acd_devinfo_test && ./acd_devinfo_test
++ * The kext record is made up here in the shape the kext builds for an RX 7900 XTX (no values read from a machine).
++ */
++#include "ac_darwin_devinfo.h"
++
++#include <string.h>
++
++static int failures, checks;
++#define CHECK(c) do { checks++; if (!(c)) { failures++; printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); } } while (0)
++
++static struct n48n_devinfo
++xtx(void)
++{
++   struct n48n_devinfo k;
++   memset(&k, 0, sizeof(k));
++   k.version = N48N_DEVINFO_VERSION;
++   k.size = sizeof(k);
++   k.flags = N48N_DEV_VALID | N48N_DEV_GC_REGS | N48N_DEV_CU_PER_SA_FULL | N48N_DEV_VRAM_FROM_UMC |
++             N48N_DEV_CLOCKS_DEFAULT | N48N_DEV_FW_DEFAULT;
++   k.device_id = 0x744c;
++   k.pci_rev = 0xc8;
++   k.external_rev = 1;
++   k.family = AMDGPU_FAMILY_GC_11_0_0;
++   k.gc_ip = 0xb0000;
++   k.num_se = 6;
++   k.num_sa_per_se = 2;
++   k.num_cu_per_sa = 8;
++   k.cu_active_number = 96;
++   k.num_rb_pipes = 24;
++   k.enabled_rb_pipes_mask = 0xffffff;
++   k.num_tcc_blocks = 24;
++   k.num_hw_gfx_contexts = 8;
++   for (unsigned r = 0; r < 4; r++) {
++      k.cu_bitmap[r][0] = k.cu_bitmap[r][1] = 0xff;
++      k.cu_bitmap[r][2] = k.cu_bitmap[r][3] = r < 2 ? 0xff : 0;
++   }
++   k.gb_addr_config = 0x545;
++   k.num_gprs = 1536;
++   k.max_gs_waves_per_vgt = 32;
++   k.gs_vgt_table_depth = 32;
++   k.gs_prim_buffer_depth = 1792;
++   k.wave_size = 32;
++   k.tcp_cache_kb = 32;
++   k.num_sqc_per_wgp = 1;
++   k.sqc_inst_cache_kb = 32;
++   k.sqc_data_cache_kb = 16;
++   k.gl1c_cache_kb = 256;
++   k.gl2c_cache_kb = 6144;
++   k.vram_type = AMDGPU_VRAM_TYPE_GDDR6;
++   k.vram_bit_width = 384;
++   k.mall_size = 96ull << 20;
++   k.pcie_gen = 4;
++   k.pcie_num_lanes = 16;
++   k.gpu_counter_khz = 100000;
++   k.max_engine_khz = 2371000;
++   k.min_engine_khz = 500000;
++   k.max_memory_khz = 1249000;
++   k.min_memory_khz = 96000;
++   k.fw_me = 2420;
++   k.fw_pfp = 2580;
++   k.fw_mec = 2650;
++   k.fw_me_feature = k.fw_pfp_feature = k.fw_mec_feature = 29;
++   strcpy(k.name, "AMD Radeon RX 7900 XTX");
++   return k;
++}
++
++int
++main(void)
++{
++   _Static_assert(sizeof(struct n48n_devinfo) == 512, "devinfo");
++   struct n48n_devinfo k = xtx();
++   CHECK(acd_devinfo_usable(&k));
++
++   /* a template with driver-side values that must survive, and hardware values that must not */
++   struct drm_amdgpu_info_device di;
++   memset(&di, 0, sizeof(di));
++   di.virtual_address_offset = 0x200000;
++   di.virtual_address_max = 0x800000000000ull;
++   di.high_va_offset = 0xffff800000000000ull;
++   di.high_va_max = 0xffffffffffe00000ull;
++   di.virtual_address_alignment = 4096;
++   di.pte_fragment_size = 2 << 20;
++   di.gart_page_size = 4096;
++   di.ids_flags = 0x8;
++   di.num_shader_engines = 4;
++   di.cu_active_number = 84;
++   di.vram_bit_width = 320;
++   char names[512];
++   unsigned n = acd_devinfo_apply(&di, &k, names, sizeof(names));
++   CHECK(n > 10);
++   CHECK(strstr(names, "num_shader_engines") && strstr(names, "cu_active_number") && strstr(names, "vram_bit_width"));
++   CHECK(strstr(names, "cu_bitmap"));
++   CHECK(di.virtual_address_offset == 0x200000 && di.virtual_address_max == 0x800000000000ull);
++   CHECK(di.high_va_offset == 0xffff800000000000ull && di.high_va_max == 0xffffffffffe00000ull);
++   CHECK(di.pte_fragment_size == 2 << 20 && di.gart_page_size == 4096 && di.ids_flags == 0x8);
++   CHECK(di.device_id == 0x744c && di.pci_rev == 0xc8 && di.external_rev == 1 && di.family == AMDGPU_FAMILY_GC_11_0_0);
++   CHECK(di.num_shader_engines == 6 && di.num_shader_arrays_per_engine == 2 && di.num_cu_per_sh == 8);
++   CHECK(di.cu_active_number == 96 && di.cu_bitmap[1][3] == 0xff && di.cu_bitmap[3][3] == 0);
++   CHECK(di.num_rb_pipes == 24 && di.enabled_rb_pipes_mask == 0xffffff && di.enabled_rb_pipes_mask_hi == 0);
++   CHECK(di.num_tcc_blocks == 24 && di.tcc_disabled_mask == 0 && di.num_hw_gfx_contexts == 8);
++   CHECK(di.vram_type == AMDGPU_VRAM_TYPE_GDDR6 && di.vram_bit_width == 384 && di.mall_size == 96ull << 20);
++   CHECK(di.tcp_cache_size == 32 && di.sqc_inst_cache_size == 32 && di.sqc_data_cache_size == 16);
++   CHECK(di.gl1c_cache_size == 256 && di.gl2c_cache_size == 6144 && di.num_sqc_per_wgp == 1);
++   CHECK(di.gpu_counter_freq == 100000 && di.max_engine_clock == 2371000 && di.min_memory_clock == 96000);
++   CHECK(di.pcie_gen == 4 && di.pcie_num_lanes == 16);
++   CHECK(di.num_shader_visible_vgprs == 1536 && di.gs_prim_buffer_depth == 1792 && di.wave_front_size == 32);
++   /* applying the same record again changes nothing */
++   CHECK(acd_devinfo_apply(&di, &k, names, sizeof(names)) == 0 && names[0] == 0);
++   /* unknown values (0) keep the template's: PCIe from a registry without the property, VRAM without UMC 8.10 */
++   k.pcie_gen = k.pcie_num_lanes = 0;
++   k.vram_type = k.vram_bit_width = 0;
++   CHECK(acd_devinfo_apply(&di, &k, NULL, 0) == 0 && di.pcie_gen == 4 && di.vram_bit_width == 384);
++   /* a short names buffer is truncated, never overrun */
++   char tiny[8];
++   memset(&di, 0, sizeof(di));
++   k = xtx();
++   CHECK(acd_devinfo_apply(&di, &k, tiny, sizeof(tiny)) > 10 && strlen(tiny) < sizeof(tiny));
++
++   /* HW_IP and FW */
++   struct drm_amdgpu_info_hw_ip ip = {.hw_ip_version_major = 1, .ib_start_alignment = 32, .available_rings = 1};
++   acd_devinfo_hw_ip(&ip, k.gc_ip);
++   CHECK(ip.hw_ip_version_major == 11 && ip.hw_ip_version_minor == 0 && ip.ip_discovery_version == 0xb0000);
++   CHECK(ip.ib_start_alignment == 32 && ip.available_rings == 1);
++   acd_devinfo_hw_ip(&ip, 0);
++   CHECK(ip.hw_ip_version_major == 11);
++   struct drm_amdgpu_info_firmware fw = {.ver = 1486, .feature = 29};
++   acd_devinfo_fw(&fw, AMDGPU_INFO_FW_GFX_ME, &k);
++   CHECK(fw.ver == 2420 && fw.feature == 29);
++   acd_devinfo_fw(&fw, AMDGPU_INFO_FW_GFX_PFP, &k);
++   CHECK(fw.ver == 2580);
++   acd_devinfo_fw(&fw, AMDGPU_INFO_FW_GFX_MEC, &k);
++   CHECK(fw.ver == 2650);
++   fw.ver = 7;
++   acd_devinfo_fw(&fw, AMDGPU_INFO_FW_VCN, &k);
++   CHECK(fw.ver == 7);
++
++   /* what makes a record unusable */
++   k = xtx();
++   k.flags &= ~N48N_DEV_VALID;
++   CHECK(!acd_devinfo_usable(&k));
++   k = xtx();
++   k.version = 2;
++   CHECK(!acd_devinfo_usable(&k));
++   k = xtx();
++   k.size = 192;
++   CHECK(!acd_devinfo_usable(&k));
++   k = xtx();
++   k.num_cu_per_sa = 0;
++   CHECK(!acd_devinfo_usable(&k));
++
++   printf("acd_devinfo_test: %d/%d checks passed\n", checks - failures, checks);
++   return failures ? 1 : 0;
++}
+-- 
+2.50.1 (Apple Git-155)
+

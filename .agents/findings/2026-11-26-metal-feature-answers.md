@@ -5,7 +5,7 @@
 Plan item A3 (the conformance pass behind STATUS A16): what the plugin answers for `MTLDevice` features and limits,
 compared with what Apple's own AMD driver (`AMDRadeonX6000MTLDriver`, class `AMDMTLGFX10Device`, a Mac2-family device)
 answers on an RDNA 2 Mac. Where an answer claims something RADV on Navi 31 can't do, or differs from Apple's AMD
-answer without a reason, it was changed; where this GPU genuinely does more or less, the honest answer stays.
+answer without a reason, it was changed; where this GPU does more or less than Apple's, the answer stays.
 
 ## What was checked, and how far it can be trusted
 
@@ -16,10 +16,11 @@ answer without a reason, it was changed; where this GPU genuinely does more or l
   re-measured: the new build is not installed. `(unverified on hardware)`.
 - **Apple AMD:** there is no RDNA 2 Mac here, so none of these answers was measured on Apple's driver. The sources are
   Apple's public Metal documentation for the Mac2 family (Mac GPU family 2: the AMD Radeon Pro 5000/6000 series and Vega
-  Macs) and, for what the driver is built to do, `reference/apple-amd/05-metal-plugin.md`. Every Apple cell is
-  `(public docs)`; a cell I could not pin down says `(unverified)`. Apple's own tables dated 2026-10-23 carry no
-  Mac2/AMD column (finding `2026-11-25-apple-amd-comparison.md`, M10), so the older Mac2 tables and the API docs are the
-  reference. An owner-supplied `mtlq` run from a 2019 Mac Pro with a W6800X would turn them into measured cells.
+  Macs) and, for what the driver is built to do, `reference/apple-amd/05-metal-plugin.md`. Every Apple cell comes
+  from the public docs unless it names that reference file; a cell that could not be pinned down says `(unverified)`.
+  Apple's own tables dated 2026-10-23 carry no Mac2/AMD column (finding `2026-11-25-apple-amd-comparison.md`, M10), so
+  the older Mac2 tables and the API docs are the reference. An owner-supplied `mtlq` run from a 2019 Mac Pro with a
+  W6800X would turn them into measured cells.
 - **Correction to the comparison finding (M8):** it read "argument buffers tier 1" from `mtlq`, which prints the raw
   enum. `MTLArgumentBuffersTier1` is 0 and `Tier2` is 1, so the printed `1` is **Tier 2**, and the plugin has always
   answered Tier 2 (`-argumentBuffersSupport`). The row is not a gap. Read-write textures print `2` = `Tier2` (None 0,
@@ -39,10 +40,10 @@ answer without a reason, it was changed; where this GPU genuinely does more or l
 | `argumentBuffersSupport` | Tier 2 | Tier 2 | Tier 2 | Same (see the correction above) |
 | `readWriteTextureSupport` | Tier 2 | Tier 2 | Tier 2 | Same |
 | `maxThreadsPerThreadgroup` | 1024 x 1024 x 1024 | same | 1024 x 1024 x 1024 | RADV workgroup size limits. Same |
-| `maxThreadgroupMemoryLength` | 65536 | 65536 | 32768 (public docs: Mac2 table) | **Kept.** RDNA 3 has 64 KiB of LDS per workgroup and RADV reports it, so the GPU genuinely does more. An app that sizes from the device value gets more room; one that assumes 32 KiB is unaffected |
+| `maxThreadgroupMemoryLength` | 65536 | 65536 | 32768 (public docs: Mac2 table) | **Kept.** RDNA 3 has 64 KiB of LDS per workgroup and RADV reports it, so the GPU does more. An app that sizes from the device value gets more room; one that assumes 32 KiB is unaffected |
 | `maxBufferLength` | 4095 MiB | 4095 MiB | not published; `(unverified)` | **Kept.** `min(maxStorageBufferRange, 3/4 of the working set)`: RADV caps a storage buffer range at 4 GiB - 1, and the working-set half is A4's (A11) |
 | `supportsTextureSampleCount:` 2, 4, 8 / 16 | yes, yes, yes / no | same | 2, 4, 8 yes; 16 no | From RADV's colour and depth sample masks. Same |
-| `supportsRaytracing`, `supportsRaytracingFromRender` | yes | yes | yes (public docs; Navi 21 has ray accelerators) `(unverified on this macOS)` | Follows `VK_KHR_acceleration_structure` + `VK_KHR_ray_query` on RADV (Navi 31 has them). Honest, and it follows the driver |
+| `supportsRaytracing`, `supportsRaytracingFromRender` | yes | yes | yes (public docs; Navi 21 has ray accelerators) `(unverified on this macOS)` | Follows `VK_KHR_acceleration_structure` + `VK_KHR_ray_query` on RADV (Navi 31 has them). The answer follows the driver |
 | `supportsPrimitiveMotionBlur` | no | no | no | Same |
 | `supportsFunctionPointers`, `...FromRender`, `supportsDynamicLibraries`, `supportsRenderDynamicLibraries` | yes | yes | yes for compute; the render variants `(unverified)` | Plugin answers YES unconditionally (translator linking). Not re-qualified here; left as is |
 | `supportsBCTextureCompression`, `isDepth24Stencil8PixelFormatSupported` | yes | yes | yes | RADV has BC on Navi 31; D24S8 exists on gfx11 |
@@ -51,7 +52,7 @@ answer without a reason, it was changed; where this GPU genuinely does more or l
 | `supportsPullModelInterpolation` | no | no | yes `(unverified)` | **Kept, a gap.** The plugin has no pull-model interpolation (`interpolate_at_*`); answering yes would be a false claim. Follow-up if the translator grows it |
 | `areRasterOrderGroupsSupported` | no | no | yes (public docs: Mac2) | **Kept, a hardware reason.** RADV does not expose `VK_EXT_fragment_shader_interlock` (AMD hardware has no ROV-style ordering exposed through Mesa). Apps fall back to their non-ROG path |
 | `areProgrammableSamplePositionsSupported` | no | no | yes (public docs: Mac2) | **Kept, a gap with a software reason.** RADV has `VK_EXT_sample_locations`, but the plugin turns the backend off unless the driver provides the NVK-only depth-contract hooks (`nvmtl_nvk_sample_depth_*`, see "NVIDIA code still there"). Needs a RADV qualification on hardware. Follow-up |
-| `supportsVertexAmplificationCount:` (2) | no | no | yes, up to 2 `(public docs)` | **Kept, a gap.** Not implemented in the plugin; RADV has multiview, so it is possible. Follow-up |
+| `supportsVertexAmplificationCount:` (2) | no | no | yes, up to 2 (public docs) | **Kept, a gap.** Not implemented in the plugin; RADV has multiview, so it is possible. Follow-up |
 | `supportsRasterizationRateMapWithLayerCount:` | no | no | `(unverified)` | Not implemented. Left |
 | `supportsCounterSampling:` draw, dispatch, blit | yes | yes | yes | Same |
 | `supportsCounterSampling:` stage, tile dispatch | no | no | no (AMD Macs: no stage boundary; tile is Apple silicon) | Same |
@@ -67,9 +68,10 @@ answer without a reason, it was changed; where this GPU genuinely does more or l
 
 ## What changed in the code
 
-- `-[NVMTLDevice supportsFamily:]` answers yes for `MTLGPUFamilyMacCatalyst1` and `...Catalyst2` (`src/metal-plugin/NVMTLDevice.m`).
-  That is the only answer that moved. Nothing claims more than before besides it.
-- `tests/plugin/test_feature_answers.m`: the fixed answers above, hardware-free, logging build.
+- `-[NVMTLDevice supportsFamily:]` answers yes for `MTLGPUFamilyMacCatalyst1` and `MTLGPUFamilyMacCatalyst2`
+  (`src/metal-plugin/NVMTLDevice.m`). That is the only answer that changed; no other answer claims more than before.
+- `tests/plugin/test_feature_answers.m`: the fixed answers above, hardware-free, against a logging build
+  (`PLUGIN_CONFIG=logging`).
 
 ## NVIDIA code still there (for the next refactor)
 
@@ -83,8 +85,14 @@ positions are off), `nvmtl_vk_accel_surface_wait` (asks for an `NVAccel` service
 `NVMTLGL.m`, and the NVIDIA SM-count fallback in `nvmtl_corecount.c`. `nvmtl_nvk_surface_dirty` is **not** NVIDIA-only:
 RADV's Darwin patch exports it.
 
+Seen in the clean-up pass and also left, because removing each changes the binary (`.agents/TODO.md`, "Plugin: NVIDIA
+leftovers after the removal"): the `direct_sass` field of `nvk_cmdbuf` (`nvmtl_vk.h`; nothing sets it since
+`NVMTLSass.m` went, `nvmtl_wit_record` still tests it), the `"NVIDIA GPU"` fallback and the `" (NVK "` cut in
+`-[NVMTLDevice name]` (with A4), the "checked NVIDIA runtime payload contract" error text of the sample-position path
+(`NVMTLDevice.m`), and the `nvk-reason:` prefix of the Vulkan driver's messages in the log.
+
 ## Not verified on hardware
 
 The new plugin was built and its fixed answers tested without a GPU; it was not installed or run. In particular
-unverified: that the release configuration behaves on the XTX machine as the logging build did (WindowServer, Maps, Chrome,
-the decode service); every Apple AMD cell above; the barycentric and ray-tracing answers on this RADV build.
+unverified: that the release configuration behaves on the XTX machine as the logging build did (WindowServer, Maps,
+Chrome, the decode service); every Apple AMD cell above; the barycentric and ray-tracing answers on this RADV build.

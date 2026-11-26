@@ -314,7 +314,7 @@ void nvmtl_vk_cmd_dispatch_indirect(nvk_cmdbuf *c, nvk_pipeline *p, nvk_buffer *
 void nvmtl_vk_cmd_barrier(nvk_cmdbuf *c);
 void nvmtl_vk_buffer_destroy(nvk_buffer *b);
 /* WindowServer GPU present (PhxBringup scanout): see nvmtl_vk.c */
-/* Measurement build only (scripts/build/plugin.sh PLUGIN_DEFS=-DNVMTL_DIAG): the E0 trace, the flicker probe, MEMCENSUS
+/* Measurement build only (scripts/build/plugin.sh PLUGIN_CONFIG=diag): the E0 trace, the flicker probe, MEMCENSUS
    and the compile-time log. Without it they are constant-false and compile to nothing (no code, strings or getenv). */
 #ifdef NVMTL_DIAG
 #define NVMTL_DIAG_BUILD 1

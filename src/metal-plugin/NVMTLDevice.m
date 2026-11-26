@@ -126,7 +126,6 @@ static void nvlog_emit_as(const char *t, int always) {
     FILE *f = fopen(nvmtl_log_path(), "a"); if (f) { fprintf(f, "pid %d NVMTL: %s\n", getpid(), t); fclose(f); }
 #endif
 }
-static void nvlog_emit(const char *t) { nvlog_emit_as(t, 0); }
 static void nvlog_line(const char *fmt, int level, va_list a) {
     char b[512]; va_list c; va_copy(c, a); vsnprintf(b, sizeof b, fmt, c); va_end(c);
 #if NVMTL_RELEASE
@@ -240,7 +239,7 @@ static bool nvmtl_accel_armed(void)
 #include "NVMTLPhxdec.m"
 #include "NVMTLSurfaceUsage.m"
 #include "NVMTLX420.m"
-#if NVMTL_DIAG_BUILD   // the holder census: measurement build only (scripts/build/plugin.sh PLUGIN_DEFS=-DNVMTL_DIAG)
+#if NVMTL_DIAG_BUILD   // the holder census: measurement build only (scripts/build/plugin.sh PLUGIN_CONFIG=diag)
 #include "NVMTLHolders.m"
 #endif
 // With Chrome's GPU sandbox on, decoding runs in VTDecoderXPCService. Metal maps this bundle there (the process holds the
@@ -2108,7 +2107,7 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
 - (uint64_t)dedicatedMemorySize { return nvmtl_vk_vram_bytes(); }
 
 // Display-eligibility (PhxAccel): in AMD-panel mode present as a real, non-headless display GPU, or CoreDisplay cannot
-// create the display's Metal device and WindowServer aborts (Display.cpp:3228). NVIDIA/app-only mode stays headless so
+// create the display's Metal device and WindowServer aborts (Display.cpp:3228). App-only mode stays headless so
 // WindowServer composites on the GPU that owns the display (Apple two-GPU behaviour). See nvmtl_is_amd_panel().
 - (BOOL)isHeadless  { return nvmtl_is_amd_panel() ? NO : YES; }
 // CoreAnimation's client-storage textures. Apple's inherited feature table answers YES (the Apple-silicon contract):

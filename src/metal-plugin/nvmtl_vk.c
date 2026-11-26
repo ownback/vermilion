@@ -1988,14 +1988,12 @@ static int nvmtl_vk_image_create_typed_lifetime_body(uint32_t w, uint32_t h, uin
 
     return 0;
 }
-#include <sys/sysctl.h>
 /* The GPU is an app-only device (WindowServer draws into NMXGPU's framebuffer), so IOSurface textures are private per
    process and copied out to system memory after every GPU write, as Apple's two-GPU Macs copy the discrete GPU's
    frames. */
 static int nvmtl_gpu_headless(void)
 {
     static int h = -1;
-    /* AMD/Intel (NMXAccel): WindowServer draws into NMXGPU's framebuffer, so this device is always an app-only GPU */
     if (h < 0) { h = 1; nvlog("AMD/Intel GPU: IOSurfaces are copied out to system memory"); }
     return h;
 }

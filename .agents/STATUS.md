@@ -38,12 +38,17 @@ commit into `~/gpu` (`efi41/`; the live daemon equals main minus that commit; it
 **Boot queue update (U1, #51):** 41 becomes VermilionBoot **b167** (#52: b163's F1 + U1) with `uclk.sh`, `idle_dpm.sh`,
 the daemon (#48 + #52), `phxctl.bin` and `m7_boot.sh`, all from main after #52 merges; 42 the plugin from #51
 (direct scan-out live switch-on, release cdhash `8f6e0a38`, supersedes #49's `b1900d21`).
-**#52** open (U1): `uclk.sh pin` sets DALSMC SetHardMinByFreq (9) to the PMFW's top UCLK level (1249 MHz here,
+**Boot 41 staged** (`~/vermilion-build/efi41`, from main `e6cb80f`): VermilionBoot b167 (sha256 `0124b9a9`,
+preflight passed, release-scan clean), `phxctl.bin`, `m7_boot.sh`, `uclk.sh`, `idle_dpm.sh`, `phxboot-navi31.sh`
+(rebuild the daemon copy from main at deploy time if #53 or the flag-defaults PR merged first). Checks after the boot:
+`phx-build` 167, `uclk: DAL hard min UCLK 1249 MHz ... (OK), status 0x24 done`, no `msg 0x1b`, `uclk_pins=0`,
+`debug.phxdal_stat` `timeouts 0 dead 0`, `idledpm: ... on:`, `SUCCESS`, 240 Hz, idle power after the release.
+**#52** merged (U1): `uclk.sh pin` sets DALSMC SetHardMinByFreq (9) to the PMFW's top UCLK level (1249 MHz here,
 Linux's "UCLK min = max"), `unpin` level 0 (96 MHz), with ReturnHardMinStatus polled as Linux does (stops at the first
 failed read); the kext's own UCLK step uses the DAL mailbox, `debug.phxpipe0_uclk` takes only 0, and its debug selector
 refuses driver-mailbox 0x1B/0x1C. hw-safety: "SAFE WITH CHANGES", the blocking point fixed. Linux traces from the XTX
 machine: 72 of 78 mode sets end at a 96 MHz minimum; 456 was never sent. Open for the owner (TODO 01, before U1 too):
-at 240 Hz Linux releases UCLK to 96 only with FAMS, which macOS doesn't have. Fable pass running.
+at 240 Hz Linux releases UCLK to 96 only with FAMS, which macOS doesn't have.
 **#51** open: direct scan-out idle screenshot sync and a flip-wait counter. Its Fable pass found the live switch-on
 could end GPU present for the life of WindowServer: the live move is dropped (log only), the sync's lock and
 half-frame issues are being fixed. **Release gap found:** the package creates none of `ws-gpu-present`,

@@ -94,17 +94,17 @@ has for the step.
 | 6 | Desktop-arm decision, wait for `phx-build` (`:443-451`) | `~/gpu/phxboot-desktop`, `ioreg` | `phx-build` property |
 | 7 | `nvram phxfb-boot=1`; `kmutil load -p VermilionAccel` if missing (`:455-457`) | NVRAM (runtime only: `DisableVariableWrite`), AuxKC | none |
 | 8 | Mark `bringup`; `navi31_up.sh` in the background (`:462-482`) | `/var/db/phxboot.pending` | none |
-| 9 | Cold check (`bringup_navi31.sh:66-89`) | reads C2PMSG_81 `0x16091`, C2PMSG_58 `0x1607a`, C2PMSG_35 `0x16063`; refuses a running sOS | `readRegs` (selector 2) |
-| 10 | Watchdog `shutdown -r +3` (`:91`) | sudoers rule, a pending restart | none (user space) |
-| 11 | PSP bootloader: KDB, SPL, SYS_DRV, SOS from `psp_13_0_0_sos.bin`, each staged at fw_buf (VRAM 128 MiB), C2PMSG_36 = address, C2PMSG_35 = command; `bl_wait` 300 × 10 ms; sOS wait 200 × 10 ms (`:104-112`) | registers, VRAM, firmware | `fwStage` (104), `writeReg` (108) |
-| 12 | KM ring at VRAM 48 MiB; `LOAD_TOC` (GPCOM 0x20); `LOAD_IP_FW` SMC; `SETUP_TMR` 0x1300000 at 96 MiB (`:117-127`) | PSP GPCOM, `smu_13_0_0.bin` | `pspRing` (101), `pspRaw` (107), `loadIpFw` (105) |
-| 13 | 26 × `LOAD_IP_FW`: SDMA TH0/TH1, CP RS64 PFP/ME/MEC + 9 stacks, MES + data, MES1 (KIQ) + data, IMU I/D, 7 RLC (`:139-165`) | PSP GPCOM, 8 firmware files | `fwStage`, `loadIpFw` |
-| 14 | `AUTOLOAD_RLC` (`:168`) | PSP GPCOM | `pspCtl(2)` (106) |
-| 15 | SMU init, 11 messages: GetDriverIfVersion, GetSmuVersion, Set{Driver,Tools}DramAddr{High,Low} (VRAM 144/145 MiB), TransferTableSmu2Dram(COMBO_PPTABLE), RunDcBtc, EnableAllSmuFeatures, GetRunningSmuFeatures{High,Low} (`:175-185`) | SMU mailbox | `smuMessage` + the debug allow-list (100) |
-| 16 | Wait CP_STAT `0x21a0` = 0 and RLC_RLCS_BOOTLOAD_STATUS `0xee82` bit 31, 50 × 100 ms (`:187-197`) | reads | `readRegs` |
-| 17 | RS64 program counters, 33 writes (`gfx_v11_0_config_gfx_rs64`; `:199-232`) | GC registers | `writeReg` |
-| 18 | Doorbells: RCC DOORBELL_APER_EN `0xde0`, 6 indirect S2A routing writes through PCIE_INDEX2/DATA2, CP MEC/RB doorbell ranges (`:234-242`) | NBIO, GC | `writeReg` |
-| 19 | MEC (4 pipes) and ME unhalt; watchdog cancelled (`:244-252`) | GC; `killall shutdown` | `writeReg` |
+| 9 | Cold check (`bringup_navi31.sh:64-82`) | reads C2PMSG_81 `0x16091`, C2PMSG_58 `0x1607a`, C2PMSG_35 `0x16063`; refuses a running sOS | `readRegs` (selector 2) |
+| 10 | Watchdog `shutdown -r +3` (`:84-85`) | sudoers rule, a pending restart | none (user space) |
+| 11 | PSP bootloader: KDB, SPL, SYS_DRV, SOS from `psp_13_0_0_sos.bin`, each staged at fw_buf (VRAM 128 MiB), C2PMSG_36 = address, C2PMSG_35 = command; `bl_wait` 300 × 10 ms; sOS wait 200 × 10 ms (`bl_wait`/`bl_load` `:42-54`, loads `:94-102`) | registers, VRAM, firmware | `fwStage` (104), `writeReg` (108) |
+| 12 | KM ring at VRAM 48 MiB; `LOAD_TOC` (GPCOM 0x20); `LOAD_IP_FW` SMC; `SETUP_TMR` 0x1300000 at 96 MiB (`:106-114`) | PSP GPCOM, `smu_13_0_0.bin` | `pspRing` (101), `pspRaw` (107), `loadIpFw` (105) |
+| 13 | 26 × `LOAD_IP_FW`: SDMA TH0/TH1, CP RS64 PFP/ME/MEC + 8 stacks (PFP and ME P0/P1, MEC P0-P3), MES + data, MES1 (KIQ) + data, IMU I/D, 7 RLC (`:125-150`) | PSP GPCOM, 8 firmware files | `fwStage`, `loadIpFw` |
+| 14 | `AUTOLOAD_RLC` (`:152-153`) | PSP GPCOM | `pspCtl(2)` (106) |
+| 15 | SMU init, 11 messages: GetDriverIfVersion, GetSmuVersion, Set{Driver,Tools}DramAddr{High,Low} (VRAM 144/145 MiB), TransferTableSmu2Dram(COMBO_PPTABLE), RunDcBtc, EnableAllSmuFeatures, GetRunningSmuFeatures{High,Low} (`:158-169`) | SMU mailbox | `smuMessage` + the debug allow-list (100) |
+| 16 | Wait CP_STAT `0x21a0` = 0 and RLC_RLCS_BOOTLOAD_STATUS `0xee82` bit 31, 50 × 100 ms (`:170-182`) | reads | `readRegs` |
+| 17 | RS64 program counters, 33 writes (`gfx_v11_0_config_gfx_rs64`; `:184-217`) | GC registers | `writeReg` |
+| 18 | Doorbells: RCC DOORBELL_APER_EN `0xde0`, 6 indirect S2A routing writes through PCIE_INDEX2/DATA2, CP MEC/RB doorbell ranges (`:219-228`) | NBIO, GC | `writeReg` |
+| 19 | MEC (4 pipes) and ME unhalt; watchdog cancelled (`:230-237`) | GC; `killall shutdown` | `writeReg` |
 | 20 | `mesboot gart mc`: GART PTEs in VRAM, GFXHUB page table base, system aperture from FB_LOCATION, default page, L2, contexts 0-15, invalidation engines, SH_MEM_CONFIG/BASES per VMID, CP_DEBUG (`mesboot.c:119`) | GC/GFXHUB registers, VRAM | `writeReg`, `vramWrite` (109) |
 | 21 | `mesboot mes`: CP_MES_CNTL reset, start address per pipe, active (`:182`) | GC | `writeReg` |
 | 22 | `mesboot kiqres`, `schedkiq`: KIQ HQD and SET_RESOURCES with a ring test; the MES scheduler (MAP_QUEUES, SET_HW_RESOURCES, QUERY_SCHED_STATUS) | GC, VRAM, doorbells | `writeReg`, `vramWrite`, `doorbell` (110) |
@@ -200,7 +200,7 @@ The engine thread, `PhxBringup::kupRun()`:
 7. **After the claim:** DC audio once head 0's stream is up (K9), DPM after the first settled mode (K11), VCN (K12).
    Every kernel DAL or SMU sender (the pipe-0 replay, DPM, VCN) waits for the engine's `up`: no DAL message may reach
    the PMFW around LOAD_IP_FW SMC or before EnableAllSmuFeatures. The daemon's "no SMU message after pipe 1 was lit
-   unaligned" guard (`phxboot-navi31.sh:944-961`) carries over to K4, K11 and K12.
+   unaligned" guard (`phxboot-navi31.sh:944-961`) carries over to K11 and K12 (K4 sends no SMU message).
 
 From K8 the engine also holds a sleep assertion for the walk, never holds a spinlock across a poll, and stops at a
 step boundary at shutdown and in `stop()`.
@@ -228,9 +228,10 @@ Hard rule 1 keeps the bring-up watchdog and the daemon's fallbacks. Each one in 
 | GOP revert before the claim | daemon reboot (squat boot) | same | in the same boot: the kernel releases the hold (recovery-trap step 3) | kernel |
 | GOP revert after the claim | `m2_fail` reboot, hang watch | same | same | kernel hang recovery (phase 2 item 7, C3) |
 
-A single MMIO read that never returns can't be interrupted by any software; a PCIe completion timeout ends it with
-all-ones, which every poll treats as "stopped answering". The kernel can't restart the machine cleanly (no KPI for a
-clean restart; `PEHaltRestart` skips the shutdown), so the watchdog's restart stays in user space for as long as it
+Three statements this table rests on are (unverified); none was seen on the XTX machine: a single MMIO read that
+never returns can't be interrupted by any software; a PCIe completion timeout ends it with all-ones, which every poll
+treats as "stopped answering"; and the kernel can't restart the machine cleanly (no KPI for a clean restart;
+`PEHaltRestart` skips the shutdown). On that reading the watchdog's restart stays in user space for as long as it
 exists. Linux and Apple's driver leave a failed device as it is and don't restart.
 
 **Owner decision D-K, before K8.**
@@ -280,9 +281,12 @@ Every step: its own branch and PR, the Fable pass, the hw-safety review where it
 `preflight.sh`, `PHX_KEXT_BUILD` and CHANGELOG, a rollback copy of every replaced binary, check and rollback in TODO
 before the install, one boot. The script path stays usable until K8 (remove a flag); after that, `EFI/OC.prev`.
 
-**Prerequisites:** #43 (F1) merged; recovery-trap steps 2 and 3 (the boot-mode check, the hold and in-boot release:
-[finding](2026-11-25-recovery-trap-design.md) section 6) before K8; T1 before K10. Build numbers below assume #43 is
-b163.
+**Prerequisites:** #43 (F1), merged as VermilionBoot b163; recovery-trap steps 2 and 3 before K8
+([finding](2026-11-25-recovery-trap-design.md), section 6): **R2** is step 2, the boot-mode check, and **R3** is step
+3, the `AAPL,iokit-ignore-ndrv` hold and the in-boot release; T1 before K10. K1-K3's build numbers below (b164-b166)
+assume they are the next kext builds after b163; R2 and R3 take the next free numbers when they are built, and
+anything that lands first shifts K1-K3's. The recovery-trap note's b161 and b162 are stale (b161 went to the XTX-only
+gate, #37, b162 to direct VRAM scan-out, #40); that note stays unchanged, as a dated record.
 
 **T1 (daemon only, no EFI change; owner test, before K10).** Flag `~/gpu/phxboot-norestart`: the daemon does everything
 as today except `killall WindowServer`; the login-window guard stays on, auto-login stays off. Check: the plugin's
@@ -292,7 +296,7 @@ compositing until the next boot, or crashes and launchd starts a new one, which 
 flag. Before T1, a short REA read of SkyLight's `MTLCopyAllDevicesWithObserver` handler predicts the result (study
 only, nothing copied).
 
-**U1 (today's daemon, before K4 and K11; owner's call how soon).** The UCLK hard minimum through the DAL mailbox, as
+**U1 (today's daemon, before K11; owner's call how soon).** The UCLK hard minimum through the DAL mailbox, as
 Linux's DC does (`dcn32_clk_mgr.c:685/688/720`: DAL SetHardMinByFreq(PPCLK_UCLK); the DAL allow-list already lets
 UCLK through), instead of the driver-mailbox 0x1B that `uclk.sh` and `idle_dpm.sh` send: on SMU 13.0.0 Linux wires
 neither `display_clock_voltage_request` nor `set_hard_freq_limited_range` (`smu_v13_0_0_ppt.c`, v6.8 and master), so
@@ -306,14 +310,14 @@ a visible fault, and removing it brings back the display underflows it was added
 |---|---|---|---|---|---|
 | **K1** | Write trace, timestamps, pre-PSP read (details below) | reads only (3 PSP mailbox reads at `start`, the ones Linux makes): review cleared, conditions 1-2 | EFI (VermilionBoot b164) | a script-path boot leaves a complete trace; `phx-psp-boot` `sos=0x00000000` on a cold boot; timestamps; the LOAD_TOC response's TMR size logged | `EFI/OC.prev` |
 | **K2** | Firmware store and `VermilionFirmware.kext` (details below) | none (the C3 slice byte-equal, #43's test): review cleared, condition 3 | EFI (VermilionBoot b165 + the generated kext + a `Kernel > Add` entry) | `phx-fw-state: ok 12/12`; no firmware in `ioreg -l`; start time as in K1; the boot as before | `EFI/OC.prev`; from Linux if OpenCore stops (runbooks) |
-| **K3** | The engine, started by the daemon, today's walk (details below) | **yes**: the step table against Linux and against K1's trace; review cleared the design, conditions 1, 4-9 | EFI (b166) + daemon (`navi31_up.sh`) + flag | the K3 trace equals K1's; `up <ms>`; `navi31 up:`, `SUCCESS`, 240 Hz | `rm ~/gpu/phxboot-kup`, or `EFI/OC.prev` |
-| K4 | Late init in the engine: SDMA queues idle, GFX and SDMA clock gating in RLC safe mode (the writes of `sdma_idle.sh` and `gfx_cg.sh on`); only the early run moves, the re-run after VCN stays in the daemon until K12; no UCLK (U1) | **yes** (same writes, new place). Check gated on `sdma_v6_0_is_idle` (STATUS_REG bit 0 at `0x1285`, `0x1885`) and the RB_ENABLE and F32 HALT=0 read-backs; `0xEEF5` logged only | EFI | the trace equals the scripts' writes; RLC_CGCG_CGLS_CTRL reads back; GFX activity in the SMU metrics, idle board power, temperature and fan as today | `EFI/OC.prev`; the flags work with the old kext |
+| **K3** | The engine, started by the daemon, today's walk (details below) | **yes**: the step table against Linux and against K1's trace; review cleared the design, conditions 1, 4-9 and 18 | EFI (b166) + daemon (`navi31_up.sh`) + flag | the K3 trace equals K1's; `up <ms>`; `navi31 up:`, `SUCCESS`, 240 Hz | `rm ~/gpu/phxboot-kup`, or `EFI/OC.prev` |
+| K4 | Late init in the engine: SDMA queues idle, GFX and SDMA clock gating in RLC safe mode (the writes of `sdma_idle.sh` and `gfx_cg.sh on`); only the early run moves, the re-run after VCN stays in the daemon until K12; no UCLK (U1) | **yes** (same writes, new place), conditions 13 and 19: the early run only (13); the check gated on `sdma_v6_0_is_idle` (STATUS_REG bit 0 at `0x1285`, `0x1885`) and the RB_ENABLE and F32 HALT=0 read-backs, `0xEEF5` logged only (19) | EFI | the trace equals the scripts' writes; RLC_CGCG_CGLS_CTRL reads back; GFX activity in the SMU metrics, idle board power, temperature and fan as today | `EFI/OC.prev`; the flags work with the old kext |
 | K5 | BGM: only RCC DOORBELL_APER_EN before the PSP (`soc21_common_hw_init`); the S2A writes and CP ranges stay with their blocks | **yes**, with L1 (Linux's order on the XTX) | EFI | `up`; the doorbell registers read back as today; `SUCCESS` | `EFI/OC.prev`; flag back to the script path |
 | K6 | GC: the GFXHUB GART right after the RS64 PCs, before `constants_init` (SH_MEM, CP_DEBUG) and the doorbells, where `gfx_v11_0_hw_init` has it | **yes**, with L1 | EFI | `up`; `gart: ack17` as today; Metal apps; no VM faults (`debug.phxvm`) | as K5 |
-| K7 | GVM: the MMHUB GART before the PSP, where `gmc_v11_0_gart_enable` has it (today it comes with VCN, after login) | **yes**, with L1; the MMHUB writes of `phx_vcn_mmhub.cpp` against `mmhub_v3_0` | EFI | `up`; `debug.phxmmvm_stat` as today; VCN decode after K12 | as K5 |
+| K7 | GVM: the MMHUB GART before the PSP, where `gmc_v11_0_gart_enable` has it (today it comes with VCN, after login) | **yes**, with L1; the MMHUB writes of `phx_vcn_mmhub.cpp` against `mmhub_v3_0` | EFI | `up`; `debug.phxmmvm_stat` as today; VCN decode through today's `vcn_up.sh`, which then starts VCN with the MMHUB already on (today VCN starts before the hub changes mode, `phx_vcn_mmhub.cpp:108-110`: unverified), and the daemon's `debug.phxmmvm=1` finds the hub on and writes nothing (`:107`) | as K5 |
 | K8 | The engine starts from `start()` (D-K option a only): thread, go/no-go, firmware wait, refusals (D0 included), the kernel's claim, the in-boot GOP release on a failure before the claim (R3), IRQ waits and the fence step as kext defaults; the daemon drops its bring-up, arms the watchdog and answers go | **yes**: the start-time context (2.2), conditions 10-12; R3's review covers an IONDRV release after a partial bring-up; MSI and the IH at the claim get their own review against `ih_v6_0` | EFI + daemon | `up` before the daemon's log says go+2 s; no `navi31_up.sh` line; `SUCCESS`. Owner: power-off cold boot, restart, Safe Mode (GOP, no engine), `-phxkupoff` boot, a forced refusal (GOP picture in the same boot) | `EFI/OC.prev` + the daemon from `~/vermilion-rollback` |
 | K9 | DC audio in the kernel: `phxaudio_plan.h`'s writes once head 0's stream is up; around each mode set audio off (plan steps 1-2) before the stream change and on (steps 3-7) after it, serialised with the replay engine (Linux's order, decisions 2026-11-24); `phx-audio-ready` makes VermilionAudio attach AppleGFXHDA itself; AppleGFXHDA is never detached; BacoAudioD3PME stays unsent | **yes**, condition 14 | EFI (VermilionBoot + VermilionAudio) | `debug.phxaudio_stat` matched at the login window; the same 90 writes as `phxaudio apply` | `EFI/OC.prev` |
-| K10 | The first WindowServer is the accelerated one (only if T1 passed): VermilionAccel defaults (GL on, the pipe-0 mode list, VRR floor 60 with a boot-arg for another, HDR as the release decides, AGDC and the display pipe at start, the offer gate's need re-checked), a static Metal allow list, the plugin's WindowServer defaults (`NVMTL_WS_PRESENT_CDCOPY` behaviour); the daemon drops inventory steps 28-33 | none new (defaults move into the kexts); review that nothing new is written | AuxKC (Allow click) + plugin (trust + EFI) + daemon: 2 boots | one WindowServer pid for the boot; the plugin log shows its Metal device; no guard or auto-login lines | previous kexts and daemon from `~/vermilion-rollback` |
+| K10 | The first WindowServer is the accelerated one (only if T1 passed): VermilionAccel defaults (GL on, the pipe-0 mode list, VRR floor 60 with a boot-arg for another, HDR as the release decides, AGDC and the display pipe at start, the offer gate's need re-checked), a static Metal allow list, the plugin's WindowServer defaults (`NVMTL_WS_PRESENT_CDCOPY` behaviour); the daemon drops inventory steps 28-33 | none new (defaults move into the kexts): the review cleared it with condition 12 if only defaults move (the display pipe at start waits for `up`); its own review checks that nothing new is written | AuxKC (Allow click) + plugin (trust + EFI) + daemon: 2 boots | one WindowServer pid for the boot; the plugin log shows its Metal device; no guard or auto-login lines | previous kexts and daemon from `~/vermilion-rollback` |
 | K11 | DPM in the kext, after U1, as `dcn32_update_clocks` does it: raise before each mode set (UCLK up, FCLK switch disallowed; today's switches run unpinned, which Linux doesn't do), lower after it (UCLK to the requested memory clock, 96 MHz in the traces; DCFCLK, deep sleep, NumOfDisplays); the DAL watermark table; the underflow watchdog as a kernel timer (reads), pinned again on an underflow | **yes**, finding A and condition 15 | EFI | idle board power 28-33 W, UCLK 96, no underflow in 10 min, mode switches clean | `EFI/OC.prev` |
 | K12 | VCN in the kext, Linux's flow: S2A ENTRY_4/5 at hw_init, PowerUpVcn per instance (argument `inst << 16`) before the DPG start, DPG with the indirect SRAM loaded through the PSP, ring adopt; MMHUB first (K7) (a); then on first use, and after the idle timeout stop DPG, then PowerDownVcn, as Linux's idle work (b) | **yes**, each, condition 16 | EFI each: 2 boots | decode works; (b) PowerDownVcn at idle | `EFI/OC.prev` |
 | K13 | Quiesce at restart and shutdown (B5), Linux's order where it differs from Apple's: MP1 state UNLOAD, then the blocks suspended in reverse (display, MES, VCN, SDMA, GFX, SMU with PrepareMp1ForUnload, PSP last; `amdgpu_pci_shutdown`, `amdgpu_drv.c:2369-2386`); nothing sent to a GPU that never came up | **yes** (B5's own design), condition 17, L3 | EFI | no stall reports at restart; 5 restarts and a shutdown | `EFI/OC.prev` |
@@ -325,9 +329,10 @@ Boots if every step passes first time:
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | Boots | 1 | 1 | 3 (normal, `stop=sos`, `stop=smu`) | 1 | 1 | 1 | 1 | 1-2 | 1 | 2 | 1 | 2 | 1-2 | 1 |
 
-**18-20 boots**, plus T1 (1, daemon only), U1 (1) and the recovery-trap steps 2-3 (2-3). A failed step adds its
-retries. K5-K7 can wait without blocking K8-K13. K9 and K11 need only K3 and the claim (K11 also U1) and can move
-earlier if the owner wants sound sooner.
+**18-20 boots**, plus T1 (1, daemon only), U1 (1) and the recovery-trap steps 2-3 (2-3). A failed step adds its retries.
+K5 and K6 can wait without blocking K8-K13. K7 can't: K12 starts VCN with the MMHUB already on (condition 16), so K7
+lands before K12. K9 and K11 need only K3 and the claim (K11 also U1) and can move earlier if the owner wants sound
+sooner.
 
 ### 3.1 K1: write trace, timestamps, pre-PSP read (VermilionBoot b164, no new GPU write)
 
@@ -375,12 +380,12 @@ earlier if the owner wants sound sooner.
 
 ### 3.3 K3: the engine, started by the daemon (VermilionBoot b166 + daemon, today's walk)
 
-- `src/vermilion-boot/PhxKup.h` (new, kernel-free, host test `tests/kext/kup_test.cpp` against K1's saved trace): the
-  10 blocks of 2.1, each an op list with today's values (the same op kinds as the trace), an `Io` interface (as
+- `src/vermilion-boot/PhxKup.h` (new, kernel-free, host test `tests/kext/kup_test.cpp` against K1's saved trace): the 10
+  blocks of 2.1, each an op list with today's values (the same op kinds as the trace), an `Io` interface (as
   `PhxDpRun.h`), and the walk `kTodayWalk`: PSP bootloader, PSP ring/TOC/SMC/TMR, PSP IP firmware, AUTOLOAD_RLC, SMU
-  init, GC autoload wait, GC RS64, BGM doorbells and GC doorbell ranges, GC unhalt, GVM GFXHUB with GC SH_MEM, MES
-  start, KIQ, scheduler, compute queue, gfx queue. Every wait is bounded by time, at least as long as its script's,
-  with the timing additions of 2.2.
+  init, GC autoload wait, GC RS64, BGM doorbells and GC doorbell ranges, GC unhalt, GC GFXHUB GART with SH_MEM and
+  CP_DEBUG (mesboot `gart()`, today after the unhalt; 2.1 row 5), MES start, KIQ, scheduler, compute queue, gfx queue.
+  Every wait is bounded by time, at least as long as its script's, with the timing additions of 2.2.
 - `src/vermilion-boot/phx_kup.cpp` (new, included after `phx_psp_smu.cpp`): `PhxBringup::kupStart()` (the sysctl
   handler: refused unless `phx-fw-state ok`, refused after **any GPU-writing debug selector** this boot, once per
   boot), `kupRun()` on a `thread_call`, and the `Io` binding to **today's primitives, so the trace argument holds**:
@@ -449,7 +454,8 @@ What the plan gives if every step passes (unverified: nothing here was built).
    remaining gaps are (unverified) until K3 runs.
 5. **Order moves** (K5-K7): the PSP-side sequence comes from a Linux 6.8 log on upstream's XT; the XTX has no full
    Linux init trace in the repo, and the review read 6.8 and master, not 7.2.15. L1 confirms Linux's order on this
-   board before each move. The first version of this plan had all three moves wrong (section 7, findings B-D).
+   board before each move. The first version of this plan had K4-K7 wrong (section 7, findings A-D): K4's UCLK pin,
+   K5's S2A writes, K6's GFXHUB position and K7's SDMA move (dropped). Today's K7, the MMHUB move, came out of C.
 6. **mesboot** was built from traces and tests, not from one end-to-end Linux trace. K3 ports it as it is; the review
    of K3's step table may find writes to question, which are existing differences and separate changes.
 7. **UCLK** (U1): today's pin is a message Linux doesn't send on this SMU, live on every boot. The fix moves it to the
@@ -502,10 +508,10 @@ master, read in a scratch folder outside git (7.2.15 not read). Its verdict:
 > either sends a different message or does the step at a different point. They need to be redefined before their own
 > reviews. K8 is acceptable under D-K option a only.
 
-Per step: T1 safe; K1 safe with conditions 1-2; K2 safe with condition 3; K3 safe with conditions 1 and 4-9; K4, K5,
-K6, K7 unsafe as first written; K8 safe with conditions 10-12, option a only; K9 safe with condition 14; K10 safe with
-condition 12 if only defaults move; K11 needs finding A and condition 15; K12 safe with condition 16; K13 safe with
-condition 17 and L3; K14 safe.
+Per step: T1 safe; K1 safe with conditions 1-2; K2 safe with condition 3; K3 safe with conditions 1, 4-9 and 18 (the TMR
+stop); K4, K5, K6, K7 unsafe as first written (K4's SDMA and clock-gating part with conditions 13 and 19); K8 safe with
+conditions 10-12, option a only; K9 safe with condition 14; K10 safe with condition 12 if only defaults move; K11 needs
+finding A and condition 15; K12 safe with condition 16; K13 safe with condition 17 and L3; K14 safe.
 
 **The four unsafe findings, and what this version does with them:**
 

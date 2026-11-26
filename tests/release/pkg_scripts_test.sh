@@ -140,9 +140,9 @@ check "daemon and tools are in ~/gpu" '[ "$(cat "$G/phxboot-navi31.sh")" = "daem
 check "the LaunchDaemon names the user and ~/gpu" 'grep -q "<string>/Users/alice/gpu/phxboot-navi31.sh</string>" "$T/root/Library/LaunchDaemons/local.phxboot.plist" && grep -q "<key>PHX_USER</key><string>alice</string>" "$T/root/Library/LaunchDaemons/local.phxboot.plist"'
 check "the AIR reader is in the bundle and its source is gone" '[ "$(cat "$T/root/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime/libLLVM.dylib")" = "llvm v1" ] && [ ! -e "$T/root/usr/local/libexec/vermilion/air-runtime-src" ]'
 check "the firmware step ran" '[ -f "$G/fw/navi31/smu_13_0_0.bin" ]'
-check "first-boot flags created, an existing one kept" '[ -e "$G/phxboot-sdma" ] && [ -e "$G/phxboot-cg" ] && [ "$(cat "$G/phxboot-uclk")" = 777 ]'
-check "phxboot-auto and phxboot-nohdr created for the user; the package writes no NVRAM" '[ -e "$G/phxboot-auto" ] && [ -e "$G/phxboot-nohdr" ] && ! grep -q "^nvram" "$SIM_LOG"' "$T/post.out"
-check "the MANIFEST records both flags as not there before (N)" 'grep -q "^N $G/phxboot-auto\$" "$RB/MANIFEST" && grep -q "^N $G/phxboot-nohdr\$" "$RB/MANIFEST"'
+check "no flag file created; an old one of the user is kept untouched" '[ "$(cat "$G/phxboot-uclk")" = 777 ] && [ -z "$(ls "$G" | grep -E "^phxboot-" | grep -v -e "^phxboot-navi31.sh$" -e "^phxboot-uclk$")" ]'
+check "no phxboot-auto, no phxboot-nohdr, no autologin file; the package writes no NVRAM" '[ ! -e "$G/phxboot-auto" ] && [ ! -e "$G/phxboot-nohdr" ] && [ ! -e "$G/phxboot-autologin" ] && ! grep -q "^nvram" "$SIM_LOG"' "$T/post.out"
+check "the MANIFEST names no flag file" '! grep -qE "^N $G/phxboot-(sdma|cg|uclk|auto|nohdr)\$" "$RB/MANIFEST"'
 check "shader cache folders exist" '[ -d "$T/root/Library/GPUBundles/nvmtl/aircache" ] && [ -d "$T/root/Library/GPUBundles/nvmtl/spvcache" ]'
 check "the install marker names the version and user" 'grep -q "^version 0.1.0-v1" "$T/root/Library/Application Support/Vermilion/installed" && grep -q "^user alice" "$T/root/Library/Application Support/Vermilion/installed"'
 check "the daemon was not started" '! grep -q "launchctl" "$SIM_LOG"'
@@ -166,7 +166,7 @@ pre; payload v2; post
 check "update replaced the files" '[ "$(cat "$T/root/usr/local/sbin/phxctl")" = "phxctl v2" ] && [ "$(cat "$T/root/Users/alice/gpu/phxboot-navi31.sh")" = "daemon v2" ]' "$T/post.out"
 check "two rollback folders" '[ "$(ls "$T/root/Library/Application Support/Vermilion/rollback" | wc -l | tr -d " ")" = 2 ]'
 # the uninstaller removes files named in the receipt and in the manifests; a file the daemon wrote stays
-echo absent >"$T/root/Users/alice/gpu/phxboot-b21guard.orig"
+echo absent >"$T/root/Users/alice/gpu/phxboot-b21guard.orig"; echo 777 >"$T/root/Users/alice/gpu/phxboot-uclk"   # the user's own old flag
 un
 check "uninstall exits 0" '[ "$(cat "$T/un.rc")" = 0 ]' "$T/un.out"
 check "the file that existed before the first install is back, not the first release's" '[ "$(cat "$T/root/usr/local/sbin/phxctl")" = "OLD phxctl" ]' "$T/un.out"
@@ -176,7 +176,7 @@ check "the empty ~/gpu/phxctl is gone; ~/gpu/fw stays while the firmware does" '
 check "the firmware stays without --purge" '[ -f "$T/root/Users/alice/gpu/fw/navi31/smu_13_0_0.bin" ] && grep -q "fw/navi31" "$T/un.out"'
 check "the receipt is forgotten and the marker is gone" '[ ! -f "$SIM_RECEIPT" ] && [ ! -f "$T/root/Library/Application Support/Vermilion/installed" ]'
 check "the rollback folders are kept, marked used" '[ "$(ls "$T/root/Library/Application Support/Vermilion/rollback" | wc -l | tr -d " ")" = 2 ] && [ "$(ls "$T/root/Library/Application Support/Vermilion/rollback"/*/MANIFEST.used | wc -l | tr -d " ")" = 2 ] && ! ls "$T/root/Library/Application Support/Vermilion/rollback"/*/MANIFEST >/dev/null 2>&1'
-check "phxboot-auto and phxboot-nohdr removed (they were not there before the install)" '[ ! -e "$T/root/Users/alice/gpu/phxboot-auto" ] && [ ! -e "$T/root/Users/alice/gpu/phxboot-nohdr" ]'
+check "the user's own old flag file is still there after the uninstall (the package never made it)" '[ "$(cat "$T/root/Users/alice/gpu/phxboot-uclk")" = 777 ]'
 check "NVRAM variables deleted, login-window value put back" 'grep -q "nvram -d phxfb-squat" "$SIM_LOG" && grep -q "defaults delete /Library/Preferences/com.apple.loginwindow SHOWFULLNAME" "$SIM_LOG"'
 check "it tells which EFI entries to remove, and prints the kmutil step" 'grep -q "VermilionBoot.kext" "$T/un.out" && grep -q "kmutil install --update-all" "$T/un.out"' "$T/un.out"
 check "uninstall touched nothing outside the fake root" '[ ! -e /Users/alice ] && [ ! -e "/Library/Application Support/Vermilion" ]'

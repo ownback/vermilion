@@ -30,7 +30,7 @@ check fresh '[ "$(cat "$T/rc")" = 0 ]' '[ -f "$GB/NVMTLDriver.bundle/Contents/In
   '[ "$(cat "$GB/nvmtl-allow.txt")" = "*" ]' '[ -f "$D/Library/Extensions/VermilionAccel.kext/Contents/MacOS/VermilionAccel" ]' \
   '[ -x "$D/usr/local/sbin/mesboot" ]' '[ -x "$D/usr/local/bin/spirv-val" ]' '[ -x "$G/phxboot-navi31.sh" ]' '[ -x "$G/phxctl/navi31_up.sh" ]' \
   '[ -x "$G/phxctl/bringup_navi31.sh" ]' 'cmp -s "$G/phxboot-pre.sh" "$R/tools/phxctl/esp_flags.sh"' '[ -f "$G/fw/navi31/smu_13_0_0.bin" ]' \
-  '[ -e "$G/phxboot-sdma" ] && [ -e "$G/phxboot-cg" ] && [ "$(cat "$G/phxboot-uclk")" = 456 ]' '[ ! -e "$G/phxboot-desktop" ] && [ ! -e "$G/phxboot-auto" ]' \
+  '[ ! -e "$G/phxboot-sdma" ] && [ ! -e "$G/phxboot-cg" ] && [ ! -e "$G/phxboot-uclk" ]' '[ ! -e "$G/phxboot-desktop" ] && [ ! -e "$G/phxboot-auto" ]' \
   'grep -q "<string>/Users/alice/gpu/phxboot-navi31.sh</string>" "$D/Library/LaunchDaemons/local.phxboot.plist"' \
   'grep -q "<key>PHX_USER</key><string>alice</string>" "$D/Library/LaunchDaemons/local.phxboot.plist"' \
   '[ "$($PB -c "Print :AutomaticDownload" "$D/Library/Preferences/com.apple.SoftwareUpdate.plist")" = false ]' \

@@ -68,7 +68,7 @@ ship "$HERE/pkg/vermilion-firmware" "$P/usr/local/sbin/vermilion-firmware"
 # /usr/local/libexec/vermilion: what the post-install script copies into ~/gpu, the firmware fetcher, the AIR reader
 T=$ROOT/tools/phxctl
 for f in phxboot-navi31.sh gfx_cg.sh sdma_idle.sh uclk.sh smumetrics.py ptwalk.sh m7_boot.sh m7_phase.sh dispovr.sh \
-         b15_boot.sh wm144.sh det.sh dalwm.sh dal.sh hubp_dlg.sh p0prefetch.sh; do cp "$T/$f" "$LX/gpu/$f"; done
+         b15_boot.sh wm144.sh det.sh dalwm.sh dal.sh hubp_dlg.sh p0prefetch.sh idle_dpm.sh; do cp "$T/$f" "$LX/gpu/$f"; done
 cp "$T/navi31_up.sh" "$T/bringup_navi31.sh" "$LX/gpu/phxctl/"
 cp "$BUILD/phxctl" "$LX/gpu/phxctl.bin"
 cp "$BUILD/metaltest" "$LX/gpu/metaltest"

@@ -4,8 +4,28 @@
     <title>Vermilion @VERSION@</title>
     <welcome file="welcome.html" mime-type="text/html"/>
     <conclusion file="conclusion.html" mime-type="text/html"/>
-    <options customize="never" require-scripts="false" hostArchitectures="x86_64"/>
+    <options customize="never" require-scripts="false" allow-external-scripts="yes" hostArchitectures="x86_64"/>
     <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <!-- The Installer's own check (install-check.sh, in the package's resources): the macOS build and the GPU, before
+         the install is offered. The preinstall script checks the same again, as root. -->
+    <installation-check script="installCheck()"/>
+    <script>
+    <![CDATA[
+    function installCheck() {
+        var rc = system.run('install-check.sh');
+        if (rc == 0) return true;
+        var why;
+        if (rc == 1) why = 'Vermilion @VERSION@ supports macOS Tahoe 26.7.1 (build @BUILD@) only. Do not update macOS while Vermilion is installed.';
+        else if (rc == 2) why = 'No AMD Radeon RX 7900 XTX (PCI 1002:744c, revision 0xC8) was found in this Mac. Vermilion supports no other card.';
+        else if (rc == 3) why = 'Another 1002:744c board was found (RX 7900 XT, RX 7900 GRE, RX 7900M or an unknown revision). Vermilion starts only on the AMD Radeon RX 7900 XTX, and it must be the only 7900-series card.';
+        else why = 'This Mac could not be checked for macOS build @BUILD@ and an AMD Radeon RX 7900 XTX.';
+        my.result.type = 'Fatal';
+        my.result.title = 'Vermilion cannot be installed on this Mac';
+        my.result.message = why + ' Nothing was changed.';
+        return false;
+    }
+    ]]>
+    </script>
     <choices-outline>
         <line choice="default"/>
     </choices-outline>

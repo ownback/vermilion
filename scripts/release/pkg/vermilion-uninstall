@@ -4,9 +4,10 @@
 # replaced (docs/RELEASE.md, "Uninstaller"; INSTALL.md section 6). Run it as root: sudo vermilion-uninstall.
 #   1. stops the boot daemon (launchctl bootout, its pending mark and fail record, NVRAM phxfb-squat / phxfb-boot
 #      where macOS can write NVRAM), puts the login-window value and the display overrides back;
-#   2. removes every file `pkgutil --files org.vermilion.pkg` lists, and then every path a rollback folder names,
-#      restoring the copy when the path existed before the first install (rollback folders are read oldest first, so
-#      an update never turns a Vermilion file into "the user's own");
+#   2. removes every file `pkgutil --files org.vermilion.pkg` lists, the AIR reader (it is not in the receipt) and
+#      /usr/local/libexec/vermilion, and then every path a rollback folder names, restoring the copy when the path
+#      existed before the first install (rollback folders are read oldest first, so an update never turns a Vermilion
+#      file into "the user's own"); the ~/gpu folders the install made are removed when empty;
 #   3. forgets the package receipt.
 # --purge also removes the firmware folder (~/gpu/fw/navi31); without it the firmware is kept.
 # --rebuild-kc runs `kmutil install --update-all` and `kmutil clear-staging` to drop VermilionAccel from the Auxiliary
@@ -16,10 +17,16 @@
 PKGID=org.vermilion.pkg
 LIBEXEC_DEFAULT=${VERMILION_ROOT:-}/usr/local/libexec/vermilion
 if [ -f "$LIBEXEC_DEFAULT/lib.sh" ]; then . "$LIBEXEC_DEFAULT/lib.sh"; else
-  PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH
+  # lib.sh is gone (an uninstall run after /usr/local/libexec/vermilion was removed): the parts of it main() uses
+  [ "${VERMILION_TEST:-0}" = 1 ] || PATH=/usr/bin:/bin:/usr/sbin:/sbin
+  export PATH
   R=${VERMILION_ROOT:-}; LIBEXEC=$R/usr/local/libexec/vermilion; SUPPORT="$R/Library/Application Support/Vermilion"
   say() { echo "Vermilion: $*"; }
   fail() { echo "Vermilion: ERROR: $*" >&2; exit 1; }
+  user_home() {   # user_home <user>
+    [ -z "${VERMILION_UHOME:-}" ] || { echo "$VERMILION_UHOME"; return; }
+    dscl . -read "/Users/$1" NFSHomeDirectory 2>/dev/null | awk '{ print $2 }'
+  }
 fi
 
 main() {
@@ -67,6 +74,10 @@ main() {
   else
     say "no receipt for $PKGID (already forgotten?): only the rollback folders decide below"
   fi
+  # What the install put in place after the payload (not in the receipt): the AIR reader and the libexec folder. They
+  # go here, before 2b, so that 2b can put back a copy of either that existed before the first install.
+  B=$R/Library/GPUBundles/NVMTLDriver.bundle/Contents
+  rm -rf "$B/MacOS/air-runtime" "$B/Resources/air-runtime" "$LIBEXEC"
 
   # 2b. every path a rollback folder names: first line wins, oldest folder first
   : >"$T/all"
@@ -89,10 +100,16 @@ main() {
     fi
   done <"$T/decided"
   say "$removed paths removed, $restored restored from the rollback folders"
+  # These folders are spent: a later install starts its own, and a later uninstall must not read this install's "N"
+  # lines (a file the user put at such a path after this uninstall would be deleted instead of restored). The copies stay.
+  for d in "$SUPPORT"/rollback/*/; do
+    d=${d%/}; [ -f "$d/MANIFEST" ] && mv "$d/MANIFEST" "$d/MANIFEST.used"
+  done
   rmdir "$R/Library/GPUBundles/nvmtl" 2>/dev/null || true
+  # the folders the install made in ~/gpu, when nothing else is in them (fw/navi31 stays without --purge)
+  [ -z "$UH" ] || rmdir "$G/phxctl" "$G/fw" "$G" 2>/dev/null || true
 
   # 3. receipt and state
-  rm -rf "$LIBEXEC"
   rm -f "$SUPPORT/installed" "$SUPPORT/.rollback-current"
   pkgutil --forget "$PKGID" >/dev/null 2>&1 || true
   rm -rf "$T"
@@ -102,7 +119,7 @@ main() {
   echo "Vermilion is removed from this system. Left for you:"
   echo "  - VermilionAccel is still in the Auxiliary Kernel Collection until it is rebuilt. Run:"
   echo "        sudo kmutil install --update-all && sudo kmutil clear-staging"
-  echo "    (unverified on macOS 26.7.1; uninstall --rebuild-kc runs it). Then restart."
+  echo "    (unverified on macOS 26.7.1; vermilion-uninstall --rebuild-kc runs it). Then restart."
   [ $REBUILD = 0 ] || { say "rebuilding the Auxiliary Kernel Collection"; kmutil install --update-all && kmutil clear-staging || say "kmutil failed: run it by hand"; }
   echo "  - The OpenCore part (this package never touches the EFI partition). Remove from EFI/OC/Kexts:"
   echo "    VermilionBoot.kext, VermilionTrust.kext, VermilionAudio.kext (and Lilu.kext if you added it only for these),"

@@ -1194,7 +1194,7 @@ static constexpr uint32_t kScratch5 = 0x036A8;   // SCRATCH5..8 = 0x36A8..0x36AB
 static constexpr uint32_t kTrCmd = 0x8a, kTrCmdType = 0x8b, kTrUnsupported = 0x16, kTrErr = 0xbb, kTrC3 = 0xc3;
 struct C3 {
     int latched, powerOn; uint32_t gpioStart;         // latched at kext start (debug.phxpoweron = powerOn, -1 when not latched)
-    const uint16_t *image;                            // null = the embedded kPhxC3Image (the kext never sets it; host-test seam)
+    const uint16_t *image;                            // null = the installed image, phxc3::image() (the kext never sets it; host-test seam)
     int done9, failed, passed; uint32_t attempts, refusals, sent;   // this boot: mode 9 spent, failure latch, last 1a passed, own commands
     int mode, res, ringRc, step, pipe0Same, restoreOk, total;
     uint32_t gpioLive, otg1Ctl, dig3Be, dig3Fe, symclkd, gateDis2, crc, trEntries, mainBegin, phyD;
@@ -1285,8 +1285,10 @@ inline const char *c3Gates9(const Env &e, C3 &c) {
     }
     if (c.mainBegin != 1) return "G2: the trace has not exactly one MAIN_BEGIN (wrapped, or a restart)";
     if (c.phyD) return "G2: PHY D already programmed in this firmware boot (trace 0xC0/0xC3/0xE8/0x10A with p0 3)";
-    c.crc = phxc3::imageCrc(c.image ? c.image : kPhxC3Image, kPhxC3ImageWords);
-    if (c.crc != kPhxC3ImageCrc32) return "G4: the embedded image fails its CRC-32";
+    const uint16_t *im = c.image ? c.image : phxc3::image();
+    if (!im) return "G4: no C3 image installed (debug.phxc3_image: the boot daemon writes it from the installed firmware)";
+    c.crc = phxc3::imageCrc(im, kPhxC3ImageWords);
+    if (c.crc != kPhxC3ImageCrc32) return "G4: the installed image fails its CRC-32";
     c.gateDis2 = rd(e, phxc3::kGateDis2);
     if (c.gateDis2 & phxc3::kGateDis2PhyD) return "G4: DCCG_GATE_DISABLE_CNTL2 bit 27 is not 0 (L3 restores it to 0)";
     return nullptr;
@@ -1300,7 +1302,7 @@ inline int c3Load(const Env &e, State &st, C3 &c, const uint32_t *fp, uint32_t o
     c.done9 = 1;   // the one shot is spent from the first command on
     for (unsigned i = 0; i < kLoadN; i++) {
         c.step = static_cast<int>(i);
-        loadCmd(i, c.cmd, c.image ? c.image : kPhxC3Image);
+        if (!loadCmd(i, c.cmd, c.image)) return c3End(c, kC3Shape, "no C3 image installed");   // the G4 gate already refused this
         const Shape *s = shapeAt(kLoadShape, sizeof kLoadShape / sizeof kLoadShape[0], i);
         const int rc = c3Put(e, st, c, c.cmd, s, &w);
         if (rc < 0) return c3End(c, kC3Shape, w);

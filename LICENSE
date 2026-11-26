@@ -33,8 +33,8 @@ Required Notice: Copyright (c) 2026 NullMoth Systems (https://nullmothsystems.co
 - **AMD GPU microcode.** The bring-up loads linux-firmware `amdgpu/` files; they are AMD's, under
   [`LICENSES/LICENSE.amdgpu.txt`](LICENSES/LICENSE.amdgpu.txt) (binary redistribution only, no reverse engineering).
   This repository ships no firmware and no firmware excerpt: `tools/firmware/fetch_firmware.sh` downloads the files and
-  `tools/firmware/c3_image.py` generates the one header VermilionBoot.kext builds from them, on your machine
-  ([`docs/FIRMWARE.md`](docs/FIRMWARE.md)).
+  `tools/firmware/c3_image.py` generates the hash header VermilionBoot.kext builds against (no firmware bytes), on your
+  machine ([`docs/FIRMWARE.md`](docs/FIRMWARE.md)).
 - **Apple software.** Nothing from macOS or Xcode is redistributed. The kexts build against MacKernelSDK (APSL 2.0),
   which you download yourself.
 - **The nullarc name, mark and wordmark** (© luuumi-dev, all rights reserved) are not used by this project, and

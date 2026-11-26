@@ -11,7 +11,7 @@ PFX="-ffile-prefix-map=$ROOT=/vermilion -fdebug-prefix-map=$ROOT=/vermilion -ffi
 OUT="$HERE/build/VermilionBoot.kext"
 rm -rf "$HERE/build"
 mkdir -p "$OUT/Contents/MacOS"
-[ -f "$HERE/phx_c3_image.inc" ] || { echo "missing phx_c3_image.inc: run tools/firmware/c3_image.py (needs linux-firmware dcn_3_2_0_dmcub.bin, tools/firmware/fetch_firmware.sh)" >&2; exit 1; }
+[ -f "$HERE/phx_c3_hash.inc" ] || { echo "missing phx_c3_hash.inc: run tools/firmware/c3_image.py (needs linux-firmware dcn_3_2_0_dmcub.bin, tools/firmware/fetch_firmware.sh)" >&2; exit 1; }
 
 CFLAGS="-arch x86_64 -mmacosx-version-min=11.0 -mkernel -fno-builtin -fno-common -nostdinc
   -I$MKSDK/Headers -DKERNEL -DKERNEL_PRIVATE -DDRIVER_PRIVATE -DAPPLE -DNeXT -Os -Wall $PFX"

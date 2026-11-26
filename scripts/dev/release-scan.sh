@@ -85,15 +85,18 @@ PAT_EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
 PAT_HOME='/(Users|home)/[A-Za-z0-9<._-]+'
 PAT_ASM='(movl|movq|leal|leaq|cmpl|cmpq|testl|testq|callq|jmpq|btl|xorl|addl|subl)[[:space:]]+[$%-][^ ]*,'
 
-# EDIDs with a serial, in one binary file: hex-dump it, find each 8-byte header, and look at the serial bytes (12-15)
-# and the four 18-byte descriptors (bytes 54-125) for a "00 00 00 ff" serial-string descriptor with text in it (an
-# emptied one, 0x0A then space padding as in docs/EDID.md, or all spaces or NULs, is no serial).
+# EDIDs with a serial, in one binary file: hex-dump it, find each 8-byte header whose 128-byte block sums to 0 mod 256
+# (the EDID checksum; code and tables in a kext hold the 8 header bytes too, seen 38 times in VermilionBoot b163), and
+# look at the serial bytes (12-15) and the four 18-byte descriptors (bytes 54-125) for a "00 00 00 ff" serial-string
+# descriptor with text in it (an emptied one, 0x0A then space padding as in docs/EDID.md, or all spaces or NULs, is no
+# serial).
 edid_serials() {
-  od -An -v -tx1 "$1" | tr -d ' \n' | awk -v f="$1" '{
+  od -An -v -tx1 "$1" | tr -d ' \n' | awk -v f="$1" 'BEGIN { for (n = 0; n < 256; n++) hx[sprintf("%02x", n)] = n } {
     s = $0; off = 0
     while ((i = index(s, "00ffffffffffff00")) > 0) {
-      b = substr(s, i, 256)
-      if (length(b) == 256 && (off + i - 1) % 2 == 0) {
+      b = substr(s, i, 256); sum = 0
+      if (length(b) == 256) for (k = 1; k < 256; k += 2) sum += hx[substr(b, k, 2)]
+      if (length(b) == 256 && (off + i - 1) % 2 == 0 && sum % 256 == 0) {
         bad = substr(b, 25, 8) != "00000000"
         for (d = 0; d < 4; d++)
           if (substr(b, 109 + d * 36, 8) == "000000ff" && substr(b, 119 + d * 36, 26) !~ /^(0a)?(20|00)*$/) bad = 1

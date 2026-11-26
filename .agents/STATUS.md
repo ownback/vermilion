@@ -9,6 +9,79 @@ The evidence for every row is in the audit findings, by row number:
 [last threads' state](findings/2026-11-24-audit-thread-handover.md). States: **works**, **broken**, **missing**,
 **not standard** (works, but not as Apple would ship it). Size: S about a day, M days, L weeks.
 
+## 2026-11-26: merged today; the boot queue (live is still EFI change 39)
+
+**Live on the XTX machine:** EFI change 39 (VermilionBoot b162, NVMTLDriver `1c15df79`, VermilionTrust 18 cdhashes),
+direct scan-out on. **EFI change 40 is installed, not booted:** stage `vermilion-trust-bar1g-audio-sse` (#44) =
+change 39 + RyzentoshSSE 0.1.0 (ownback/ryzentosh-sse `45c3c26`, executable sha256 `ab3874fa…`); `config.plist`
+differs from 39 only by its Kernel/Add entry. `EFI/OC.prev` = change 39 (also
+`~/vermilion-rollback/EFI-OC.change39-20261126`); the `local.phxpassd` login agent is removed (copy in
+`~/vermilion-rollback/local.phxpassd.plist.20261126`). The machine lock is held until change 40's post-boot check.
+
+**Merged 2026-11-26** (each with its Fable pass; review fixes on top where noted):
+
+| PR | What | Notes |
+|---|---|---|
+| #43 | F1: VermilionBoot b163 holds no AMD firmware (the C3 image at run time) | `phxctl c3image` retries EBUSY 5 s |
+| #44 | EFI stage with RyzentoshSSE (plan A7) | installed as change 40 |
+| #45 | Release package fixes from #42's review | `allow-external-scripts`; spent rollback folders |
+| #46 | release-scan: an EDID needs a valid checksum; `phx_c3_image.inc` ignored again | b163's 38 findings were false |
+| #47 | B1 design: GPU bring-up in the kernel, K1-K14, T1, U1, 18-20 boots | hw-safety review folded in |
+| #48 | Root `INSTALL.md` for 0.1.0-preview; the daemon arms the desktop after a GOP bring-up | notices for Allow, restart |
+| #49 | Plugin release build (A2), NVIDIA paths removed, Metal feature answers (A3) | Mac Catalyst families YES |
+| #50 | T1 by static analysis: the first WindowServer probably won't adopt a late device (~70 %) | fix needs B1 K8 |
+| #51 | Direct scan-out: `ws-direct` appearing applies at the next start; flip-wait counter | live move, idle copy dropped |
+| #52 | U1: the UCLK floor through the DAL mailbox as Linux does; VermilionBoot b167 refuses 0x1B/0x1C | hw-safety OK |
+| #53 | GPU present, async present and direct scan-out on by default (`-off` opt-outs) | safe desktop back-off |
+| #54 | A4+A9: device info from the hardware (VermilionBoot b168, VermilionAccel 0.1.2, RADV 0016-0020); XT profile dropped | wired cap `max_mem / 4` |
+| #55 | Every proven daemon feature on by default, `~/gpu/phxboot-<name>-off` opt-outs, HDR off by default | safe desktop keeps polled waits; package and recovery ship DP audio's tools |
+
+No open PRs and no branches other than `main` on ownback/vermilion-xtx (2026-11-26, after #55 and this STATUS PR).
+
+**Release gaps found and closed today:** the package would have armed a dark first boot (#48: the daemon arms it after
+a bring-up that needs the firmware and VermilionAccel); the Installer check could never run (#45); a stranger got no
+GPU present or direct scan-out (#53); a stranger's install turned on only the few features the package wrote a
+`~/gpu/phxboot-*` file for (#55: every proven feature on by default). **Still open:** video decode on a stranger's install (`vcnup/` needs data captured on the
+reference machine), `bovram` has no default list, and nothing of #43-#55 has run on hardware yet (the boot queue).
+
+**U1 and hard rule 1:** until boot 41, every boot still sends the driver-mailbox SMU message 0x1B (UCLK 456 MHz),
+which Linux never sends on SMU 13.0.0. Boot 41 (b167) replaces it with Linux's DAL-mailbox messages: the top level
+(1249 MHz) while pinned, level 0 (96 MHz) after the release. **For the owner (TODO 01, older than U1):** at 240 Hz
+Linux releases UCLK only with FAMS, which macOS doesn't have; keep UCLK at the top level at 240 Hz, or record an
+exception.
+
+**Boot queue** (one EFI change per boot; files in `~/vermilion-build`; each needs the owner at the machine):
+
+| Boot | Change | Staged | Check after the boot |
+|---|---|---|---|
+| 40 | RyzentoshSSE (EFI) | installed | `ioreg -c AppleSSE` one service; no passd retry lines; Music's first launch fast |
+| 41 | VermilionBoot b167 (EFI) + `uclk.sh`, `idle_dpm.sh`, `phxctl.bin`, `m7_boot.sh`, the daemon into `~/gpu` | `efi41/` (kext and `phxctl` from main `e6cb80f`; the scripts and the daemon from main `0a0a416` at deploy, #55's defaults) | `phx-build` 167; `uclk: DAL hard min UCLK 1249 MHz ... status 0x24 done`; no `msg 0x1b`; `uclk_pins=0`; `debug.phxdal_stat` `timeouts 0 dead 0`; one `note:` line per old flag file and every feature as before; `SUCCESS`; 240 Hz |
+| 42 | VermilionBoot b168 (EFI; b167 + device info) | build from main | TODO A4 (a): `phx-build` 168; `debug.phxdevinfo` `valid gc-regs`, 96 CU, vram 24576 MiB; `ioreg` `model` "AMD Radeon RX 7900 XTX" |
+| 43 | RADV (0016-0020) + NVMTLDriver from main (release build, #51, #53) + VermilionTrust with their cdhashes (EFI) | build from main | `denied_unlisted=0`; direct scan-out with no switch file; `radv-darwin: device info from the kext`; working set about 23.4 GiB |
+| 44 | VermilionAccel 0.1.2 (AuxKC, the Allow click) | build from main | `ioreg -rc NMXAccel -k PerformanceStatistics`: `Device Utilization %`, `vramFreeBytes` |
+| C | our AIR reader + VermilionTrust (EFI) | `air/` | AIR translation works, `denied_unlisted=0` (fold into 43 if it is ready by then) |
+
+Then: ryzentosh-sse `v0.1.0` (after boot 40) and its pinned download; Maps' per-frame GPU passes (the choppiness is
+Maps' own rendering, WindowServer no longer copies); B1 K1-K3 (b164-b166).
+
+## Boot B (2026-11-26 00:42, XTX machine): EFI change 39 passed; direct scan-out on
+
+NVMTLDriver 1c15df79 (#40 scan-out half, #34 passtime) and VermilionTrust with 18 cdhashes: `denied_unlisted=0`, the
+new plugin listed with `first=WindowServer`, daemon `SUCCESS` at 00:44:44, 240 Hz. `ws-direct` created live did
+nothing: the plugin chooses direct scan-out only when GPU present starts (TODO). After a plain restart with the file
+present (00:51): both CoreDisplay surfaces drawn in VRAM slots 0 and 1 and "scanned out with no copy", 6000 presents
+in the first 90 s, flip 8 us average, 28 bounces, about 16 % of display writes waited for a flip (1.7 ms average),
+refused 0, daemon `SUCCESS` at 00:53:25. Owner's Maps test: as choppy as before. Old plugin in
+`~/vermilion-rollback/NVMTLDriver.pre-scanout-20261126`; `EFI/OC.prev` is change 38.
+
+## Earlier boot (2026-11-25 23:35, XTX machine): EFI change 38 passed
+
+VermilionBoot b162 (XTX-only gate + direct VRAM scan-out, off until the switch file), VermilionAudio 1.7.3,
+VermilionAccel 0.1.1 (AuxKC), VermilionTrust 1.0.4. Seen: `phx-build` 162, no board-refusal line, daemon `SUCCESS` at
+23:38:11 (2 min 20 s after boot), 2560x1440 at 240 Hz, `debug.phxaudio_stat` patched, `debug.phxscan_layout`
+`allowed 1, BAR0 1024 MiB`, refused 0. A shutdown-stall report from the restart (known, plan B5). `EFI/OC.prev` is
+change 37.
+
 ## Phase 2 order: stabilise
 
 Ranked by what a Mac user notices, safety first. Each item is a branch and a PR.
@@ -122,7 +195,7 @@ mode setting).
 | 2560x1440 at 60 / 120 / 144 / 240 Hz, VRR 60-240 | works, not standard (replayed Linux captures, always through 144 Hz) | Own mode setting and link training (phase 3) | D10, D14 |
 | Other sizes of the LG | works, not standard (fixed rates, CPU copy) | GPU present at every size | D11 |
 | Other monitors, a second monitor, HDMI, HiDPI modes | missing | After own mode setting; pipe allocator; HDMI capture | D12, D13, D19, D20 |
-| HDR | broken (off by `phxboot-nohdr`) | Phase 2 item 4 | D16 |
+| HDR | broken (off by default since #55; `phxboot-hdr` turns it on) | Phase 2 item 4 | D16 |
 | Replug / monitor power / input switch | broken | Phase 2 item 5 | D18 |
 | Night Shift, calibration (head-0 gamma) | broken (gamma dropped; effect unverified by eye) | Owner eye test, then head-0 regamma (hw-safety) | D22, A23 |
 | DDC/CI brightness and volume | missing | Phase 2 item 9 | D21 |

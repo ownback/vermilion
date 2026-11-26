@@ -108,8 +108,11 @@ Mesa at commit `f5cb8ee0` with 20 patches:
 
 - **0001-0009 (Cobalt64):** a Darwin backend that replaces the Linux DRM ioctls with the N48N user client.
 - **0010-0015 (nullarc):** Phoenix APU support and the proxy path.
-- **0016-0018:** a "canned" Navi 31 device profile and its shims; 0018 picks the profile by PCI revision (XTX: Mesa's
-  `navi31`; `navi31_xt` is left over from upstream and no longer reached, the kexts refuse an XT).
+- **0016-0018:** the Navi 31 device: 0016 makes Mesa's `navi31` entry (RX 7900 XTX) the default, 0017 the shims
+  around it, and 0018 the device info from the kext (VermilionBoot ABI 1.13: the IP discovery table, the GC harvest
+  registers, PCI config space). RADV's `AMDGPU_INFO_DEV_INFO`, the GFX / compute `HW_IP_INFO`, the CP firmware
+  versions, `GB_ADDR_CONFIG` and the marketing name are the kext's; the entry keeps only what is the driver's own on
+  Linux too (the VA layout, page and fragment sizes, `ids_flags`). With a kext before ABI 1.13 the entry answers.
 - **0019:** the kext handshake line goes to the unified log (stderr only with `RADV_DARWIN_VERBOSE=1`).
 - **0020:** a window surface for apps. Built with `-Dplatforms=macos` (`RADV_PLATFORMS=macos sh scripts/build/radv.sh`),
   RADV offers `VK_KHR_surface`, `VK_EXT_metal_surface` and swapchains through Mesa's Metal WSI (a copy to host memory

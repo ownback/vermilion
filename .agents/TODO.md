@@ -495,8 +495,9 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
 - [ ] `recovery_install.sh` / `esp_stage.sh`: the air-runtime reader; pick the APFS Data role in Recovery (3
       candidates found)
 - [ ] GitHub Releases and CI (mock tests on a Linux runner, a macOS runner building kexts, plugin, translator)
-- [x] `INSTALL.md` (the root user guide; `docs/INSTALL.md` stays the expert reference) rewritten for `0.1.0-preview`, 2026-11-26 (`ownback/install-doc`; unverified on a clean machine); recovery and troubleshooting:
-      black screen after a failed switch, the squat loop, booting `OC.prev`
+- [x] `INSTALL.md` (the root user guide; `docs/INSTALL.md` stays the expert reference) rewritten for `0.1.0-preview`,
+      2026-11-26 (`ownback/install-doc`; unverified on a clean machine); recovery and troubleshooting: black screen
+      after a failed switch, the squat loop, booting `OC.prev`
 
 - [x] Release package fixes from #42's clean-up review (`ownback/pkg-fixes`): the uninstaller removes the AIR reader,
       removes the empty `~/gpu`, `~/gpu/phxctl`, `~/gpu/fw`, no longer deletes a restored

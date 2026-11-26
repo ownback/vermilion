@@ -64,8 +64,8 @@ Unlike a driver Apple ships, it:
 - relaxes System Integrity Protection (`0x0A03`) and turns off OpenCore's Secure Boot model;
 - installs a Metal driver and its libraries under `/Library/GPUBundles`;
 - installs a **root LaunchDaemon** (`local.phxboot`) that runs scripts from your `~/gpu` at every boot, loads AMD's
-  firmware into the GPU, restarts the login window once and turns on automatic login for one boot. Because you can
-  write those scripts and root runs them, any program running as you can run code as root at boot;
+  firmware into the GPU and restarts the login window once. Because you can write those scripts and root runs them,
+  any program running as you can run code as root at boot;
 - keeps the NVRAM variable `phxfb-squat` set, so you must **never reset NVRAM**.
 
 ## 2. Before you start
@@ -141,10 +141,10 @@ What the package does:
    from linux-firmware (a GitLab mirror, then git.kernel.org) at one pinned commit into `~/gpu/fw/navi31`, and checks
    each file's MD5 and SHA-256 against the list in the package. A file that does not match is refused.
 6. It installs the AIR reader (LLVM) into the Metal driver bundle.
-
-7. It creates `~/gpu/phxboot-auto` (arms the accelerated desktop) and sets the NVRAM variable `phxfb-squat=1`, then reads
-   it back. If macOS cannot write it (OpenCore's `DisableVariableWrite`), the install still finishes and says so: the
-   first boot will not be the accelerated desktop until you set the variable (section 6, "Set `phxfb-squat` by hand").
+7. It creates `~/gpu/phxboot-auto` (arms the accelerated desktop) and sets the NVRAM variable `phxfb-squat=1`, then
+   reads it back. If macOS cannot write it (OpenCore's `DisableVariableWrite`), the install still finishes and says
+   so. The first boot will not be the accelerated desktop until you set the variable (section 6, "Set `phxfb-squat`
+   by hand").
 
 It never writes the system volume or the EFI partition, and it does not start the daemon.
 
@@ -166,18 +166,22 @@ the [known limits](README.md#known-limits).
 
 ### 3.5 First boot after the install
 
-1. **After the restart, do not log in for about 3 minutes.** The daemon brings the GPU up in that time. The login
-   window may go dark for a few seconds and come back. **Do not log in until it has come back.**
-2. Watch the log: `tail -f /var/log/phxboot.log`. Each boot starts with a line `== <date> <time> phxboot(navi31,
-   ...)`. Read the last one. A good first boot ends with `navi31 up: compute + gfx queues ready`, `NMXAccel up` and
-   `done`. About 2.5 minutes after boot, DisplayPort audio appears.
+*(Unverified: no stranger has done this first boot.)*
+
+1. **After the restart, do not log in for about 3 minutes.** The daemon brings the GPU up in that time. The package
+   armed the accelerated desktop (step 7 of section 3.3), so the screen stays dark until the daemon arms the display.
+   Then the login window restarts once. **Do not log in until it has come back.** The daemon does not arm the display
+   while a user is logged in.
+2. Log in and read the log: `tail -60 /var/log/phxboot.log`. Each boot starts with a line
+   `== <date> <time> phxboot(navi31, ...)`. Read the last boot's section. A good boot shows, in this order,
+   `navi31 up: compute + gfx queues ready`, `NMXAccel up`, `Metal device ready`, `AGDC up`,
+   `restarting WindowServer once`, and about 2 minutes later `SUCCESS at <time>` and `done`. About 2.5 minutes after
+   boot, DisplayPort audio appears.
 3. **Wait for `done` before you restart or shut down.** A boot that ends before `done` counts as a failed attempt
    (section 6).
-4. The package armed the accelerated desktop (step 7 of section 3.3). The screen stays dark until the daemon arms the
-   display, then the login window restarts once. After the login the log shows `Metal device ready`, `AGDC up`,
-   `restarting WindowServer once`, `SUCCESS at <time>` and `done`. If the package said `phxfb-squat` could not be set,
-   do section 6, "Set `phxfb-squat` by hand", first; until then the first boot is a basic-display boot where apps get
-   Metal (`no desktop arm: GOP + Metal for apps` in the log). *(unverified: no stranger has done this first boot.)*
+4. If the package said `phxfb-squat` could not be set, do section 6, "Set `phxfb-squat` by hand". Until then every
+   boot is a basic-display boot where apps get Metal. Its log shows `navi31 up: compute + gfx queues ready`,
+   `NMXAccel up`, `no desktop arm: GOP + Metal for apps` and `done`.
 
 ## 4. Check that it works
 
@@ -187,7 +191,7 @@ Everything here is read-only. Run it after the log says `done`.
 |---|---|---|
 | macOS build | `sw_vers -buildVersion` | `25G241` |
 | Boot kext loaded | `ioreg -l \| grep phx-build` | one line with the kext's build number |
-| The boot log | `tail -60 /var/log/phxboot.log` | the last boot ends with `SUCCESS at <time>` and `done`; for the first boot (no desktop arm), `no desktop arm: GOP + Metal for apps` and `done` |
+| The boot log | `tail -60 /var/log/phxboot.log` | the last boot ends with `SUCCESS at <time>` and `done`; on a boot without the desktop arm (`phxfb-squat` not set), with `no desktop arm: GOP + Metal for apps` and `done` |
 | VermilionTrust | `sysctl debug.phxtrust_stat` | `mode=enforce`, a `list=` count equal to the code the package installs, and `denied_unlisted=0` |
 | Kernel side | `sysctl debug.phxvm` | prints the GPU virtual-memory counters |
 | Metal | `~/gpu/metaltest` | `Metal devices: 1` |
@@ -201,8 +205,8 @@ What you see on screen:
 - **System Settings > Displays** offers 2560x1440 at 60, 120, 144 and 240 Hz and "Variable (60-240 Hz)" on the LG
   monitor (seen on the reference machine). HDR is off in this preview (section 5).
 - **System Information > Graphics/Displays** shows the card as an AMD Radeon RX 7900 XTX. The name still carries extra
-  text (`(RADV NAVI31) (NVMTL over ...)`), and the memory size it reports can be below the card's 24 GB (a known 6 GiB cap in the Metal and OpenCL answers). These
-  are cosmetic and known.
+  text (`(RADV NAVI31) (NVMTL over ...)`), and the memory size it reports can be below the card's 24 GB (a known
+  6 GiB cap in the Metal and OpenCL answers). These are cosmetic and known.
 - **Apps:** Safari, Maps, Music and Core Image use the GPU. Games run slowly (section 5).
 
 The basic display, a login window with name and password fields instead of avatars, and no high refresh rate mean
@@ -296,10 +300,10 @@ brings up a **safe desktop** (the basic display on the CPU) instead of restartin
 - **A failed attempt** is any boot that ends between the start of the bring-up and `SUCCESS`: a hang, a power cut, a
   forced power-off. The next boot finds `/var/db/phxboot.pending`, logs `previous attempt did not finish -> GOP` and
   counts it in `/var/db/phxboot.fails`.
-- **The way back is automatic.** After one clean boot on the safe desktop (after three failures in a row, three), the
-  daemon tries the full desktop again. The log's `record: fails=... clean=... last=...` line says where the count
-  stands. You need to do nothing but restart once and wait for `done`. After login it shows one notification
-  *(unverified on hardware; mock-tested)*.
+- **The way back is automatic.** After one clean boot on the safe desktop, the daemon tries the full desktop again.
+  After three failures in a row it waits for three clean boots. The log's `record: fails=... clean=... last=...`
+  line says where the count stands. You only need to restart once and wait for `done`. After login the daemon shows
+  one notification *(unverified on hardware; mock-tested)*.
 - **If it stays on the safe desktop:** fix what the log names, remove the kill switch if you set it
   (`rm -f ~/gpu/phxboot-off`), and restart once. `sudo nvram phxfb-squat=1` re-arms the next boot at once, where
   macOS can write NVRAM.
@@ -320,9 +324,9 @@ OS or from Recovery's Terminal with `nvram` where it can write *(unverified)*.
 
 Needed only if the package said it could not set the variable. From a Terminal in macOS, as an admin, try
 `sudo nvram phxfb-squat=1`, then `nvram phxfb-squat` (it must print the value). If macOS cannot write NVRAM
-(OpenCore's `DisableVariableWrite`, as on the reference machine), set it from Linux, as on the reference machine.
-VermilionBoot only checks that the variable exists; this writes the attributes (non-volatile, boot and run-time
-access) and the value `1`, in Apple's NVRAM GUID:
+(OpenCore's `DisableVariableWrite`, as on the reference machine), set it from Linux. VermilionBoot only checks that
+the variable exists. This command writes the attributes (non-volatile, boot and run-time access) and the value `1`,
+in Apple's NVRAM GUID:
 
 ```sh
 printf '\007\000\000\000\061' | sudo tee /sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82 >/dev/null
@@ -359,13 +363,15 @@ is normal: the bring-up sees a cold state there (seen on the reference machine).
 - **macOS: never.**
 - **Vermilion:** the kexts of the OpenCore zip and the package must be from the same release. Update both, then
   restart once. The package does not yet check that the loaded VermilionTrust is the one of its own release
-  *(not built)*, so do both before the restart.
-- Order: keep your current `EFI/OC` as `EFI/OC.prev`, put the new zip's kexts into `EFI/OC/Kexts` and merge any new
-  entries of its `config-snippet.plist` (**one EFI change per boot**). Run the new package (section 3.3; it replaces
-  files and keeps copies in the rollback folder). Click Allow again if VermilionAccel changed. Restart once.
-  The mismatch window between the two is the reason for doing both before that restart *(unverified: the update has
-  never run)*.
-- Keep `EFI/OC.prev` until the new version has run for a few boots.
+  *(not built)*, so do steps 1 to 4 before the restart. *(Unverified: the update has never run.)*
+
+1. Keep your current `EFI/OC` as `EFI/OC.prev`.
+2. Put the new zip's kexts into `EFI/OC/Kexts` and merge any new entries of its `config-snippet.plist`. This is the
+   **one EFI change** of this boot.
+3. Run the new package (section 3.3). It replaces files and keeps copies in the rollback folder.
+4. Click Allow again if VermilionAccel changed (section 3.4).
+5. Restart once.
+6. Keep `EFI/OC.prev` until the new version has run for a few boots.
 
 ### Uninstall
 

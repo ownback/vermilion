@@ -96,8 +96,8 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    would do), the SIP bits, the VermilionTrust version match, the migration of a manual install (the preinstall
    notes it and the rollback folder keeps what the package replaces).
 2. **postinstall (built).** Installs `~/gpu` and the LaunchDaemon (each replaced file copied to the rollback folder
-   first), fetches the firmware, installs the AIR reader, creates the shader cache folders, writes the install
-   marker, prints the Allow-click step. It does not start the daemon.
+   first), fetches the firmware, installs the AIR reader, creates the shader cache folders and the first-boot flags,
+   sets `phxfb-squat` (below), writes the install marker, prints the Allow-click step. It does not start the daemon.
    The firmware step runs `tools/firmware/fetch_firmware.sh` into `~/gpu/fw/navi31`: the 20 files of `fw.lock`, from
    linux-firmware at the pinned commit (GitLab mirror, then git.kernel.org), md5 and SHA-256 checked, any mismatch
    refused; `--from <linux-firmware checkout>` works offline. **A failed fetch is a warning, not a failed install**:
@@ -111,7 +111,13 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    them, and the post-install text repeats it. (The design had Software Update's automatic install off, as
    `recovery_install.sh` does.)
 
-The post-install script also creates `~/gpu/phxboot-auto` (the flag list's `N` line is in the rollback MANIFEST, so the uninstaller removes it) and runs `nvram phxfb-squat=1` with a read-back; if either fails (OpenCore's `DisableVariableWrite`), the install stays and the script says the variable could not be set and points to INSTALL.md section 6. The uninstaller deletes `phxfb-squat`. **(unverified on a Mac.)**
+The post-install script also arms the accelerated desktop **(built, unverified on a Mac)**:
+
+- It creates `~/gpu/phxboot-auto` next to the first-boot flags, when it isn't there. The rollback `MANIFEST` gets its
+  `N` line, so the uninstaller removes it.
+- It runs `nvram phxfb-squat=1` and reads the variable back. If the write or the read-back fails (OpenCore's
+  `DisableVariableWrite` blocks it), the install stays: the script says the variable could not be set and points to
+  INSTALL.md section 6. The uninstaller deletes `phxfb-squat` where macOS can.
 
 What it never does: write the system volume or the EFI partition (the OpenCore part is the user's, or
 ryzentosh's).
@@ -184,9 +190,9 @@ bash tests/release/run.sh                                                       
 
 `make-oc-zip.sh` refuses a kext whose `CFBundleShortVersionString` isn't the release version (the numeric part is
 enough for a pre-release) and a snippet with a machine-identity key (`check-snippet.py`). `config-snippet.plist` holds
-the entries of INSTALL.md section 1 ("What the OpenCore snippet changes") (Lilu's entry, the three kexts, the AGDP patch, `csr-active-config`, `boot-args`
-and their Delete entries, `SecureBootModel`, `ResizeAppleGpuBars`) and no SMBIOS; `tests/release/oc_zip_test.sh`
-checks both.
+the entries of INSTALL.md section 1, "What the OpenCore snippet changes" (Lilu's entry, the three kexts, the AGDP
+patch, `csr-active-config`, `boot-args` and their Delete entries, `SecureBootModel`, `ResizeAppleGpuBars`) and no
+SMBIOS; `tests/release/oc_zip_test.sh` checks both.
 
 `.github/workflows/release.yml` does it on a `v*` tag: a call of `air-reader.yml`, then one job on `macos-15-intel`
 that builds every component from pinned inputs, runs the hardware-free tests, builds VermilionTrust last, makes the

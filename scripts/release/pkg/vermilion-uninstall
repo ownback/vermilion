@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 # vermilion-uninstall [--purge] [--rebuild-kc]: remove what Vermilion-<version>.pkg installed and put back the files it
-# replaced (docs/RELEASE.md, "Uninstaller"; INSTALL.md section 6). Run it as root: sudo vermilion-uninstall.
+# replaced (docs/RELEASE.md, "Uninstaller"; INSTALL.md section 7). Run it as root: sudo vermilion-uninstall.
 #   1. stops the boot daemon (launchctl bootout, its pending mark and fail record, NVRAM phxfb-squat / phxfb-boot
 #      where macOS can write NVRAM), puts the login-window value and the display overrides back;
 #   2. removes every file `pkgutil --files org.vermilion.pkg` lists, the AIR reader (it is not in the receipt) and

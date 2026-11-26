@@ -123,7 +123,7 @@ main() {
   [ $REBUILD = 0 ] || { say "rebuilding the Auxiliary Kernel Collection"; kmutil install --update-all && kmutil clear-staging || say "kmutil failed: run it by hand"; }
   echo "  - The OpenCore part (this package never touches the EFI partition). Remove from EFI/OC/Kexts:"
   echo "    VermilionBoot.kext, VermilionTrust.kext, VermilionAudio.kext (and Lilu.kext if you added it only for these),"
-  echo "    and from config.plist the entries of INSTALL.md section 3: their Kernel > Add lines, the"
+  echo "    and from config.plist the entries of INSTALL.md section 1: their Kernel > Add lines, the"
   echo "    AppleGraphicsDevicePolicy patch, boot-args phxdebug=1 and ipc_control_port_options=0, csr-active-config,"
   echo "    SecureBootModel (put your own value back) and ResizeAppleGpuBars. One EFI change per boot."
   [ -z "$NVRAM_LEFT" ] || echo "  - NVRAM variables macOS could not delete: $NVRAM_LEFT. Delete them from the OS that set them (INSTALL.md section 6)."

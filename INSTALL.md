@@ -1,203 +1,414 @@
 <!-- SPDX-License-Identifier: MIT -->
 
-# Installing Vermilion
+# Installing Vermilion 0.1.0-preview
 
-For people who want to run Vermilion on their own machine. Read the whole page before you start.
+Vermilion is a macOS driver for the AMD Radeon RX 7900 XTX. This page is for people who want to run the
+`0.1.0-preview` release on their own PC. Read all of it before you start.
 
 > [!CAUTION]
-> **There is no tested installer yet.** The release package and the OpenCore zip of `0.1.0-preview`
-> ([docs/RELEASE.md](docs/RELEASE.md)) are built by scripts and CI, but no release is published and nobody has run the
-> package on a real Mac (*unverified*); parts marked **(not available yet)** don't exist. What has run is the manual
-> install, which only the [reference machine](docs/REFERENCE-MACHINES.md) has done, last from scratch on 2026-11-19.
-> Use any of it only if you can recover a Mac that doesn't boot to a picture.
+> **This is an experimental preview.** The release package and the OpenCore zip are built by scripts and CI
+> ([docs/RELEASE.md](docs/RELEASE.md)). No release is published yet. Nobody has run the package on a real Mac, and
+> nobody has followed this page on a clean machine *(unverified)*. The manual install has run on the
+> [reference machine](docs/REFERENCE-MACHINES.md) only, last from scratch on 2026-11-19.
+> Use it only if you can recover a Mac that does not boot to a picture.
 
-## 1. Before you start
+Marks used here: **(unverified)** means not tested on hardware. A claim about hardware names the machine it was seen
+on: the "reference machine" is one PC with an XFX RX 7900 XTX and an LG 27GS95QE monitor.
 
-### What you need
+## 1. Requirements
 
 | | |
 |---|---|
-| GPU | AMD Radeon RX 7900 XTX (PCI `1002:744c`, revision `0xC8`) as the **only** display GPU, monitor on DisplayPort. No other card: not the RX 7900 XT, GRE or 7900M. See [SUPPORT.md](SUPPORT.md) for what has been tested |
-| Monitor | the LG 27GS95QE gets every mode; any other monitor gets one mode only, the one the card's firmware picked at power-on |
-| macOS | **Tahoe 26.7.1 (25G241)**, installed and booting with OpenCore. Never update macOS while Vermilion is installed |
-| OpenCore | booting this macOS already, on the card's firmware display without acceleration. The reference machine runs OpenCore 1.0.8 |
-| BIOS | Above 4G decoding on, CSM off, the RX 7900 XTX as the boot display |
-| A way back | a copy of your working `EFI` folder, and a second way to boot (a USB stick with your old EFI, or another OS) |
+| GPU | AMD Radeon RX 7900 XTX: PCI `1002:744c`, revision `0xC8`. It must be the **only** display GPU, with the monitor on DisplayPort. The RX 7900 XT, GRE and 7900M share the PCI ID and are refused, as is any other card. |
+| macOS | **Tahoe 26.7.1, build 25G241**, no other. The Metal driver uses private interfaces of exactly this build. Never update macOS while Vermilion is installed. |
+| OpenCore | A working OpenCore install that already boots this macOS (on the card's firmware display, without acceleration). The reference machine runs OpenCore 1.0.8. |
+| Lilu | 1.7.2 or later, in your OpenCore. VermilionTrust and VermilionAudio load after it. Lilu is not part of this release. |
+| SIP | `csr-active-config` = `030A0000` (data), which is `0x0A03`. The snippet sets it. |
+| Secure Boot | `Misc > Security > SecureBootModel` = `Disabled`. The snippet sets it. The injected kexts are unsigned. |
+| BIOS | Above 4G decoding on, CSM off, the RX 7900 XTX as the boot display. Resizable BAR on if your board has it. |
+| Monitor | The LG 27GS95QE gets every mode. Any other monitor gets one mode only, the one the card's firmware picked at power-on *(other monitors: unverified)*. |
+| A way back | A copy of your working `EFI` folder, and a second way to boot (section 2). |
+| Your own SMBIOS and ACPI | Vermilion ships none. Make your own. Never reuse someone else's serial, MLB, ROM or UUID. |
+| A network | Only during the package install, to download AMD's firmware. |
+
+Set these two things yourself. The package changes neither:
+
+- **Software Update must not install macOS by itself.** System Settings > General > Software Update > (i) next to
+  Automatic Updates: turn off "Install macOS updates".
+- **The Mac must not sleep.** System sleep does not work (section 5). Run
+  `sudo pmset -a sleep 0 hibernatemode 0 disksleep 0` and `sudo pmset -a powernap 0 tcpkeepalive 0 womp 0` (the
+  settings of the reference machine), and keep FileVault off *(FileVault is untested)*.
+
+### What the OpenCore snippet changes
+
+`config-snippet.plist` in the OpenCore zip holds these entries. Nothing else of your `config.plist` changes.
+
+| Section | Entry | Why |
+|---|---|---|
+| `Kernel > Add`, in this order | `Lilu.kext` (skip it if you have it), `VermilionBoot.kext`, `VermilionTrust.kext`, `VermilionAudio.kext`; `MinKernel` `25.0.0` | the driver, library validation for Vermilion's own code only, DisplayPort audio |
+| `Kernel > Patch` | `com.apple.driver.AppleGraphicsDevicePolicy`: find `board-id`, replace `board-ix` | the same as `agdpmod=pikera`: Navi cards hang without it |
+| `NVRAM > Add > 7C436110-AB2A-4BBB-A880-FE41995C9F82` | `csr-active-config` = `030A0000`; `boot-args` gets `phxdebug=1 ipc_control_port_options=0` **added to your own boot-args** | SIP bits for the kext; the bring-up's debug interface |
+| `NVRAM > Delete` (same GUID) | `csr-active-config`, `boot-args` | so the values above take effect |
+| `Misc > Security > SecureBootModel` | `Disabled` | the kexts are unsigned |
+| `Booter > Quirks > ResizeAppleGpuBars` | `10` (BAR0 of 1 GiB, the reference machine); `0` also ran | the driver places more in CPU-visible VRAM with 1 GiB |
+
+Not in the snippet, by hand: keep `ResetNvramEntry.efi` out of `UEFI > Drivers` (section 6). The reference machine
+also loads AMFIPass after Lilu; whether anything needs it with VermilionTrust is open *(unverified)*.
 
 ### What Vermilion changes on your system
 
-Today, unlike a driver Apple ships, it:
+Unlike a driver Apple ships, it:
 
-- adds 4 kexts to OpenCore (VermilionBoot, VermilionTrust, VermilionAudio, plus Lilu if you don't have it) and one
-  to `/Library/Extensions` (VermilionAccel), which needs an **Allow** click (a known step that stays: section 2.3);
-- relaxes System Integrity Protection (`csr-active-config` `0x0A03`) and turns off OpenCore's Secure Boot model;
+- adds three kexts to OpenCore (VermilionBoot, VermilionTrust, VermilionAudio) and one to `/Library/Extensions`
+  (VermilionAccel), which needs an **Allow** click (section 3.4);
+- relaxes System Integrity Protection (`0x0A03`) and turns off OpenCore's Secure Boot model;
 - installs a Metal driver and its libraries under `/Library/GPUBundles`;
-- installs a **root LaunchDaemon** that runs scripts from `~/gpu` at every boot, loads AMD's firmware into the GPU,
-  restarts the login window once and turns on automatic login for one boot;
-- keeps the NVRAM variable `phxfb-squat` set, and needs you to **never reset NVRAM**;
-- turns off automatic macOS updates;
-- needs system sleep kept off (`pmset`, [docs/INSTALL.md](docs/INSTALL.md) section 10) and FileVault off.
+- installs a **root LaunchDaemon** (`local.phxboot`) that runs scripts from your `~/gpu` at every boot, loads AMD's
+  firmware into the GPU, restarts the login window once and turns on automatic login for one boot. Because you can
+  write those scripts and root runs them, any program running as you can run code as root at boot;
+- keeps the NVRAM variable `phxfb-squat` set, so you must **never reset NVRAM**.
 
-Each of these except the Allow click goes away as the driver work lands ([ROADMAP.md](ROADMAP.md)); the release
-target is "copy the kexts, merge one config snippet, run one package".
+## 2. Before you start
 
-### Rules that protect your GPU and your install
+1. **Copy your working EFI.** Mount the EFI partition and copy the whole `EFI` folder to a USB stick, and to a second
+   place outside the disk. (`diskutil list` shows the partition; `sudo diskutil mount <diskNs1>` mounts it.)
+2. **Keep a second way to boot.** Make the stick bootable on its own: it holds your old `EFI` folder with
+   `EFI/BOOT/BOOTX64.EFI` (OpenCore's). Another OS on another disk also counts.
+3. **Know how to boot the backup.** OpenCore's picker lists macOS volumes, not other EFI folders, so you cannot pick
+   a backup EFI from the picker. Open your board's firmware boot menu at power-on (often F8, F11 or F12: look it up
+   for your board) and pick the stick, or the disk's own `OC.prev` entry if you set one up. Try this once now, while
+   everything still works.
+4. **Keep your previous `EFI/OC` as `EFI/OC.prev`** on the disk until the new one has booted a few times. To go back
+   from another OS: rename `EFI/OC` to `EFI/OC.bad` and `EFI/OC.prev` to `EFI/OC`.
+5. **Write down your current `boot-args`** (`nvram boot-args`).
+6. **One EFI change per boot.** Make a single change to the EFI partition, restart, and check that it worked before the
+   next one.
 
-- **From Linux or Windows to macOS, always shut down fully and power on again. Never restart into macOS.** The
-  bring-up expects a cold GPU. It refuses a warm one and you get the basic display.
-  Turning off Windows' Fast Startup is recommended *(unverified whether it matters)*.
-- **Never Reset NVRAM** (OpenCore's picker entry, or holding keys at boot). It deletes `phxfb-squat`.
-- **Never update macOS.** The Metal driver depends on exactly 26.7.1.
-- **One change per boot,** with the previous file kept, so you always know what broke.
-- **Wait until the boot has finished** (about 2.5 minutes, until the log says `done`) before you restart.
+## 3. Install
 
-## 2. Install
+The order: the OpenCore part first, one restart, then the package, the Allow click and a second restart. I took
+this order from the package's welcome page ("needs the OpenCore part of the same release") and the OpenCore zip's
+notes (the zip and the package are a pair: update both). The package's closing text lists the Allow click first and
+"make sure the OpenCore part is in place" second, so it does not insist on an order *(unverified: neither order has
+run on a clean machine)*.
 
-### 2.1 The release route (preview, unverified)
+### 3.1 Download and check
 
-The first release is `0.1.0-preview`, for the RX 7900 XTX only. The scripts and CI that build it exist; no release is
-published yet and the package has not been run on a real Mac (*unverified*).
+1. Download these files of one release from GitHub Releases: `Vermilion-0.1.0-preview-OpenCore.zip`,
+   `Vermilion-0.1.0-preview.pkg` and `SHA256SUMS`.
+2. In the download folder: `shasum -a 256 -c SHA256SUMS`. Every line must say `OK`. The package is not signed, so this
+   check is how you know it is the project's. (`SHA256SUMS` itself has no signature yet.)
+3. The zip and the package are a pair: VermilionTrust holds the exact fingerprints of the code the package installs.
+   Never mix files of two releases.
 
-1. Download the release's `Vermilion-<version>-OpenCore.zip` and `Vermilion-<version>.pkg` from GitHub Releases and
-   check them against `SHA256SUMS` (`shasum -a 256 -c SHA256SUMS` in the download folder).
-2. Copy the three kexts of the zip's `Kexts` folder into `EFI/OC/Kexts` and merge the zip's `config-snippet.plist`
-   (section 3) into your `config.plist`. Run `ocvalidate`.
-3. Open the package. It is not signed with an Apple Developer ID, so Gatekeeper blocks it the first time: open
-   System Settings > Privacy & Security, scroll to Security, and click **Open Anyway** next to the package's name
-   (*unverified* on 26.7.1). Or, in Terminal, `sudo installer -pkg Vermilion-<version>.pkg -target /` (*unverified*:
-   it should not show Gatekeeper's dialog). Do this only after the `SHA256SUMS` check of step 1: the checksum is
-   what tells you the package is the project's.
-4. The package checks your macOS build (25G241) and your GPU (an RX 7900 XTX, PCI revision `0xC8`, and no other
-   `1002:744c` card) and refuses otherwise, changing nothing. The installer window only says that the install
-   failed; the reason is in `/var/log/install.log`. When the checks pass it:
-   - copies every file it is about to replace to `/Library/Application Support/Vermilion/rollback/<time>/`;
-   - installs the Metal driver (`/Library/GPUBundles`), VermilionAccel (`/Library/Extensions`), `phxctl`, `mesboot`,
-     `spirv-val`, `vermilion-uninstall` and `vermilion-firmware` (`/usr/local`);
-   - installs the boot daemon, its scripts and the first-boot flags into your `~/gpu`, and writes the LaunchDaemon
-     `local.phxboot` (it does not start it: it runs at the next boot);
-   - downloads AMD's firmware from linux-firmware, at the commit pinned in the package, into `~/gpu/fw/navi31` and
-     checks every file (MD5 and SHA-256); no firmware is inside the package. Without a network the install still
-     finishes, with a warning, and the GPU stays on the basic display until you run `sudo vermilion-firmware` (or
-     `sudo vermilion-firmware --from <linux-firmware checkout>`);
-   - installs the AIR reader (LLVM) into the Metal driver bundle.
+### 3.2 The OpenCore part
 
-   It never writes the system volume, NVRAM or the EFI partition, and it does not change Software Update or sleep:
-   set those as section 1 says.
-5. Approve VermilionAccel (the Allow click, section 2.3), then restart.
+1. Unzip the OpenCore zip. It holds `Kexts/` (VermilionBoot, VermilionTrust, VermilionAudio), `config-snippet.plist`,
+   `README.txt`, `LICENSES/` and `NOTICE`.
+2. Copy the three kexts into `EFI/OC/Kexts`. Take Lilu from its own release if you do not have it.
+3. Merge `config-snippet.plist` into **your** `config.plist` by hand or with your own tooling (section 1 lists the
+   entries). **Add** the two boot-args to the ones you have. Do not replace them.
+4. Run `ocvalidate` on the result. Fix what it reports.
+5. Restart. Confirm the machine still boots to the desktop on the basic display, and that the boot kext loaded:
 
-On the reference machine's exact parts, the [ryzentosh](https://github.com/ownback) EFI will contain all of step 2
-*(not available yet)*.
+   ```sh
+   ioreg -l | grep phx-build
+   ```
 
-### 2.2 The manual route (works today, expert)
+   This is the one EFI change of this boot. If the Mac does not boot, go to section 6.
 
-1. Build everything on a Mac with the Command Line Tools: [docs/BUILD.md](docs/BUILD.md). The firmware comes from
-   `tools/firmware/fetch_firmware.sh`, which downloads it from linux-firmware and checks every file.
-2. Build the AIR reader (`libLLVM.dylib` + `libzstd.1.dylib`): `sh scripts/build/llvm.sh` (LLVM 21.1.8 from source,
-   30 to 90 minutes, `build/air-runtime/`). After step 4 has installed the Metal driver, run
-   `sudo sh tools/phxctl/air_runtime_install.sh` to put it into the bundle ([docs/INSTALL.md](docs/INSTALL.md) 5.2;
-   wiring it into `esp_stage.sh` is TODO). NullMoth's copy is only a fallback.
-3. Lay out the install payload: `sh tools/phxctl/esp_stage.sh <EFI partition>/vermilion`.
-4. From Recovery's Terminal (or with `sudo` on the running system), run `sh <EFI partition>/vermilion/install.sh`. It
-   installs the Metal driver, VermilionAccel, the tools, the daemon and the firmware, keeps a copy of every replaced
-   file in `~/vermilion-rollback/<time>/`, and never touches the system volume, NVRAM or the EFI partition.
-5. Add the OpenCore entries of section 3 and copy the kexts into `EFI/OC/Kexts`. One EFI change per boot.
-6. Approve VermilionAccel, restart, then follow [docs/INSTALL.md](docs/INSTALL.md) section 8: the first boot gives
-   apps Metal on the basic display; the next turns on the accelerated desktop (`touch ~/gpu/phxboot-auto` and
-   `sudo nvram phxfb-squat=1`).
+### 3.3 Open the package (Gatekeeper)
 
-Every file, permission and flag is described in [docs/INSTALL.md](docs/INSTALL.md), the expert reference.
+The package is not signed with an Apple Developer ID and is not notarised, so macOS blocks it the first time. Do
+this only after the `SHA256SUMS` check. Both ways are *(unverified)* on macOS 26.7.1: no package has been opened there.
 
-### 2.3 The Allow click (a known step)
+- **In the Finder:** double-click the package. macOS refuses. Open System Settings > Privacy & Security, scroll to
+  Security, click **Open Anyway** next to the package's name, and enter your password.
+- **Or in Terminal:** `sudo installer -pkg Vermilion-0.1.0-preview.pkg -target /`. It should not show Gatekeeper's
+  dialog.
 
-`VermilionAccel.kext` sits in `/Library/Extensions`, and macOS loads a kext from there only after you approve it. After
-the install, and again after every update that changes this kext:
+What the package does:
+
+1. The Installer first says the package runs a program to check whether it can be installed. It checks the macOS
+   build (25G241) and the GPU (an RX 7900 XTX, revision `0xC8`, and no other `1002:744c` card). If a check fails it
+   says why and changes nothing. The package checks again as root before it writes anything. If the installer window
+   only says "the install failed", the reason is in `/var/log/install.log`.
+2. It copies every file it is about to replace to `/Library/Application Support/Vermilion/rollback/<time>/`.
+3. It installs the Metal driver (`/Library/GPUBundles`), VermilionAccel (`/Library/Extensions`), and `phxctl`,
+   `mesboot`, `spirv-val`, `vermilion-uninstall` and `vermilion-firmware` (`/usr/local`).
+4. It installs the boot daemon, its scripts and three first-boot flags (`phxboot-sdma`, `phxboot-cg`,
+   `phxboot-uclk` = `456`) into your `~/gpu`, and writes the LaunchDaemon `local.phxboot`. It does not start it: it
+   runs at the next boot.
+5. **It downloads AMD's firmware.** No firmware is inside the package. The post-install script fetches the 20 files
+   from linux-firmware (a GitLab mirror, then git.kernel.org) at one pinned commit into `~/gpu/fw/navi31`, and checks
+   each file's MD5 and SHA-256 against the list in the package. A file that does not match is refused.
+6. It installs the AIR reader (LLVM) into the Metal driver bundle.
+
+It never writes the system volume, NVRAM or the EFI partition, and it does not start the daemon.
+
+**If the download fails** (no network, or a mismatch), the install still finishes with a warning, and the GPU stays on
+the basic display. Run `sudo vermilion-firmware` with a network connection. Offline, use
+`sudo vermilion-firmware --from <a linux-firmware checkout>`; the same checks apply.
+
+### 3.4 The Allow click
+
+`VermilionAccel.kext` sits in `/Library/Extensions`. macOS loads a kext from there only after you approve it. Do this
+after the install, and again after every update that changes this kext:
 
 1. Open System Settings > Privacy & Security and scroll to Security.
 2. Next to the message about blocked system software, click **Allow** and enter your password.
 3. Restart when macOS asks.
 
-Until you do, the kext doesn't load and you get the basic display. This step stays: it is one of the project's
-[known limits](README.md#known-limits).
+Until you do, the kext does not load and you stay on the basic display. This step stays in the project: it is one of
+the [known limits](README.md#known-limits).
 
-## 3. The OpenCore snippet
+### 3.5 First boot after the install
 
-What Vermilion needs in `config.plist`. The reference machine's full configuration is generated by
-[`efi/build.py`](efi/README.md) (stage `vermilion-trust-bar1g-audio`); take only these entries into yours.
+1. **After the restart, do not log in for about 3 minutes.** The daemon brings the GPU up in that time. The login
+   window may go dark for a few seconds and come back. **Do not log in until it has come back.**
+2. Watch the log: `tail -f /var/log/phxboot.log`. Each boot starts with a line `== <date> <time> phxboot(navi31,
+   ...)`. Read the last one. A good first boot ends with `navi31 up: compute + gfx queues ready`, `NMXAccel up` and
+   `done`. About 2.5 minutes after boot, DisplayPort audio appears.
+3. **Wait for `done` before you restart or shut down.** A boot that ends before `done` counts as a failed attempt
+   (section 6).
+4. The first boot has **no desktop arm**: apps get Metal while the screen stays on the card's firmware display. To turn
+   on the accelerated desktop, once the first boot has reached `done`:
 
-| Section | Entry | Why |
+   ```sh
+   touch ~/gpu/phxboot-auto
+   sudo nvram phxfb-squat=1
+   ```
+
+   Restart. The screen stays dark until the daemon arms the display, then the login window restarts once. After the
+   login the log shows `Metal device ready`, `AGDC up`, `restarting WindowServer once`, `SUCCESS at <time>` and
+   `done`. If `nvram` cannot write (OpenCore's `DisableVariableWrite`, as on the reference machine), set
+   `phxfb-squat` from another OS.
+   *(unverified as a stranger's path: the release package and snippet set neither the flag nor the variable; the
+   steps are from the reference machine's expert guide, [docs/INSTALL.md](docs/INSTALL.md) 8.1 and 8.2.)*
+
+## 4. Check that it works
+
+Everything here is read-only. Run it after the log says `done`.
+
+| Check | Command | Good answer |
 |---|---|---|
-| `Kernel > Add`, in this order | `Lilu.kext` (if not there), `VermilionBoot.kext`, `VermilionTrust.kext` (after Lilu), `VermilionAudio.kext` (after Lilu); `MinKernel` `25.0.0` | the driver, library validation for its code only, DP audio |
-| `Kernel > Patch` | `com.apple.driver.AppleGraphicsDevicePolicy`: find `626f6172642d6964` ("board-id"), replace `626f6172642d6978` ("board-ix"), `MinKernel` `25.0.0`, `Count` 0 | the same as `agdpmod=pikera`: Navi cards hang without it, and WhateverGreen doesn't work on macOS 26 |
-| `NVRAM > Add > 7C436110-AB2A-4BBB-A880-FE41995C9F82` | `csr-active-config` = `030A0000` (data); `boot-args` += `phxdebug=1 ipc_control_port_options=0` | SIP bits for the AuxKC kext and the optional decoder; the bring-up's debug interface (goes away with the kernel bring-up) |
-| `NVRAM > Delete > 7C436110-...` | `csr-active-config`, `boot-args` | so the values above take effect |
-| `Misc > Security > SecureBootModel` | `Disabled` | the injected kexts are unsigned |
-| `UEFI > Drivers` | no `ResetNvramEntry.efi` | hides Reset NVRAM from the picker |
-| `Booter > Quirks > ResizeAppleGpuBars` | `10` on the reference machine (BAR0 1 GiB); `0` (256 MiB) also ran | the driver places more in CPU-visible VRAM with 1 GiB |
-| `Kernel > Add` | AMFIPass (after Lilu): the reference machine still loads it | whether anything needs it with VermilionTrust is open *(unverified)* |
+| macOS build | `sw_vers -buildVersion` | `25G241` |
+| Boot kext loaded | `ioreg -l \| grep phx-build` | one line with the kext's build number |
+| The boot log | `tail -60 /var/log/phxboot.log` | the last boot ends with `SUCCESS at <time>` and `done`; for the first boot (no desktop arm), `no desktop arm: GOP + Metal for apps` and `done` |
+| VermilionTrust | `sysctl debug.phxtrust_stat` | `mode=enforce`, a `list=` count equal to the code the package installs, and `denied_unlisted=0` |
+| Kernel side | `sysctl debug.phxvm` | prints the GPU virtual-memory counters |
+| Metal | `~/gpu/metaltest` | `Metal devices: 1` |
+| VermilionAccel loaded | `kmutil showloaded \| grep org.vermilion.accel` | one line (nothing means the Allow click or restart is missing) |
+| Audio patch | `sysctl debug.phxaudio_stat` | reports the patch as applied |
+| Frames drawn by the GPU | `sysctl debug.nvaccel_iop_ok` twice, a few seconds apart, while the screen changes | the number grows |
+| All Vermilion values | `sysctl debug \| grep phx` | lists every one |
 
-Not part of Vermilion but needed on AMD desktop boards, as for any macOS install: your board's ACPI fixes, the
-AMD_Vanilla kernel patches, SMBIOS (make your own; never reuse someone else's serial, MLB, ROM or UUID).
+What you see on screen:
 
-## 4. First boot: what you'll see
+- **System Settings > Displays** offers 2560x1440 at 60, 120, 144 and 240 Hz and "Variable (60-240 Hz)" on the LG
+  monitor (seen on the reference machine). HDR is off in this preview (section 5).
+- **System Information > Graphics/Displays** shows the card as an AMD Radeon RX 7900 XTX. The name still carries extra
+  text (`(RADV NAVI31) (NVMTL over ...)`), and the memory size it reports can be below the card's 24 GB (a known 6 GiB cap in the Metal and OpenCL answers). These
+  are cosmetic and known.
+- **Apps:** Safari, Maps, Music and Core Image use the GPU. Games run slowly (section 5).
 
-- OpenCore's picker and verbose text instead of the Apple logo (the reference machine's debug configuration).
-- The login window on the basic display, then a dark screen for a few seconds and the login window again: the
-  daemon has powered the GPU up and moved the desktop onto it. **Don't log in until the login window has come back.**
-- About 2.5 minutes after boot, DisplayPort audio appears.
-- The boot log: `tail /var/log/phxboot.log`. A good boot ends with `SUCCESS at <time>` and `done`.
-- For a bug report: `bash tools/validation/bootcheck.sh` prints the per-boot report.
+The basic display, a login window with name and password fields instead of avatars, and no high refresh rate mean
+Vermilion fell back on purpose. `/var/log/phxboot.log` says why.
 
-## 5. Update
+If someone asks you for a boot report, a repository checkout has `tools/validation/bootcheck.sh` (it is not in the
+package).
 
-- **macOS: never** (see the known limits in the [README](README.md#known-limits)).
-- **Vermilion:** the kexts in OpenCore and the Metal driver must come from the same version: VermilionTrust holds the
-  exact fingerprints (cdhashes) of the Metal driver, the translator and RADV it lets load. Update both, then restart
-  once. Keep the previous `EFI/OC` folder (for example as `EFI/OC.prev`) until the new version has run for a few boots.
-- The release package does not yet check that the loaded VermilionTrust is the one of its own release *(not available
-  yet)*: update both, then restart once.
+## 5. Known limits of this preview
 
-## 6. Uninstall
+Everything not listed here is meant to work as on a Mac; until it does, it is a bug. From [STATUS](.agents/STATUS.md),
+seen on the reference machine.
 
-If you installed the release package, run `sudo vermilion-uninstall` (*unverified*: never run on a real Mac). It stops
-the daemon, puts the login-window value and the display overrides back, removes what the package installed, restores
-the files it replaced from the rollback folders, keeps the firmware (`--purge` removes it), forgets the package, and
-prints what is left for you: the Auxiliary Kernel Collection rebuild (`kmutil`; `--rebuild-kc` runs it, *unverified*)
-and the OpenCore entries (step 7 below). For a manual install, do it by hand, in this order
-([docs/INSTALL.md](docs/INSTALL.md) section 9 has every command):
+**Display**
 
-1. Stop the boot daemon: remove `/Library/LaunchDaemons/local.phxboot.plist`, `/var/db/phxboot.pending` and the NVRAM
-   variables `phxfb-squat` and `phxfb-boot` (`sudo nvram -d ...`; on boards where macOS can't write NVRAM, from the
-   OS that set them).
-2. Put the login-window value back (docs/INSTALL.md 9, step 2).
-3. Remove `/Library/Extensions/VermilionAccel.kext` and rebuild the Auxiliary Kernel Collection without it
-   (`sudo kmutil install --update-all`, then `sudo kmutil clear-staging`; *unverified* on 26.7.1). Meanwhile the
-   boot-arg `-phxacceloff` keeps it from starting.
-4. Remove the Metal driver (`/Library/GPUBundles/NVMTLDriver.bundle`, `/Library/GPUBundles/nvmtl`,
-   `/Library/GPUBundles/nvmtl-allow.txt`, and the relocated copy under
-   `/System/Library/CoreServices/CoreTypes.bundle/Contents/Library/PhxGPU` if you used the relocation).
-5. If you installed the video decoder on the system volume:
-   `sudo sh tools/phxctl/sysvol_install.sh --remove /System/Library/Video/Plug-Ins/PhxVideoDecoder.bundle`, then
-   restart.
-6. Remove the display overrides `dispovr.sh` wrote (docs/INSTALL.md 9, step 3).
-7. Remove the OpenCore entries of section 3 and the kexts from `EFI/OC/Kexts`. Restart.
-8. Remove `/usr/local/sbin/phxctl`, `/usr/local/sbin/mesboot`, `~/gpu` and, once you're sure, `~/vermilion-rollback`.
+- **HDR is off.** The plugin shows stale frames when WindowServer composites in HDR. It is switched off by a flag.
+- **No recovery after a monitor power-cycle, a replug or an input switch.** The screen stays black until you restart.
+  Audio comes back only after a restart too.
+- **No display sleep.** The screen goes black but the monitor never goes to standby.
+- **One monitor, on DisplayPort.** No second monitor, no HDMI, no HiDPI modes, no other monitor's own modes.
+- Other sizes than 2560x1440 run at fixed rates, with a CPU copy and no Variable refresh rate.
+- No DDC/CI: brightness and volume of the monitor do not work from MonitorControl or BetterDisplay yet.
+- Night Shift and colour calibration do not work *(the effect is unverified by eye)*.
 
-## 7. When something goes wrong
+**System**
+
+- **No system sleep.** The Mac must stay awake (section 1). Do not use Apple menu > Sleep, and do not press the power
+  button briefly.
+- **The boot is not a Mac boot.** The picker and verbose text show instead of the Apple logo, a user-space daemon
+  brings the GPU up, the desktop restarts once, DisplayPort audio appears about 2.5 minutes after boot, and OpenGL
+  is on about 2 minutes after login.
+- **Linux or Windows to macOS needs a full power-off** (section 6).
+- **After a freeze,** the next boots are the safe desktop (section 6).
+- A GPU hang is not recovered: one stuck shader can end the session. MPS and Core ML can hang the GPU.
+- **A macOS update breaks it.** Never update macOS.
+- **The Allow click** at every update of VermilionAccel.
+- **VermilionTrust** patches fixed offsets of macOS's code-signing check. It is built for exactly 25G241.
+
+**Graphics and video**
+
+- Games are slow (Horizon: 292 frames per second against 4370 on Linux on the same card).
+- **WebGPU in Safari is partial:** 20 of 43 samples work, and render bundles crash the GPU process.
+- WebGL works, but Safari cannot store its shader cache.
+- OpenCL is capped at 6 GiB. Blender Cycles renders on the CPU, as on a real Intel Mac with an AMD GPU.
+- HEVC and AV1 decode work through a bundle on the system volume. This preview's package does not install it, so
+  hardware video decode is **not included** *(see docs/RELEASE.md, "The package")*. 4K YouTube stutters.
+- **No hardware encode** (FaceTime, exports, AirPlay sending). No H.264 or VP9 hardware decode.
+- The first login after a translator change is slow: about 1.5 minutes of heavy WindowServer CPU once.
+- **Music takes about 30 seconds on its first launch after each boot** (passd waits for a service that only
+  Macs with a T2 chip have). Section 8 has the optional fix, which is not released yet.
+- Maps runs but is choppy fullscreen, and map tiles appear late.
+
+**Platform limits** (a PC cannot do these, as on any Hackintosh)
+
+- No Apple TV films or Safari FairPlay video (Apple Music works).
+- No Hypervisor.framework on AMD CPUs: no Docker Desktop, accelerated UTM, Parallels or VMware.
+- Touch ID, Apple Pay, iPhone Mirroring and Apple Intelligence need Apple silicon or a T2.
+
+Recovery and Safe Mode may show no picture *(unverified)*: VermilionBoot also loads there. To reach Recovery, boot an
+EFI copy without VermilionBoot.
+
+## 6. Troubleshooting and recovery
+
+Never Reset NVRAM to fix a boot problem. Never restart into macOS from Linux or Windows.
 
 | What you see | What to do |
 |---|---|
-| The basic display (name and password fields instead of avatars, no high refresh) | The daemon fell back on purpose. `tail -50 /var/log/phxboot.log` says why. It tries the full desktop again by itself after one clean boot |
-| A dark screen that stays dark | Wait 3 minutes (the watchdog). Then hold the power button, power on again, and wait for the basic display. If it repeats: boot with `-phxbringupoff` (below) |
-| No boot at all, or a kernel panic | Boot your EFI copy (USB stick, or rename `EFI/OC.prev` to `EFI/OC` from another OS), or add `-phxbringupoff` to `boot-args` for one boot. That stops VermilionBoot; the firmware display stays |
-| Turn the GPU path off without uninstalling | `touch ~/gpu/phxboot-off` (from Terminal, over SSH, or in Recovery under `/Volumes/<Data>/Users/<you>/gpu/`), restart |
-| Recovery or Safe Mode shows no picture | Expected today *(unverified)*: VermilionBoot also loads there. Boot an EFI copy without VermilionBoot to reach Recovery |
-| After a freeze, every boot is the basic display | It returns to the full desktop after clean boots on its own; [docs/INSTALL.md](docs/INSTALL.md) 8.5 |
+| The basic display: name and password fields instead of avatars, no high refresh | The daemon fell back on purpose. `tail -50 /var/log/phxboot.log` says why. It tries the full desktop again by itself (below). |
+| A dark screen that stays dark | Wait 3 minutes (the bring-up watchdog restarts the machine). If it stays dark, hold the power button, power on, and wait for the basic display. If it repeats, boot with `-phxbringupoff` (below). |
+| No boot at all, or a kernel panic | Boot your backup EFI (section 2), or add `-phxbringupoff` to `boot-args` for one boot. That stops VermilionBoot; the firmware display stays. |
+| Turn the GPU path off without uninstalling | `touch ~/gpu/phxboot-off` (in Terminal, over SSH, or in Recovery under `/Volumes/<Data volume>/Users/<you>/gpu/`), then restart. `rm ~/gpu/phxboot-off` turns it on again. |
+| Recovery or Safe Mode shows no picture | Expected *(unverified)*. Boot an EFI copy without VermilionBoot. |
 
-Never Reset NVRAM to fix a boot problem.
+### Black screen after a failed boot
 
-## 8. Reporting a problem
+1. Power off fully (hold the power button), then power on.
+2. If you changed the EFI, undo that one change. From another OS, rename `EFI/OC` to `EFI/OC.bad` and `EFI/OC.prev`
+   to `EFI/OC`. Or boot your backup EFI from the firmware boot menu (section 2).
+3. Or boot once with `-phxbringupoff` or `-phxacceloff` added to `boot-args`: the first stops VermilionBoot, the
+   second keeps VermilionAccel from starting. Put the argument in `boot-args` in your `config.plist` (on the backup
+   copy of the EFI if the Mac does not boot) and remove it again afterwards.
+4. After the Mac boots, read `/var/log/phxboot.log`, fix the cause, and change the EFI once.
+
+### The safe desktop and the squat loop
+
+On the reference machine, every OpenCore boot is a **squat boot**: the NVRAM variable `phxfb-squat` makes VermilionBoot
+hold the framebuffer slot, so the card's firmware display does not take it, and Vermilion's own framebuffer is the
+only display. If the bring-up fails on such a boot, there is no firmware display to fall back on. The daemon then
+brings up a **safe desktop** (the basic display on the CPU) instead of restarting in a loop.
+
+- **A failed attempt** is any boot that ends between the start of the bring-up and `SUCCESS`: a hang, a power cut, a
+  forced power-off. The next boot finds `/var/db/phxboot.pending`, logs `previous attempt did not finish -> GOP` and
+  counts it in `/var/db/phxboot.fails`.
+- **The way back is automatic.** After one clean boot on the safe desktop (after three failures in a row, three), the
+  daemon tries the full desktop again. The log's `record: fails=... clean=... last=...` line says where the count
+  stands. You need to do nothing but restart once and wait for `done`. After login it shows one notification
+  *(unverified on hardware; mock-tested)*.
+- **If it stays on the safe desktop:** fix what the log names, remove the kill switch if you set it
+  (`rm -f ~/gpu/phxboot-off`), and restart once. `sudo nvram phxfb-squat=1` re-arms the next boot at once, where
+  macOS can write NVRAM.
+- **A stuck squat boot** (the daemon logs `stuck squat` or `nvstuck: still a squat boot`): the screen can stay dark
+  until a power-off. ssh still reaches the machine. Power off, power on, and the next boot tries the safe desktop
+  *(unverified on hardware)*.
+- Do not restart before `done` on any boot: that can create the failed attempt.
+
+### Never Reset NVRAM
+
+Do not use OpenCore's "Reset NVRAM" picker entry, and do not hold keys at power-on to reset it. It deletes
+`phxfb-squat`. OpenCore's `DisableVariableWrite` can stop macOS from setting it again (as on the reference machine), so
+every later boot runs on the firmware display with a phantom display, and you cannot get the variable back from
+macOS. Keep `ResetNvramEntry.efi` out of `UEFI > Drivers`. If it has already happened, set `phxfb-squat` from another
+OS or from Recovery's Terminal with `nvram` where it can write *(unverified)*.
+
+### Linux or Windows to macOS: power off fully
+
+**Shut down, then power on. Never restart into macOS.** The bring-up assumes a cold GPU: it loads the SMU firmware once
+per power cycle. It checks the GPU's state first, and if the GPU is warm it refuses (`warm GPU: bring-up refused` in
+the log) and writes nothing to the card. On a squat boot the screen then stays dark until you power off and on again.
+Turning off Windows' Fast Startup is recommended *(unverified whether it matters)*. A warm restart from macOS itself
+is normal: the bring-up sees a cold state there (seen on the reference machine).
+
+### Where the logs are
+
+| Log | Where |
+|---|---|
+| The boot daemon | `/var/log/phxboot.log` (one section per boot) |
+| Daemon state | `/var/db/phxboot.pending` (attempt in progress), `/var/db/phxboot.fails` (the failure record) |
+| The package install | `/var/log/install.log` |
+| Package rollback copies | `/Library/Application Support/Vermilion/rollback/<time>/` |
+| GPU hang dumps | `/var/log/phxhang-<time>/` |
+| Kernel side | `log show --last 5m --predicate 'eventMessage CONTAINS "Vermilion"'` (in zsh use `/usr/bin/log`) |
+| Counters | `sysctl debug \| grep phx` |
+| Crash reports | `/Library/Logs/DiagnosticReports` |
+
+## 7. Update and uninstall
+
+### Update
+
+- **macOS: never.**
+- **Vermilion:** the kexts of the OpenCore zip and the package must be from the same release. Update both, then
+  restart once. The package does not yet check that the loaded VermilionTrust is the one of its own release
+  *(not built)*, so do both before the restart.
+- Order: keep your current `EFI/OC` as `EFI/OC.prev`, put the new zip's kexts into `EFI/OC/Kexts` and merge any new
+  entries of its `config-snippet.plist` (**one EFI change per boot**). Run the new package (section 3.3; it replaces
+  files and keeps copies in the rollback folder). Click Allow again if VermilionAccel changed. Restart once.
+  The mismatch window between the two is the reason for doing both before that restart *(unverified: the update has
+  never run)*.
+- Keep `EFI/OC.prev` until the new version has run for a few boots.
+
+### Uninstall
+
+Run this as root in Terminal. It never touches the EFI partition.
+
+```sh
+sudo vermilion-uninstall
+```
+
+It stops the daemon, deletes `/var/db/phxboot.pending` and `phxboot.fails`, deletes the NVRAM variables `phxfb-squat`
+and `phxfb-boot` where macOS can, puts the login-window value and the display overrides back, removes the files the
+package installed, restores the files it replaced from the rollback folders, and forgets the package. It keeps the
+firmware, the rollback folders and the log. It prints what is left for you.
+
+- `--purge` also removes the firmware (`~/gpu/fw/navi31`).
+- `--rebuild-kc` also runs `kmutil install --update-all` and `kmutil clear-staging` to drop VermilionAccel from the
+  Auxiliary Kernel Collection. Without it, the commands are only printed. *(Unverified on macOS 26.7.1.)* Afterwards
+  `kmutil showloaded | grep org.vermilion.accel` must print nothing.
+- Everything about the uninstaller is *(unverified)*: it passed its mock tests, and never ran on a real Mac.
+
+Then remove the OpenCore part, **one EFI change per boot**:
+
+1. Keep a copy of your EFI folder.
+2. In `config.plist`, delete the `Kernel > Add` entries of VermilionBoot, VermilionTrust and VermilionAudio, and the
+   `Kernel > Patch` entry for `AppleGraphicsDevicePolicy`. Take `phxdebug=1 ipc_control_port_options=0` out of
+   `boot-args`. Put back your own `csr-active-config` and `SecureBootModel` if you changed them for Vermilion.
+3. Delete the three kexts from `EFI/OC/Kexts`. Leave Lilu if you use it.
+4. Restart. Check the Mac boots on the card's own firmware display.
+
+If the Mac does not boot afterwards, boot your backup EFI. By hand, without the uninstaller, the order is in the
+expert reference ([docs/INSTALL.md](docs/INSTALL.md) section 9).
+
+## 8. Optional: ryzentosh-sse (release pending)
+
+**Not released yet.** On a Mac without a T2 chip, Music's first launch after each boot waits about 30 seconds: passd
+asks 60 times for a service (AppleSSE) that does not exist, and accountsd waits for it. `ryzentosh-sse` will be a
+separate OpenCore kext from its own repository, `ownback/ryzentosh-sse`, that provides an honest "SSE not supported"
+answer. It is not part of this release and has no download yet. When it is released:
+
+1. Put its `.kext` into `EFI/OC/Kexts` and add its `Kernel > Add` entry (its release notes say where).
+2. One EFI change per boot. Restart.
+3. Open Music right after login. It should open at once *(unverified)*.
+
+Until then a login agent (`local.phxpassd`) on the reference machine starts passd early. It is not in this package.
+
+## 9. Reporting a problem
 
 Open an issue on [ownback/vermilion-xtx](https://github.com/ownback/vermilion-xtx/issues) with your card (board
 partner, `system_profiler SPDisplaysDataType` without serials), monitor model, the last boot's section of
-`/var/log/phxboot.log`, and the `bootcheck.sh` output. **Remove personal data first:** serial numbers, MLB, ROM, UUIDs,
-MAC addresses, your user name, and your monitor's serial (in EDID dumps). Never post your `config.plist` or EFI folder.
+`/var/log/phxboot.log`, and the output of `sysctl debug.phxtrust_stat`. **Remove personal data first:** serial numbers,
+MLB, ROM, UUIDs, MAC addresses, your user name, and your monitor's serial (in EDID dumps). Never post your
+`config.plist` or EFI folder. Support matrix: [SUPPORT.md](SUPPORT.md).
+
+The expert reference, with every file, flag and script of the manual install, is [docs/INSTALL.md](docs/INSTALL.md).

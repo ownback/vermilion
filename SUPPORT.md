@@ -49,8 +49,8 @@ doesn't yet). *Refused by the code* and *from the code* are what the source says
 | FileVault | not supported today (the boot daemon logs in automatically once per boot) |
 | System sleep | not supported (keep it off) |
 | SIP | relaxed (`0x0A03`) |
-| Kext approval | one **Allow** click for VermilionAccel at the install and after each update of it: a known step ([INSTALL.md](INSTALL.md#23-the-allow-click-a-known-step)) |
-| Gatekeeper | the release package is unsigned: **Open Anyway** in System Settings > Privacy & Security ([INSTALL.md](INSTALL.md#21-the-release-route-preview-unverified)) |
+| Kext approval | one **Allow** click for VermilionAccel at the install and after each update of it: a known step ([INSTALL.md](INSTALL.md#34-the-allow-click)) |
+| Gatekeeper | the release package is unsigned: **Open Anyway** in System Settings > Privacy & Security ([INSTALL.md](INSTALL.md#33-open-the-package-gatekeeper)) |
 
 ## Machine
 
@@ -64,5 +64,5 @@ doesn't yet). *Refused by the code* and *from the code* are what the source says
 
 ## Report a result
 
-A report from another card, board or monitor helps most, working or not: see [INSTALL.md](INSTALL.md#8-reporting-a-problem)
+A report from another card, board or monitor helps most, working or not: see [INSTALL.md](INSTALL.md#9-reporting-a-problem)
 (and remove personal data first).

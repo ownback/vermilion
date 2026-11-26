@@ -33,14 +33,16 @@ differs from 39 only by its Kernel/Add entry. `EFI/OC.prev` = change 39 (also
 | #51 | Direct scan-out: `ws-direct` appearing applies at the next start; flip-wait counter | live move, idle copy dropped |
 | #52 | U1: the UCLK floor through the DAL mailbox as Linux does; VermilionBoot b167 refuses 0x1B/0x1C | hw-safety OK |
 | #53 | GPU present, async present and direct scan-out on by default (`-off` opt-outs) | safe desktop back-off |
+| #54 | A4+A9: device info from the hardware (VermilionBoot b168, VermilionAccel 0.1.2, RADV 0016-0020); XT profile dropped | wired cap `max_mem / 4` |
+| #55 | Every proven daemon feature on by default, `~/gpu/phxboot-<name>-off` opt-outs, HDR off by default | safe desktop keeps polled waits; package and recovery ship DP audio's tools |
+
+No open PRs and no branches other than `main` on ownback/vermilion-xtx (2026-11-26, after #55 and this STATUS PR).
 
 **Release gaps found and closed today:** the package would have armed a dark first boot (#48: the daemon arms it after
 a bring-up that needs the firmware and VermilionAccel); the Installer check could never run (#45); a stranger got no
-GPU present or direct scan-out (#53). **Open release gap:** the package sets 5 of the reference machine's 18
-`~/gpu/phxboot-*` flags (no DP audio, OpenGL, video decode, idle power management, extra modes, VRR floor for a
-stranger): agent on `ownback/flag-defaults` (every proven feature on by default, `-off` opt-outs, autologin opt-in,
-HDR off by default). Agent on A4+A9 (`ownback/device-info`: GPU name, VRAM, RADV device info from the hardware, the
-XT profile dropped; VermilionBoot b168).
+GPU present or direct scan-out (#53); a stranger got 5 of the reference machine's 18 `~/gpu/phxboot-*` features
+(#55: all on by default). **Still open:** video decode on a stranger's install (`vcnup/` needs data captured on the
+reference machine), `bovram` has no default list, and nothing of #43-#55 has run on hardware yet (the boot queue).
 
 **U1 and hard rule 1:** until boot 41, every boot still sends the driver-mailbox SMU message 0x1B (UCLK 456 MHz),
 which Linux never sends on SMU 13.0.0. Boot 41 (b167) replaces it with Linux's DAL-mailbox messages: the top level
@@ -53,9 +55,11 @@ exception.
 | Boot | Change | Staged | Check after the boot |
 |---|---|---|---|
 | 40 | RyzentoshSSE (EFI) | installed | `ioreg -c AppleSSE` one service; no passd retry lines; Music's first launch fast |
-| 41 | VermilionBoot b167 (EFI) + `uclk.sh`, `idle_dpm.sh`, `phxctl.bin`, `m7_boot.sh`, the daemon into `~/gpu` | `efi41/` (main `e6cb80f`; take the daemon from main at deploy) | `phx-build` 167; `uclk: DAL hard min UCLK 1249 MHz ... status 0x24 done`; no `msg 0x1b`; `uclk_pins=0`; `debug.phxdal_stat` `timeouts 0 dead 0`; `SUCCESS`; 240 Hz |
-| 42 | NVMTLDriver from main (release build, #51, #53) + VermilionTrust with its cdhash (EFI) | rebuild from main at deploy | `denied_unlisted=0`; direct scan-out with no switch file |
-| C | our AIR reader + VermilionTrust (EFI) | `air/` | AIR translation works, `denied_unlisted=0` |
+| 41 | VermilionBoot b167 (EFI) + `uclk.sh`, `idle_dpm.sh`, `phxctl.bin`, `m7_boot.sh`, the daemon into `~/gpu` | `efi41/` (kext and `phxctl` from main `e6cb80f`; the scripts and the daemon from main `0a0a416` at deploy, #55's defaults) | `phx-build` 167; `uclk: DAL hard min UCLK 1249 MHz ... status 0x24 done`; no `msg 0x1b`; `uclk_pins=0`; `debug.phxdal_stat` `timeouts 0 dead 0`; one `note:` line per old flag file and every feature as before; `SUCCESS`; 240 Hz |
+| 42 | VermilionBoot b168 (EFI; b167 + device info) | build from main | TODO A4 (a): `phx-build` 168; `debug.phxdevinfo` `valid gc-regs`, 96 CU, vram 24576 MiB; `ioreg` `model` "AMD Radeon RX 7900 XTX" |
+| 43 | RADV (0016-0020) + NVMTLDriver from main (release build, #51, #53) + VermilionTrust with their cdhashes (EFI) | build from main | `denied_unlisted=0`; direct scan-out with no switch file; `radv-darwin: device info from the kext`; working set about 23.4 GiB |
+| 44 | VermilionAccel 0.1.2 (AuxKC, the Allow click) | build from main | `ioreg -rc NMXAccel -k PerformanceStatistics`: `Device Utilization %`, `vramFreeBytes` |
+| C | our AIR reader + VermilionTrust (EFI) | `air/` | AIR translation works, `denied_unlisted=0` (fold into 43 if it is ready by then) |
 
 Then: ryzentosh-sse `v0.1.0` (after boot 40) and its pinned download; Maps' per-frame GPU passes (the choppiness is
 Maps' own rendering, WindowServer no longer copies); B1 K1-K3 (b164-b166).
@@ -191,7 +195,7 @@ mode setting).
 | 2560x1440 at 60 / 120 / 144 / 240 Hz, VRR 60-240 | works, not standard (replayed Linux captures, always through 144 Hz) | Own mode setting and link training (phase 3) | D10, D14 |
 | Other sizes of the LG | works, not standard (fixed rates, CPU copy) | GPU present at every size | D11 |
 | Other monitors, a second monitor, HDMI, HiDPI modes | missing | After own mode setting; pipe allocator; HDMI capture | D12, D13, D19, D20 |
-| HDR | broken (off by `phxboot-nohdr`) | Phase 2 item 4 | D16 |
+| HDR | broken (off by default since #55; `phxboot-hdr` turns it on) | Phase 2 item 4 | D16 |
 | Replug / monitor power / input switch | broken | Phase 2 item 5 | D18 |
 | Night Shift, calibration (head-0 gamma) | broken (gamma dropped; effect unverified by eye) | Owner eye test, then head-0 regamma (hw-safety) | D22, A23 |
 | DDC/CI brightness and volume | missing | Phase 2 item 9 | D21 |

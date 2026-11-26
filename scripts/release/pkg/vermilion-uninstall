@@ -100,6 +100,11 @@ main() {
     fi
   done <"$T/decided"
   say "$removed paths removed, $restored restored from the rollback folders"
+  # These folders are spent: a later install starts its own, and a later uninstall must not read this install's "N"
+  # lines (a file the user put at such a path after this uninstall would be deleted instead of restored). The copies stay.
+  for d in "$SUPPORT"/rollback/*/; do
+    d=${d%/}; [ -f "$d/MANIFEST" ] && mv "$d/MANIFEST" "$d/MANIFEST.used"
+  done
   rmdir "$R/Library/GPUBundles/nvmtl" 2>/dev/null || true
   # the folders the install made in ~/gpu, when nothing else is in them (fw/navi31 stays without --purge)
   [ -z "$UH" ] || rmdir "$G/phxctl" "$G/fw" "$G" 2>/dev/null || true

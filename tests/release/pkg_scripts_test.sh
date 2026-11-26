@@ -169,7 +169,7 @@ check "spirv-val (bin) and the AIR reader are gone" '[ ! -e "$T/root/usr/local/b
 check "the empty ~/gpu/phxctl is gone; ~/gpu/fw stays while the firmware does" '[ ! -e "$T/root/Users/alice/gpu/phxctl" ] && [ -d "$T/root/Users/alice/gpu/fw/navi31" ]'
 check "the firmware stays without --purge" '[ -f "$T/root/Users/alice/gpu/fw/navi31/smu_13_0_0.bin" ] && grep -q "fw/navi31" "$T/un.out"'
 check "the receipt is forgotten and the marker is gone" '[ ! -f "$SIM_RECEIPT" ] && [ ! -f "$T/root/Library/Application Support/Vermilion/installed" ]'
-check "the rollback folders are kept" '[ "$(ls "$T/root/Library/Application Support/Vermilion/rollback" | wc -l | tr -d " ")" = 2 ]'
+check "the rollback folders are kept, marked used" '[ "$(ls "$T/root/Library/Application Support/Vermilion/rollback" | wc -l | tr -d " ")" = 2 ] && [ "$(ls "$T/root/Library/Application Support/Vermilion/rollback"/*/MANIFEST.used | wc -l | tr -d " ")" = 2 ] && ! ls "$T/root/Library/Application Support/Vermilion/rollback"/*/MANIFEST >/dev/null 2>&1'
 check "NVRAM variables deleted, login-window value put back" 'grep -q "nvram -d phxfb-squat" "$SIM_LOG" && grep -q "defaults delete /Library/Preferences/com.apple.loginwindow SHOWFULLNAME" "$SIM_LOG"'
 check "it tells which EFI entries to remove, and prints the kmutil step" 'grep -q "VermilionBoot.kext" "$T/un.out" && grep -q "kmutil install --update-all" "$T/un.out"' "$T/un.out"
 check "uninstall touched nothing outside the fake root" '[ ! -e /Users/alice ] && [ ! -e "/Library/Application Support/Vermilion" ]'
@@ -201,6 +201,14 @@ pre; payload v1; post; un
 check "the libexec folder of before the install is restored; Vermilion's files in it are gone" '[ "$(cat "$T/root/usr/local/libexec/vermilion/keep.txt")" = "OLD libexec file" ] && [ ! -e "$T/root/usr/local/libexec/vermilion/lib.sh" ] && [ ! -e "$T/root/usr/local/libexec/vermilion/VERSION" ]' "$T/un.out"
 reset_world; pre; payload v1; post; un
 check "with none before, the libexec folder is gone" '[ ! -e "$T/root/usr/local/libexec/vermilion" ]'
+
+# ---- install, uninstall, a user's own file at a payload path, install again, uninstall: the user's file comes back
+reset_world; pre; payload v1; post; un
+mkdir -p "$T/root/usr/local/sbin"; echo "MINE phxctl" >"$T/root/usr/local/sbin/phxctl"; sleep 1
+pre; payload v1; post
+check "(setup) the reinstall replaced the user's file" '[ "$(cat "$T/root/usr/local/sbin/phxctl")" = "phxctl v1" ]' "$T/post.out"
+un
+check "a second uninstall restores the user's file put there after the first uninstall" '[ "$(cat "$T/un.rc")" = 0 ] && [ "$(cat "$T/root/usr/local/sbin/phxctl")" = "MINE phxctl" ]' "$T/un.out"
 
 # ---- an uninstall without lib.sh still puts the login-window value back
 reset_world; pre; payload v1; post

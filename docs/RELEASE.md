@@ -87,9 +87,9 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    shows a `1002:744c` function of PCI revision `0xC8` (the RX 7900 XTX, G1) and no other `744c` board (the XT, GRE,
    7900M and unknown revisions are named in the message); a desktop user can be named (console user, else the only
    account with uid 501 or more). The values are `PhxGpuId.h`'s, and `tests/release/pkg_scripts_test.sh` compares
-   them with the header. The revision comes from `ioreg`'s `revision-id` property of the `IOPCIDevice`; **(unverified)**
-   that this property exists with this value on the XTX machine (the parser is tested on a fixture of ioreg's format
-   only). If it can't be read, the package refuses. Then it opens the rollback folder and copies away every path the
+   them with the header. The revision comes from `ioreg`'s `revision-id` property of the `IOPCIDevice`
+   (`c8000000` on the XTX machine, read 2026-11-26; `install-check.sh` exited 0 there). If it can't be read, the
+   package refuses. Then it opens the rollback folder and copies away every path the
    payload is about to replace. The refusal text is in `/var/log/install.log`; the installer window says only that
    the install failed. **(unverified)** that the Installer shows no more than that.
    Not built from the design: VermilionBoot loaded (`phx-build` in `ioreg`; the zip may be applied later, so a warning
@@ -158,7 +158,9 @@ result on the files.
 4. For every path a rollback `MANIFEST` names, oldest folder first, the first line decides: `E` puts the saved copy
    back, `N` leaves the path removed. So an update never turns a Vermilion file into "the user's own", and a file
    the user had before the first install comes back. The firmware folder is skipped unless `--purge`. Then the
-   folders the install made in `~/gpu` (`phxctl`, `fw`, `~/gpu` itself) are removed when they are empty.
+   folders the install made in `~/gpu` (`phxctl`, `fw`, `~/gpu` itself) are removed when they are empty. Each
+   `MANIFEST` is then renamed `MANIFEST.used` (the copies stay), so a later install and uninstall start from what is
+   there then: a file the user puts at a payload path after an uninstall comes back after the next one.
    The uninstaller also works when `lib.sh` is already gone.
 5. `pkgutil --forget`; print what's left for the user: the AuxKC rebuild (`kmutil install --update-all` and
    `kmutil clear-staging`, printed, run only with `--rebuild-kc`; **unverified** on 26.7.1), the OpenCore entries and

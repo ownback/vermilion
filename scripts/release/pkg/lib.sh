@@ -90,7 +90,8 @@ user_home() {   # user_home <user>
 #   E <path>   it existed before, and its copy is at $RB/files<path>
 #   N <path>   it did not exist
 # vermilion-uninstall reads the folders oldest first: the first line that names a path says what was there before the
-# first install, so an update never makes a Vermilion file look like the user's own.
+# first install, so an update never makes a Vermilion file look like the user's own. After it restores, it renames each
+# MANIFEST to MANIFEST.used, so the next install and uninstall start from what is there then.
 rb_current() { cat "$SUPPORT/.rollback-current" 2>/dev/null; }
 rb_new() {
   RB=$SUPPORT/rollback/$(date +%Y%m%d-%H%M%S)

@@ -44,6 +44,6 @@ grep -v '^#' "$HERE/fw.lock" | while read -r f sum size sha; do
     fi
     rm -f "$DEST/$f.tmp"
   done
-  [ $got = 1 ] || { echo "FAILED  $f: no copy with md5 $sum at ref $REF (the pinned commit is in fw.lock)" >&2; exit 1; }
+  [ $got = 1 ] || { echo "FAILED  $f: no copy with SHA-256 ${sha:-(fw.lock has none: md5 $sum)} at ref $REF (the pinned commit is in fw.lock)" >&2; exit 1; }
 done
 echo "firmware in $DEST matches fw.lock"

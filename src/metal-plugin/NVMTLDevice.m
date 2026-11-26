@@ -237,48 +237,27 @@ __attribute__((constructor)) static void nvmtl_phxdec_in_decode_service(void)
     // off the loader's thread: the registration dlopens the decoder library
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{ nvmtl_phxdec_register(); });
 }
-// ANGLE refuses Metal on NVIDIA (disableMetalOnNvidia), and Chromium on macOS has no other GL backend, so without this
-// the GPU process exits at start-up and the app draws everything on the CPU. Chrome and Chromium get it by default:
-// without it their GPU process cannot start. Electron stays opt-in (NVMTL_ANGLE_METAL=1) because it showed artifacts,
-// stutter and lost transparency on several cards. NVMTL_ANGLE_METAL=0 turns the rule off in every process. An existing
-// ANGLE override is kept; no sandbox setting is changed.
-static bool nvmtl_angle_chrome_family(void)
+// PhxAccel: true when THIS Metal device is the AMD accelerator driving its own panel (debug.nmxaccel_headless == 0).
+// CoreDisplay only builds a display on a device that reports non-headless / full-power / non-removable; a headless
+// device still enumerates for apps (MTLCopyAllDevices) but CoreDisplay's FindAcceleratorWithMTLDevice skips it, so
+// WindowServer's CreateMetalDevice returns 0x0 and CoreDisplay aborts (Display.cpp:3228). Cobalt64 marks its device
+// display-eligible the same way (Navi48Device.m isHeadless/isLowPower/isRemovable). Gated on the same AMD-panel signal
+// the allow-list gate uses.
+static bool nvmtl_is_amd_panel(void)
 {
-    const char *me = getprogname();
-    if (!me) return false;
-    return strncmp(me, "Google Chrome", 13) == 0 || strncmp(me, "Chromium", 8) == 0;
+    int ahv = 1; size_t ahn = sizeof ahv;
+    return nvmtl_vk_vendor() == 0x1002 && sysctlbyname("debug.nmxaccel_headless", &ahv, &ahn, NULL, 0) == 0 && !ahv;
 }
-__attribute__((constructor)) static void nvmtl_angle_allow_nvidia(void)
-{
-    const char *opt = getenv("NVMTL_ANGLE_METAL");
-    if (opt && !strcmp(opt, "0")) return;
-    const char *me = getprogname();
-    if (!(opt && !strcmp(opt, "1")) && !nvmtl_angle_chrome_family()) return;
-    const char *key = "ANGLE_FEATURE_OVERRIDES_DISABLED", *rule = "disableMetalOnNvidia";
-    const char *cur = getenv(key);
-    if (cur && strstr(cur, rule)) return;
-    // One line per process, outside nvlog's release failure filter: a field report must show whether the rule was
-    // active in this process.
-    syslog(LOG_NOTICE, "NullMoth: angle: Metal allowed in %s (%s; NVMTL_ANGLE_METAL=0 disables)", me ? me : "?",
-           (opt && !strcmp(opt, "1")) ? "NVMTL_ANGLE_METAL=1" : "Chrome family");
-    char v[1024];
-    if (cur && *cur) snprintf(v, sizeof v, "%s:%s", cur, rule); else snprintf(v, sizeof v, "%s", rule);
-    setenv(key, v, 1);
-}
+
 static bool nvmtl_process_is_allowed(void)
 {
     const char *me = getprogname();
     if (!me) return false;
-    // A headless NVIDIA GPU (the display is on the Intel or AMD GPU) is a Metal device for apps only: WindowServer stays
-    // on the GPU that owns the display, as on Apple's two-GPU Macs. The list below cannot express this: "*" matches
-    // WindowServer before its "!WindowServer" line is reached.
-    { int hv = 0; size_t hn = sizeof hv;
-      // PhxAccel: an AMD accelerator that drives its own panel (debug.nmxaccel_headless reads 0) composites WindowServer
-      int ahv = 1; size_t ahn = sizeof ahv;
-      const bool amdPanel = nvmtl_vk_vendor() == 0x1002 && sysctlbyname("debug.nmxaccel_headless", &ahv, &ahn, NULL, 0) == 0 && !ahv;
-      if (!strcmp(me, "WindowServer") && !amdPanel && (nvmtl_vk_vendor() != 0x10de ||
-                                          (sysctlbyname("debug.nvaccel_headless", &hv, &hn, NULL, 0) == 0 && hv))) {
-          nvlog("  headless GPU: no device for WindowServer (it composites on the GPU that owns the display)"); return false; } }
+    // PhxAccel: an AMD accelerator that drives its own panel (debug.nmxaccel_headless reads 0) composites WindowServer;
+    // a headless one is a Metal device for apps only, and WindowServer stays off it. The list below cannot express this:
+    // "*" matches WindowServer before its "!WindowServer" line is reached.
+    if (!strcmp(me, "WindowServer") && !nvmtl_is_amd_panel()) {
+        nvlog("  headless GPU: no device for WindowServer (it composites on the GPU that owns the display)"); return false; }
     if (getenv("NVMTL_ENABLE")) return true;
     if (!strcmp(me, "mtlprobe") || !strcmp(me, "nvmtltest") || !strcmp(me, "nvmtlrender")) return true;
     FILE *f = fopen("/Library/GPUBundles/nvmtl-allow.txt", "r");
@@ -302,18 +281,6 @@ static bool nvmtl_process_is_allowed(void)
     fclose(f);
     if (ok) nvlog("  allow-listed: %s", me);
     return ok;
-}
-
-// PhxAccel: true when THIS Metal device is the AMD accelerator driving its own panel (debug.nmxaccel_headless == 0).
-// CoreDisplay only builds a display on a device that reports non-headless / full-power / non-removable; a headless
-// device still enumerates for apps (MTLCopyAllDevices) but CoreDisplay's FindAcceleratorWithMTLDevice skips it, so
-// WindowServer's CreateMetalDevice returns 0x0 and CoreDisplay aborts (Display.cpp:3228). Cobalt64 marks its device
-// display-eligible the same way (Navi48Device.m isHeadless/isLowPower/isRemovable). Gated on the same AMD-panel signal
-// the allow-list gate uses, so the NVIDIA app-only path keeps reporting headless and WindowServer stays off it.
-static bool nvmtl_is_amd_panel(void)
-{
-    int ahv = 1; size_t ahn = sizeof ahv;
-    return nvmtl_vk_vendor() == 0x1002 && sysctlbyname("debug.nmxaccel_headless", &ahv, &ahn, NULL, 0) == 0 && !ahv;
 }
 
 // a host import shared by the textures of a multi-plane surface's planes (NVMTL_PLANEHOST_SHARE, nvmtl_planehost_get)
@@ -361,10 +328,10 @@ static void nvmtl_install_hw_resource_pools(id dev)
     self = [super initWithAcceleratorPort:port];
     if (!self) { nvlog("  super initWithAcceleratorPort: returned nil"); return nil; }
     {   /* one GPU per process: the plugin runs a single Vulkan device, so a second Metal device on another vendor's
-           accelerator (a PC with an NVIDIA card and an AMD or Intel GPU) is refused rather than given the wrong GPU */
+           accelerator is refused rather than given the wrong GPU */
         uint16_t mine = nvmtl_vk_set_accelerator(port), live = nvmtl_vk_vendor();
         if (mine && mine != live) { nvlog("  accelerator vendor %04x, but this process runs Metal on %04x: no second device", mine, live); return nil; }
-        nvlog("  GPU vendor %04x (%s)", live, live == 0x1002 ? "AMD, RADV" : live == 0x8086 ? "Intel, ANV" : "NVIDIA, NVK");
+        nvlog("  GPU vendor %04x (%s)", live, live == 0x1002 ? "AMD, RADV" : "Intel, ANV");
     }
     if (!nvmtl_process_is_allowed()) { nvlog("  not allow-listed: no device for %s", getprogname()); return nil; }
     nvlog("MTLIOAccelDevice's initWithAcceleratorPort: -> %p", (__bridge void *)self);
@@ -416,7 +383,7 @@ static void nvmtl_install_hw_resource_pools(id dev)
 - (NSString *)vendorName {
     static NSMutableSet *seen; static dispatch_once_t once; dispatch_once(&once, ^{ seen = [NSMutableSet new]; });
     Dl_info i = {0}; const char *who = dladdr(__builtin_return_address(0), &i) && i.dli_fname ? i.dli_fname : "?";
-    NSString *v = nvmtl_vk_vendor() == 0x1002 ? @"AMD" : nvmtl_vk_vendor() == 0x8086 ? @"Intel" : @"NVIDIA";
+    NSString *v = nvmtl_vk_vendor() == 0x1002 ? @"AMD" : nvmtl_vk_vendor() == 0x8086 ? @"Intel" : @"AMD";
     @synchronized(seen) { NSString *k = @(who); if (![seen containsObject:k]) { [seen addObject:k]; nvlog("vendorName -> %s (asked by %s)", v.UTF8String, who); } }
     return v;
 }

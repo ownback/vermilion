@@ -713,6 +713,21 @@ not the threat this guard answers: the machine lock and the review of every chan
   nothing back, and the GPU simply stays on the basic display until `vermilion-firmware` succeeds.
 - The package changes neither Software Update nor sleep; INSTALL.md says to set them.
 
+## GPU present, async present and direct scan-out are on by default (2026-11-26)
+
+- A real Mac has no toggle for how the display is presented, so the three features are on without any file (as the XTX
+  machine ran them with `ws-gpu-present`, `ws-gpu-present-async`, `ws-direct`). The files are opt-outs now:
+  `ws-gpu-present-off`, `ws-gpu-present-async-off`, `ws-direct-off`. The old opt-in files are ignored (the daemon logs a
+  note); the release package creates none of them.
+- The safe desktop keeps GPU present off: the daemon does not allow the scanout (`debug.phxscan`) there, whatever the
+  files say. The plugin is not told: it asks the kext, which refuses.
+- A live switch-on of direct scan-out was built and dropped (finding 2026-11-25-windowserver-composite-cost.md,
+  section 9): turning direct on takes a WindowServer start; turning it off is live.
+- `phxboot-wscdcopy` (CoreDisplay's display surfaces, which direct needs) is still an opt-in flag file; making it the
+  default is a separate decision.
+- Host-tested only (the mock suite, `tests/plugin/test_switch_files.sh`); not run on the XTX machine without the old
+  files (unverified).
+
 ## The UCLK floor through the DAL mailbox, at Linux's values (U1, 2026-11-26)
 
 - The memory clock hard minimum goes only through the DAL mailbox (DALSMC `SetHardMinByFreq` 9, then

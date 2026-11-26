@@ -16,7 +16,8 @@
      flip-complete test, the kext's PHXN_SCANSLOT_WRITABLE). If the surface on screen is to be written again and no other
      flip is coming, its VRAM is first copied to the third slot and HUBP0 flips there (the bounce);
    - when to give up for a while (nvmtl_sd_fail);
-   - ws-direct appearing while the copy path presents (nvmtl_sd_appeared_note: said once, takes effect at the next start). */
+   - direct scan-out becoming wanted (ws-direct-off removed) while the copy path presents (nvmtl_sd_appeared_note: said
+     once, takes effect at the next start). */
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -84,9 +85,10 @@ static inline int nvmtl_sd_pair(const nvmtl_sd_table *t, uint32_t w, uint32_t h,
 
 enum { NVMTL_SD_START_DIRECT = 0, NVMTL_SD_START_COPY = 1, NVMTL_SD_START_WAIT = 2 };
 typedef struct {
-    int wanted;          /* /Library/GPUBundles/nvmtl/ws-direct, and not in a cooldown or given up */
+    int wanted;          /* direct scan-out is on (no /Library/GPUBundles/nvmtl/ws-direct-off), not in a cooldown, not given up */
     int kextOk;          /* scan query flags PHXN_SCANQ_DIRECT_OK, and RADV has radv_darwin_n48n_call */
-    int async;           /* ws-gpu-present-async: presents run on the worker, never on a thread the gate blocks */
+    int async;           /* async GPU present (no ws-gpu-present-async-off): presents run on the worker, never on a
+                            thread the gate blocks */
     uint32_t hubpFormat; /* scan query hubp_format */
     uint32_t pitchPx;    /* scan query pitch_px */
     int pairs;           /* nvmtl_sd_pair's count for the shown surface's geometry */
@@ -130,15 +132,27 @@ static inline void nvmtl_sd_fail(unsigned *fails, uint64_t nowNs, uint64_t *unti
     *untilNs = nowNs + NVMTL_SD_COOLDOWN_NS;
 }
 
-/* ws-direct appeared while the copy path presents. The switch-off works live (the next present copies back and releases);
-   the switch-on does not: a move to direct would release the plane (the console shows for a gap, VRR drops and resumes),
-   and the bind drains the queue, which during an animation is the normal state, so it is left to the next WindowServer
-   start, where the direct choice is made anyway. The plugin says so once. wantedAtStart: the switch at the time this
-   GPU present start chose; wantedNow: now; *said: set by the first call that returns 1. 1 = log the line.
+/* Direct scan-out became wanted (ws-direct-off removed) while the copy path presents. Turning it off works live (the
+   next present copies back and releases); the switch-on does not: a move to direct would release the plane (the console
+   shows for a gap, VRR drops and resumes), and the bind drains the queue, which during an animation is the normal state,
+   so it is left to the next WindowServer start, where the direct choice is made anyway. The plugin says so once.
+   wantedAtStart: the switch at the time this GPU present start chose; wantedNow: now; *said: set by the first call that
+   returns 1. 1 = log the line.
    Host-tested only (tests/plugin/test_scan_direct.c); not run on hardware (unverified). */
 static inline int nvmtl_sd_appeared_note(int wantedAtStart, int wantedNow, int *said)
 {
     if (wantedAtStart || !wantedNow || *said) return 0;
     *said = 1;
     return 1;
+}
+
+/* The kernel refuses the scan query while the scan-out is not allowed (debug.phxscan 0: the safe desktop, where only the
+   daemon knows it). The plugin used to ask again every 2 s for the life of WindowServer. Now: after NVMTL_SD_QUERY_REFUSALS
+   refusals in a row it stops for the life of the process. *refused counts them in a row; r is the query's result.
+   Returns 1 when to stop. An answer (r == 0) resets the count. */
+#define NVMTL_SD_QUERY_REFUSALS 3u
+static inline int nvmtl_sd_query_giveup(unsigned *refused, int r)
+{
+    if (r == 0) { *refused = 0; return 0; }
+    return ++*refused >= NVMTL_SD_QUERY_REFUSALS;
 }

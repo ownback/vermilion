@@ -96,8 +96,9 @@ Metal.framework in every process that uses Metal (if `/Library/GPUBundles/nvmtl-
 - Shaders: a `.metallib` contains AIR, Apple's LLVM IR. The plugin hands it to `libnvmtl_translate.dylib`, which
   produces SPIR-V; RADV compiles that to RDNA 3 machine code. Results are cached in `/Library/GPUBundles/nvmtl/aircache` and
   `spvcache`.
-- WindowServer present: the plugin either copies into the scanned-out surface or, with "GPU present"
-  (`ws-gpu-present`), flips the display itself through the boot kext's scanout selectors (`nvmtl_scanout.c`).
+- WindowServer present: the plugin either copies into the scanned-out surface or, with "GPU present" (on by default;
+  opt-out file `ws-gpu-present-off`; async present and direct scan-out likewise, `ws-gpu-present-async-off`,
+  `ws-direct-off`), flips the display itself through the boot kext's scanout selectors (`nvmtl_scanout.c`).
 - Many files are `#include`d into a few translation units (the header of each file says where). Keep that in mind
   before moving code.
 

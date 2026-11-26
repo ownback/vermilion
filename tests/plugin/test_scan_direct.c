@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 /* test_scan_direct.c - the decisions of direct scan-out (src/metal-plugin/nvmtl_scan_direct.h, used by nvmtl_scanout.c):
    the display-surface pair, the start, the write gate (Linux's flip-complete test, the bounce, the timeout), the
-   failure cooldown, the ws-direct-appeared note. Also a model of two display surfaces flipping at
+   failure cooldown and the direct-became-wanted note. Also a model of two display surfaces flipping at
    vblank, driven through the gate, that checks no write is ever let through to a surface HUBP0 may fetch and that the
    gate never stalls for good.
    cc -Wall -Wextra -Werror -I src/metal-plugin tests/plugin/test_scan_direct.c -o /tmp/test_scan_direct && /tmp/test_scan_direct */
@@ -147,7 +147,7 @@ int main(void)
                                                             waited >= NVMTL_SD_GATE_MAX_US && waited < NVMTL_SD_GATE_MAX_US + 1000 && !torn);
     }
 
-    /* ---- ws-direct appearing while the copy path presents: said once, nothing else ---- */
+    /* ---- direct becoming wanted (ws-direct-off removed) while the copy path presents: said once, nothing else ---- */
     {
         int said = 0;
         arm("appeared: not wanted: nothing", !nvmtl_sd_appeared_note(0, 0, &said) && !said);
@@ -158,6 +158,17 @@ int main(void)
         said = 0;
         for (int f = 0; f < 3000; f++) { (void)nvmtl_sd_appeared_note(0, f >= 100, &said); }
         arm("appeared: over many frames the line comes once", said == 1);
+    }
+    /* ---- the scan query refused (the safe desktop): stop after three in a row ---- */
+    {
+        unsigned rf = 0; int stopped = 0, tries = 0;
+        for (int i = 0; i < 100 && !stopped; i++) { tries++; stopped = nvmtl_sd_query_giveup(&rf, -1); }
+        arm("query refused: stops at the third refusal in a row", stopped && tries == (int)NVMTL_SD_QUERY_REFUSALS);
+        rf = 0;
+        arm("query refused twice: still trying", !nvmtl_sd_query_giveup(&rf, 5) && !nvmtl_sd_query_giveup(&rf, 5));
+        arm("an answer resets the count", !nvmtl_sd_query_giveup(&rf, 0) && rf == 0);
+        arm("then two more refusals do not stop it", !nvmtl_sd_query_giveup(&rf, 5) && !nvmtl_sd_query_giveup(&rf, 5));
+        arm("a third in a row does", nvmtl_sd_query_giveup(&rf, 5) == 1);
     }
     /* ---- the cooldown ---- */
     unsigned nf = 0; uint64_t until = 0; int off = 0;

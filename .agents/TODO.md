@@ -350,11 +350,10 @@ PROJECT_KNOWLEDGE.
   - clocks and per-process GPU time (N1) with plan C5;
   - the plugin's `architecture` string (M12);
   - provenance comments that still say "RX 7900 XT" in plugin, decoder and `tools/phxctl` headers (comments only);
-  - **the system-memory hi cap** (hw-safety review, medium; finding section 7): `max_mem / 2` wired on 32 GB is 16 GiB.
-    The real fix is VRAM BOs for every process by default (13 item 3), which leaves system memory as the fallback
-    only. Until then, decide before the deploy: keep `max_mem / 2` (Linux's number), or lower it (`max_mem / 4` is 8
-    GiB, still above the old 6 GiB per client), which means apps that trust the ~23 GiB working set fail allocations
-    sooner. A memory-pressure test either way (owner's OK: GPU load);
+  - **the system-memory hi cap** (hw-safety review, medium; finding section 7): decided `max_mem / 4` (8 GiB wired on
+    32 GB; Linux's `max_mem / 2` is for swappable pages). The real fix is VRAM BOs for every process by default (13
+    item 3), which leaves system memory as the fallback only. A memory-pressure test after the deploy (owner's OK:
+    GPU load);
   - make the hi cap's check-and-count one atomic step (reserve with `OSAddAtomic64`, undo on failure);
   - if GFXOFF is ever allowed: bracket the lazy GC register read with a GFXOFF disallow, as Linux does.
 
@@ -774,7 +773,7 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   was declined for ~2-3 W (decisions 2026-11-23); revisit only if a workload shows the clock gap. Effort M, a kext: EFI
   change. (c) WindowServer's ~280 wakeups/s on an idle desktop: compare with a real Mac first. Effort S.
 - [~] **8. The 6 GiB Metal working set** (`phx_globals.cpp`) sized from VRAM: done in b168 (`ownback/device-info`,
-  23696 MiB hi pool, system-memory hi BOs under half the RAM); waits for its deploy (Staged now).
+  23696 MiB hi pool, system-memory hi BOs under a quarter of the RAM); waits for its deploy (Staged now).
 - [ ] **9. Fable's follow-ups from #15** (each changes machine code: one kext build bump, b161, one EFI change):
   - ~~Check `gpuTimeReset`~~: answered by 03 (2026-11-23, [finding](findings/2026-11-23-apis-video.md) section 1):
     retiring the VCN queue there is harmless (VCN entries carry `kNoCtx`); the helper below may include or skip it.

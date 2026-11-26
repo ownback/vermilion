@@ -752,10 +752,12 @@ not the threat this guard answers: the machine lock and the review of every chan
   width) are flagged defaults, not hidden constants: each has a bit in `phxn_devinfo.flags`. The per-SA CU masks are
   flagged too: Linux reads them after a `GRBM_GFX_INDEX` select, a write that needs its own hw-safety pass.
 - The hi VRAM pool is sized from `RCC_CONFIG_MEMSIZE` (23696 MiB on 24 GiB, was 6 GiB): rule 3. While most hi BOs are
-  still system memory, all clients' system-memory hi BOs together stay under half the RAM, Linux TTM's `max_mem / 2`.
+  still system memory, all clients' system-memory hi BOs together stay under a quarter of the RAM (`max_mem / 4`):
+  Linux TTM allows half, but for swappable pages, and these are wired (a failed allocation harms one app, memory
+  pressure the whole system).
 - Activity Monitor's `Device Utilization %` comes from a fence sampler in the kext (a thread call every 2 ms, only while
   the GFX / compute queues have work), not from the PMFW metrics table: no firmware message. The metrics-table source
   is plan C5's, with the sampler as its fallback.
 - **Revisit:** the CU masks with the select once hw-safety clears it; VRAM type / width from the VBIOS `vram_info`;
   the firmware versions from the files the daemon loads; the sampler if its cost shows up in a profile; the
-  `max_mem / 2` cap, since those pages are wired, not swappable as TTM's are (hw-safety review, medium: TODO).
+  `max_mem / 4` cap once VRAM BOs are the default for every process (TODO 13 item 3).

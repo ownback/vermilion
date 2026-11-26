@@ -79,8 +79,9 @@ Each one is flagged in `phxn_devinfo.flags` and in `sysctl debug.phxdevinfo`:
 
 - The hi pool is `fbSize - 512 MiB fixed regions - 112 MiB top reserve - 256 MiB visible`, which is 23696 MiB on 24 GiB
   (was a fixed 6144 MiB). `kHiTotal` remains only as the fallback when no VRAM size is known.
-- Hi BOs that are still system memory (every process outside `debug.phxbo_vram_proc`) are capped together at half the
-  RAM. That is `max_mem / 2`, Linux TTM's limit. `vram_hi_free` reports the lower of the two limits.
+- Hi BOs that are still system memory (every process outside `debug.phxbo_vram_proc`) are capped together at a quarter
+  of the RAM, `max_mem / 4` (8 GiB on 32 GB). Linux TTM allows half, but for pages it can swap; these are wired (finding
+  1 of section 7). `vram_hi_free` reports the lower of the two limits.
 - Metal's `recommendedMaxWorkingSetSize` is the Vulkan device-local heap on AMD (`nvmtl_vk_working_set`), and RADV
   sizes that heap from the kext's VRAM totals. With b168 it should read about 23.4 GiB instead of 6 GiB (unverified).
   OpenCL's global memory follows the same heap (A11).
@@ -155,7 +156,9 @@ Open, not GPU programming (TODO "Device info follow-ups"):
 1. **Medium, memory policy.** Hi BOs of processes not opted in to real VRAM are wired system memory. The global cap,
    `max_mem / 2`, allows 16 GiB wired on 32 GB; before b168 it was 6 GiB per client, with no global cap. Linux TTM's 50%
    applies to pages it can swap, so it isn't the same limit. An app that sizes its pools from the ~23 GiB heap could
-   put macOS under memory pressure (unverified).
+   put macOS under memory pressure (unverified). **Decided 2026-11-26:** `max_mem / 4` (8 GiB on 32 GB, above the old
+   6 GiB per client): an app that trusts the working set fails an allocation sooner, which harms one app; memory
+   pressure from wired pages harms the whole system.
 2. **Low.** The cap check and the counter update aren't one atomic step, so concurrent creates can overshoot the cap
    by their sizes.
 3. **Low.** If GFXOFF is ever allowed, the lazy GC register read (from QueryInfo and the sysctl) needs Linux's

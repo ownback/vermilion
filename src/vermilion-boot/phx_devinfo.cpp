@@ -126,8 +126,10 @@ uint64_t PhxBringup::vramDevTotal() const {
 }
 uint64_t PhxBringup::vramHiTotal() const { return vramDevTotal() - kVisTotal; }
 // The hi pool is system memory unless a process is opted into real VRAM (debug.phxbo_vram_proc): all clients together
-// may hold at most half the RAM in it, the limit Linux's TTM puts on system pages (ttm_tt page limit).
-uint64_t PhxBringup::hiSysCap() const { return max_mem / 2; }
+// may hold at most a quarter of the RAM in it. Linux's TTM allows half (ttm_tt page limit), but its pages can be
+// swapped and these are wired, so half could put macOS under memory pressure (2026-11-26, the megamind's call on the
+// hw-safety review's medium point; revisit when VRAM BOs are the default for every process, TODO 13 item 3).
+uint64_t PhxBringup::hiSysCap() const { return max_mem / 4; }
 
 // ---- the busy sampler (PhxGpuStats.h) ---------------------------------------------------------------------------------
 static int gGpuBusyUs = static_cast<int>(phxbusy::kDefPeriodUs);

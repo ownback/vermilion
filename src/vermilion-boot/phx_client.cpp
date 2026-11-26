@@ -443,7 +443,7 @@ uint64_t IOAccelPhxNativeClient::hiBudget() const {
     const uint64_t t = owner->vramDevTotal(), v = visBudget();
     return t > v ? t - v : 0;
 }
-// The hi pool's system-memory BOs of all clients together stay under PhxBringup::hiSysCap (half the RAM).
+// The hi pool's system-memory BOs of all clients together stay under PhxBringup::hiSysCap (a quarter of the RAM).
 static bool phxHiSysFits(const PhxBringup *o, uint64_t size) {
     const SInt64 used = gHiSysBytes;
     return static_cast<uint64_t>(used > 0 ? used : 0) + size <= o->hiSysCap();

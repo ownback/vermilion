@@ -329,7 +329,7 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
 void nvmtl_vk_scanout_stop(const char *why);
 int nvmtl_vk_scanout_on(void);
 /* b162 direct scan-out (nvmtl_scanout.c, nvmtl_scan_direct.h): the display surfaces drawn in VRAM slots and scanned out
-   with no copy. _wanted: the ws-direct switch is on; _on: a pair is bound now (the write gate applies); _note: a display
+   with no copy. _wanted: direct scan-out is on (no ws-direct-off); _on: a pair is bound now (the write gate applies); _note: a display
    surface CoreDisplay wrote and the host import (buf, mem) its texture `owner` is drawn through; _write_gate: before a
    command buffer writing the full-screen surfaces sid[0..n) through mem[0..n) is submitted (0 go: the bound ones, bits
    of *let, counted as in flight until _write_note(sid, -1) once it has finished, before its present; 1 none bound;

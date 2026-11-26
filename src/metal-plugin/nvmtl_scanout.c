@@ -11,7 +11,7 @@
  * Cobalt64 does. The display pipe's own copies keep going to the console surface, which is off screen meanwhile.
  * Any failure gives the plane back and leaves this process on the CPU copy for good.
  *
- * Direct scan-out (kext b162, nvmtl_scan_direct.h; /Library/GPUBundles/nvmtl/ws-direct): with CDCOPY, the two display
+ * Direct scan-out (kext b162, nvmtl_scan_direct.h; on by default, off with /Library/GPUBundles/nvmtl/ws-direct-off): with CDCOPY, the two display
  * surfaces' own GPU memory is bound to VRAM slots 0 and 1, so CoreDisplay draws them in VRAM and a present is the flip
  * alone, no copy. Slot 2 only takes the bounce (the surface on screen written again with no other flip coming). Before
  * a command buffer that writes a bound surface is submitted, nvmtl_vk_scanout_write_gate waits until HUBP0 cannot be
@@ -19,8 +19,8 @@
  * waits for the GPU, copies both surfaces back onto their pages and releases (the kext flips to the console and checks
  * it), with the submit lock held so nothing writes them in between; the copy path then runs as before.
  *
- * The switch is live one way: removing ws-direct ends direct at the next present. Creating it while the copy path presents
- * does nothing until the next WindowServer start (one log line says so): a move would release the plane and the bind
+ * The switch is live one way: creating ws-direct-off ends direct at the next present. Removing it while the copy path
+ * presents does nothing until the next WindowServer start (one log line says so): a move would release the plane and the bind
  * drains the queue (nvmtl_sd_appeared_note). While bound, a surface's pages are not drawn into; once nothing is presented
  * for 100 ms (NVMTL_SD_SYNC_IDLE_NS) each surface that changed has its VRAM copied onto its pages so a screenshot reads the
  * current frame (nvmtl_scan_sync_*; host-tested only, unverified on hardware).
@@ -114,26 +114,28 @@ static _Atomic uint32_t g_sd_ungated;       /* full-screen writes committed with
 static unsigned g_sd_fails, g_sd_flaps; static int g_sd_off; static uint64_t g_sd_until, g_sd_wait0, g_sd_flap0;
 static _Atomic uint32_t g_sd_wgen[64];      /* writes to a bound surface (id & 63) that finished: part of the page sync's token */
 static int g_sd_wanted_at_start, g_sd_appeared_said;   /* nvmtl_sd_appeared_note, under g_scan_lock */
-/* /Library/GPUBundles/nvmtl/ws-direct (re-read every second): the switch. Absent: the copy path (a bound pair is copied
-   back and released at the next present). Appearing while the copy path presents: read at the next start (the present
-   logs it once, nvmtl_sd_appeared_note). */
+/* Direct scan-out is ON by default; /Library/GPUBundles/nvmtl/ws-direct-off (re-read every second) turns it off (the old
+   opt-in file ws-direct is ignored). Created: the copy path (a bound pair is copied back and released at the next
+   present). Removed while the copy path presents: read at the next start (the present logs it once,
+   nvmtl_sd_appeared_note). */
 static int nvmtl_sd_wanted(void)
 {
     static _Atomic int on = 0; static _Atomic uint64_t checked;
     const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     if (now - atomic_load(&checked) > 1000000000ull) {
-        struct stat st; const int v = stat("/Library/GPUBundles/nvmtl/ws-direct", &st) == 0;
-        if (v != atomic_exchange(&on, v)) nvlog("ws gpu present: direct scan-out %s (ws-direct)", v ? "wanted" : "off");
+        struct stat st; const int v = stat("/Library/GPUBundles/nvmtl/ws-direct-off", &st) != 0;
+        if (v != atomic_exchange(&on, v)) nvlog("ws gpu present: direct scan-out %s (ws-direct-off %s)", v ? "wanted" : "off", v ? "absent" : "present");
         atomic_store(&checked, now);
     }
     return atomic_load(&on) == 1;
 }
-/* ws-gpu-present-async (NVMTLWSPresent.m reads the same file): presents run on the execution worker, never on the
-   committing thread the write gate may hold, so the flip that frees a surface cannot wait behind its own gate. */
+/* Async GPU present (on unless ws-gpu-present-async-off; NVMTLWSPresent.m reads the same file): presents run on the
+   execution worker, never on the committing thread the write gate may hold, so the flip that frees a surface cannot
+   wait behind its own gate. */
 static int nvmtl_sd_async_file(void)
 {
     struct stat st;
-    return stat("/Library/GPUBundles/nvmtl/ws-gpu-present-async", &st) == 0;
+    return stat("/Library/GPUBundles/nvmtl/ws-gpu-present-async-off", &st) != 0;
 }
 int nvmtl_vk_scanout_direct_wanted(void) { return nvmtl_sd_wanted() && !g_sd_off; }
 int nvmtl_vk_scanout_direct_on(void) { return atomic_load(&g_sd_on); }
@@ -567,7 +569,7 @@ static int nvmtl_scan_direct_present_locked(const void *ref, uint32_t sid, int l
 {
     nvmtl_scan_dsurf *d = NULL;
     for (int i = 0; i < 2; i++) if (g_scan.dsurf[i].bound && g_scan.dsurf[i].sid == sid && g_scan.dsurf[i].ref == ref) d = &g_scan.dsurf[i];
-    if (!nvmtl_sd_wanted()) { nvmtl_scan_direct_out_locked("ws-direct removed", 0); return -1; }
+    if (!nvmtl_sd_wanted()) { nvmtl_scan_direct_out_locked("ws-direct-off created", 0); return -1; }
     if (!d) {
         /* new display surfaces (HDR on / off, a format or size change) or a third one in the rotation: a flap guard turns
            three of these within 5 s into a failure */
@@ -833,7 +835,7 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
               (unsigned long long)g_scan.gapBin[2], (unsigned long long)g_scan.gapBin[3], (unsigned long long)g_scan.gapBin[4]);
     ret = 0;
     if (nvmtl_sd_appeared_note(g_sd_wanted_at_start, nvmtl_sd_wanted(), &g_sd_appeared_said))
-        nvlog("ws gpu present: ws-direct appeared: takes effect at the next WindowServer start");
+        nvlog("ws gpu present: ws-direct-off removed: direct scan-out takes effect at the next WindowServer start");
 out:
     pthread_mutex_unlock(&g_scan_lock);
     return ret;

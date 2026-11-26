@@ -67,15 +67,16 @@ static void nvmtl_e0_commit(NVMTLCommandBuffer *cb, BOOL swap) {
     objc_setAssociatedObject(cb, nvmtl_e0_key, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     nvmtl_e0("C cb %p %s q=%s l=%s%s", (__bridge void *)cb, swap ? "SWAP" : "-", cb->_queue.label.UTF8String ?: "?", cb.label.UTF8String ?: "?", line);
 }
-// WindowServer GPU present switch (/Library/GPUBundles/nvmtl/ws-gpu-present, re-read every second): after the
-// swap-preceding commit has finished on the GPU, its display surface goes to a VRAM slot the GPU copies it into, and
-// HUBP0 flips there (nvmtl_vk_scanout_present). Deleting the file gives the plane back; it stays off for the process.
+// WindowServer GPU present, ON by default (the opt-out /Library/GPUBundles/nvmtl/ws-gpu-present-off, re-read every
+// second; the old opt-in file ws-gpu-present is ignored): after the swap-preceding commit has finished on the GPU, its
+// display surface goes to a VRAM slot the GPU copies it into, and HUBP0 flips there (nvmtl_vk_scanout_present). Creating
+// the opt-out file gives the plane back; it stays off for the process.
 static BOOL nvmtl_ws_gpu_present_on(void) {
     static _Atomic int on = 0; static _Atomic uint64_t checked;
     const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     if (now - atomic_load(&checked) > 1000000000ull) {
-        struct stat st; const int v = stat("/Library/GPUBundles/nvmtl/ws-gpu-present", &st) == 0;
-        if (!v && atomic_load(&on)) nvmtl_vk_scanout_stop("ws-gpu-present removed");
+        struct stat st; const int v = stat("/Library/GPUBundles/nvmtl/ws-gpu-present-off", &st) != 0;
+        if (!v && atomic_load(&on)) nvmtl_vk_scanout_stop("ws-gpu-present-off created");
         atomic_store(&on, v); atomic_store(&checked, now);
     }
     return atomic_load(&on) == 1;
@@ -226,16 +227,16 @@ static void nvmtl_ws_note_display(NVMTLCommandBuffer *cb, BOOL waited) {
     objc_setAssociatedObject(cb, nvmtl_ws_gen_key, @(g), OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     objc_setAssociatedObject(cb, nvmtl_ws_waited_key, waited ? @YES : nil, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 }
-// /Library/GPUBundles/nvmtl/ws-gpu-present-async (with ws-gpu-present): WindowServer does not wait for its swap commit
-// any more; the copy and the flip run when the GPU has finished it, on the execution worker (serial with the GPU work
+// Async GPU present, ON by default (opt-out /Library/GPUBundles/nvmtl/ws-gpu-present-async-off; the old opt-in file
+// ws-gpu-present-async is ignored), with GPU present: WindowServer does not wait for its swap commit any more; the copy and the flip run when the GPU has finished it, on the execution worker (serial with the GPU work
 // that follows, so the surface is copied before anything can draw into it again). The display pipe's CPU copy then goes
 // to the console surface, which is off screen, so neither its wait (ws-screen-wait) nor its timing matter.
 static BOOL nvmtl_ws_gpu_async_on(void) {
     static _Atomic int on = 0; static _Atomic uint64_t checked;
     const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     if (now - atomic_load(&checked) > 1000000000ull) {
-        struct stat st; const int v = stat("/Library/GPUBundles/nvmtl/ws-gpu-present-async", &st) == 0;
-        if (v != atomic_exchange(&on, v)) nvlog("ws gpu present: async %s", v ? "ON (WindowServer no longer waits for its swap commit)" : "off");
+        struct stat st; const int v = stat("/Library/GPUBundles/nvmtl/ws-gpu-present-async-off", &st) != 0;
+        if (v != atomic_exchange(&on, v)) nvlog("ws gpu present: async %s", v ? "ON (WindowServer no longer waits for its swap commit)" : "off (ws-gpu-present-async-off)");
         atomic_store(&checked, now);
     }
     return atomic_load(&on) == 1 && nvmtl_vk_scanout_on();

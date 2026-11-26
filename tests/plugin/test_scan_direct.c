@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 /* test_scan_direct.c - the decisions of direct scan-out (src/metal-plugin/nvmtl_scan_direct.h, used by nvmtl_scanout.c):
    the display-surface pair, the start, the write gate (Linux's flip-complete test, the bounce, the timeout), the
-   failure cooldown, the live switch-on and the idle page sync. Also a model of two display surfaces flipping at vblank,
+   failure cooldown, the ws-direct-appeared note and the idle page sync. Also a model of two display surfaces flipping at vblank,
    driven through the gate, that checks no write is ever let through to a surface HUBP0 may fetch and that the gate never
    stalls for good.
    cc -Wall -Wextra -Werror -I src/metal-plugin tests/plugin/test_scan_direct.c -o /tmp/test_scan_direct && /tmp/test_scan_direct */
@@ -147,69 +147,58 @@ int main(void)
                                                             waited >= NVMTL_SD_GATE_MAX_US && waited < NVMTL_SD_GATE_MAX_US + 1000 && !torn);
     }
 
-    /* ---- the live switch-on: ws-direct appears while the copy path presents ---- */
+    /* ---- ws-direct appearing while the copy path presents: said once, nothing else ---- */
     {
-        nvmtl_sd_start_in s; memset(&s, 0, sizeof s);
-        s.wanted = 1; s.kextOk = 1; s.async = 1; s.hubpFormat = NVMTL_SD_FMT8; s.pitchPx = 2560; s.pitch = 10240; s.pairs = 2; s.shownInPair = 1;
-        const uint64_t S = 1000000000ull;
-        nvmtl_sd_live l; memset(&l, 0, sizeof l);
-        { nvmtl_sd_start_in x = s; x.wanted = 0; arm("live: no file: stays on the copy path", !nvmtl_sd_live_on(&x, 0, &l, 10 * S)); }
-        { nvmtl_sd_start_in x = s; x.pairs = 1; arm("live: one display surface known: wait, no move", !nvmtl_sd_live_on(&x, 0, &l, 10 * S)); }
-        { nvmtl_sd_start_in x = s; x.shownInPair = 0; arm("live: the shown surface is not in the pair: no move", !nvmtl_sd_live_on(&x, 0, &l, 10 * S)); }
-        { nvmtl_sd_start_in x = s; x.kextOk = 0; arm("live: kext refuses: no move", !nvmtl_sd_live_on(&x, 0, &l, 10 * S)); }
-        { nvmtl_sd_start_in x = s; x.async = 0; arm("live: presents not async: no move", !nvmtl_sd_live_on(&x, 0, &l, 10 * S)); }
-        { nvmtl_sd_start_in x = s; x.hubpFormat = NVMTL_SD_FMT10; arm("live: BGRA pair on 10-bit scan-out: no move", !nvmtl_sd_live_on(&x, 0, &l, 10 * S)); }
-        arm("live: nothing eligible leaves no eligibility mark", l.eligibleNs == 0);
-        arm("live: file there, pair known, quiet: move", nvmtl_sd_live_on(&s, 0, &l, 10 * S) == 1);
-        /* the same inputs decide the start itself: a move happens only where the start would bind */
-        arm("live: a move implies the start says direct", nvmtl_sd_start(&s) == NVMTL_SD_START_DIRECT);
-        l.tries++; l.lastTryNs = 10 * S;
-        arm("live: just moved: no second move for 5 s", !nvmtl_sd_live_on(&s, 0, &l, 10 * S + NVMTL_SD_LIVE_RETRY_NS - 1));
-        arm("live: 5 s later it may try again", nvmtl_sd_live_on(&s, 0, &l, 10 * S + NVMTL_SD_LIVE_RETRY_NS) == 1);
-        l.tries = NVMTL_SD_LIVE_MAX_TRIES;
-        arm("live: tries used up: copy path for the process", !nvmtl_sd_live_on(&s, 0, &l, 1000 * S));
-        /* a write in flight postpones the move, but not for ever */
-        memset(&l, 0, sizeof l);
-        arm("live: a write in flight: wait for a quiet moment", !nvmtl_sd_live_on(&s, 1, &l, 20 * S) && l.eligibleNs == 20 * S);
-        arm("live: still busy 1 s later: wait", !nvmtl_sd_live_on(&s, 1, &l, 21 * S) && l.eligibleNs == 20 * S);
-        arm("live: quiet 1 s later: move", nvmtl_sd_live_on(&s, 0, &l, 21 * S) == 1);
-        arm("live: busy for 2 s: move anyway (the bind drains)", nvmtl_sd_live_on(&s, 1, &l, 20 * S + NVMTL_SD_LIVE_QUIET_MAX_NS) == 1);
-        { nvmtl_sd_start_in x = s; x.pairs = 0; (void)nvmtl_sd_live_on(&x, 1, &l, 30 * S);
-          arm("live: eligibility is lost with the pair (the wait starts over)", l.eligibleNs == 0); }
-        /* the state machine, a frame at a time at 144 Hz: the file appears, the pair is learned from the next writes, the
-           copy path moves once, the start binds, and a start that cannot bind (a failure) does not loop */
-        for (int run = 0; run < 2; run++) {
-            nvmtl_sd_live lv; memset(&lv, 0, sizeof lv);
-            nvmtl_sd_table tt; memset(&tt, 0, sizeof tt);
-            int wanted = 0, direct = 0, moves = 0, binds = 0, off = 0; uint64_t now = 5 * S, until = 0; unsigned fails = 0;
-            const int bindFails = run == 1;   /* run 1: every bind fails */
-            for (int f = 0; f < 3000; f++, now += 6944000ull) {
-                if (f == 100) wanted = 1;                         /* the file is created */
-                if (f == 2000 && !bindFails) wanted = 0;          /* and, in run 0, removed */
-                if (wanted) {                                     /* CoreDisplay's writes are noted while wanted (NVMTL_WS_PRESENT_CDCOPY) */
-                    nvmtl_sd_cand cc = cand(11 + (f & 1), (f & 1) + 1, (f & 1) + 1, (f & 1) + 1, 0); nvmtl_sd_note(&tt, &cc, &ev); }
-                nvmtl_sd_start_in x; memset(&x, 0, sizeof x);
-                x.wanted = wanted && !off && now >= until; x.kextOk = 1; x.async = 1; x.hubpFormat = NVMTL_SD_FMT8; x.pitchPx = 2560; x.pitch = 10240;
-                unsigned pa, pb; x.pairs = nvmtl_sd_pair(&tt, 2560, 1440, 10240, &pa, &pb); x.shownInPair = x.pairs == 2;
-                if (direct) { if (!wanted) direct = 0; continue; }   /* ws-direct removed: out at the next present */
-                if (nvmtl_sd_live_on(&x, 0, &lv, now)) {
-                    lv.tries++; lv.lastTryNs = now; moves++;
-                    if (bindFails) nvmtl_sd_fail(&fails, now, &until, &off);   /* the start that follows could not bind */
-                    else { binds++; direct = 1; }
-                }
-            }
-            if (!bindFails) {
-                arm("live model: the file appearing moves to direct once and binds", moves == 1 && binds == 1);
-                arm("live model: the file removed again goes back to the copy path", direct == 0);
-            } else
-                arm("live model: a bind that always fails: at most three moves, the plane does not flap", moves > 0 && moves <= (int)NVMTL_SD_LIVE_MAX_TRIES && binds == 0);
-        }
+        int said = 0;
+        arm("appeared: not wanted: nothing", !nvmtl_sd_appeared_note(0, 0, &said) && !said);
+        arm("appeared: wanted at the start (the start chose): nothing", !nvmtl_sd_appeared_note(1, 1, &said) && !said);
+        arm("appeared: wanted at the start, since removed: nothing", !nvmtl_sd_appeared_note(1, 0, &said) && !said);
+        arm("appeared: the file is new: say it", nvmtl_sd_appeared_note(0, 1, &said) == 1 && said);
+        arm("appeared: said once, not again", !nvmtl_sd_appeared_note(0, 1, &said) && !nvmtl_sd_appeared_note(0, 1, &said));
+        said = 0;
+        for (int f = 0; f < 3000; f++) { (void)nvmtl_sd_appeared_note(0, f >= 100, &said); }
+        arm("appeared: over many frames the line comes once", said == 1);
     }
     /* ---- the pages of a bound surface for CPU readers ---- */
-    arm("sync: a clean surface is not copied", !nvmtl_sd_sync_due(0, 0, 10 * NVMTL_SD_SYNC_IDLE_NS));
-    arm("sync: presenting just now: not yet", !nvmtl_sd_sync_due(1, 0, NVMTL_SD_SYNC_IDLE_NS - 1));
-    arm("sync: idle for 100 ms: copy", nvmtl_sd_sync_due(1, 0, NVMTL_SD_SYNC_IDLE_NS));
-    arm("sync: a write in flight: not now", !nvmtl_sd_sync_due(1, 1, 10 * NVMTL_SD_SYNC_IDLE_NS));
+    {
+        const uint64_t I = NVMTL_SD_SYNC_IDLE_NS;
+        nvmtl_sd_sync sy; memset(&sy, 0, sizeof sy);
+        arm("sync: a clean surface is not copied", !nvmtl_sd_sync_due(&sy, 0, 0, 10 * I));
+        arm("sync: changed but presenting just now: not yet", !nvmtl_sd_sync_due(&sy, 1, 0, I - 1));
+        arm("sync: changed, idle for 100 ms: copy", nvmtl_sd_sync_due(&sy, 1, 0, I));
+        arm("sync: a write in flight: not now", !nvmtl_sd_sync_due(&sy, 1, 1, 10 * I));
+        /* (d) a write that finished changes the token: dirty without a flip */
+        sy.synced = 5; arm("sync: a finished write (token moved), no flip: due", nvmtl_sd_sync_due(&sy, 6, 0, I));
+        arm("sync: same token: not due", !nvmtl_sd_sync_due(&sy, 5, 0, 10 * I));
+        /* (a) the gate holds writes while the copy runs, not before or after */
+        arm("sync: no copy running: writes are not held", !nvmtl_sd_sync_blocks_write(&sy));
+        nvmtl_sd_sync_begin(&sy, 6);
+        arm("sync: copy running: writes are held", nvmtl_sd_sync_blocks_write(&sy));
+        arm("sync: a second copy is not started meanwhile", !nvmtl_sd_sync_due(&sy, 7, 0, 10 * I));
+        /* (c) a failed copy leaves the surface dirty */
+        nvmtl_sd_sync_end(&sy, 0);
+        arm("sync: failed copy: still dirty, writes released", sy.synced == 5 && !nvmtl_sd_sync_blocks_write(&sy) && nvmtl_sd_sync_due(&sy, 6, 0, I));
+        /* (c, d) success clears only what the copy saw: a write that finished meanwhile keeps it dirty */
+        nvmtl_sd_sync_begin(&sy, 6);
+        nvmtl_sd_sync_end(&sy, 1);
+        arm("sync: a copy that succeeded: clean at its token", sy.synced == 6 && !nvmtl_sd_sync_due(&sy, 6, 0, 10 * I));
+        nvmtl_sd_sync_begin(&sy, 6);
+        nvmtl_sd_sync_end(&sy, 1);
+        arm("sync: a write finished during the copy (token 7): dirty again", nvmtl_sd_sync_due(&sy, 7, 0, I));
+        /* a model: a surface written every 4 ms for a second, then still; the copy comes after the last write, never during one */
+        {
+            nvmtl_sd_sync m; memset(&m, 0, sizeof m);
+            uint32_t tok = 0; uint64_t t = 0, last = 0; int copies = 0, copyDuring = 0, writing = 0, tornCopies = 0;
+            for (int ms4 = 0; ms4 < 400; ms4++) {
+                t += 4000000ull;
+                if (ms4 < 250) { writing = 1; tok++; last = t; }      /* a frame: write, finish, present */
+                else writing = 0;
+                if (nvmtl_sd_sync_due(&m, tok, writing, t - last)) { nvmtl_sd_sync_begin(&m, tok); copies++; if (writing) copyDuring++;
+                    if (nvmtl_sd_sync_blocks_write(&m)) { /* held until the fence */ } nvmtl_sd_sync_end(&m, 1); if (m.synced != tok) tornCopies++; }
+            }
+            arm("sync model: one copy, after the animation ended", copies == 1 && copyDuring == 0 && tornCopies == 0 && m.synced == tok);
+        }
+    }
 
     /* ---- the cooldown ---- */
     unsigned nf = 0; uint64_t until = 0; int off = 0;

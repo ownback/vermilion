@@ -647,13 +647,12 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   **Built 2026-11-25** (branch `ownback/ws-vram-scanout`, VermilionBoot b162 + NVMTLDriver, switch file `ws-direct`,
   hw-safety re-check OK; finding section 8). Not installed. Deploy: b162 alone (one boot), then plugin + VermilionTrust
   (one boot), then the switch file live; owner test and rollback in section 8.
-  **Follow-ups, built 2026-11-26** (branch `ownback/scanout-live-on`, plugin only, finding section 9): the switch
-  file now also works live when created (moves to direct at a frame boundary); stale screenshots of a still desktop
-  fixed by an idle page sync; the 16 % gate waits are the second surface's flip latching (inherent with two surfaces),
-  now counted by cause. Not installed; all (unverified) on hardware. Before it is switched on for users, decide the
-  open points listed at the end of section 9 (behaviour changes, own commits): the live move's immediate acquire can
-  end GPU present for the process if the console flip has not latched; the three tries are never given back; the 4 Hz
-  keepalive; the idle sync writes the pages with no IOSurface lock and holds `g_scan_lock` for the copy.
+  **Follow-ups, built 2026-11-26** (branch `ownback/scanout-live-on`, plugin only, finding section 9): a `ws-direct`
+  created while WindowServer runs takes effect at the next start (a live move was built and dropped: acquire can end
+  GPU present for the process, VRR flap, frame loss at the move; the plugin logs it once); stale screenshots of a still
+  desktop fixed by an idle page sync (no lock across the fence, under IOSurfaceLock, 4 Hz keepalive only while direct);
+  the 16 % gate waits are the second surface's flip latching (inherent with two surfaces), now counted. Not installed;
+  all (unverified) on hardware.
 - [ ] **1b. Narrow render-pass dependencies** (plugin, S-M): every pass has image-less ALL_COMMANDS / MEMORY_* entry
   and exit dependencies, likely an L2 flush per pass in RADV (unverified); ~0.4-0.5 ms of WindowServer's frame is
   the ~13 us per-pass floor. Measure RADV's flush bits per pass (or A/B `NVMTL_RP_K1=1`) before changing it.

@@ -317,8 +317,8 @@ host tests pass.
 2. Boot 2: install NVMTLDriver (the runbook's "Deploying a plugin ...": old binary to `~/vermilion-rollback/`), then
    `PHXTRUST_KEEP=1 sh scripts/build/trust.sh`, then an EFI change with only `Kexts/VermilionTrust.kext`, one boot.
    Without the switch file the plugin runs today's copy path: check that nothing changed.
-3. No restart: `sudo touch /Library/GPUBundles/nvmtl/ws-direct`. WindowServer's plugin reads it within 1 s and moves
-   to direct at a frame boundary (section 9; (unverified)).
+3. No restart: `sudo touch /Library/GPUBundles/nvmtl/ws-direct`. WindowServer's plugin reads it within 1 s, but only the
+   next WindowServer start (restart or logout) chooses direct; the plugin logs that once (section 9).
 
 **Owner test.**
 1. Desktop: the log shows `ws gpu present: direct: ...` bind lines. The `direct:` part of `sysctl
@@ -349,25 +349,24 @@ host tests pass.
 
 ## 9. Direct scan-out follow-ups (2026-11-26, branch `ownback/scanout-live-on`)
 
-Host-tested only (`tests/plugin/test_scan_direct.c`, 75 checks); nothing installed. Everything this section says
-about hardware behaviour is (unverified). What it starts from was seen on the XTX machine, boot of 2026-11-26 00:42:
-`ws-direct` created while WindowServer ran did nothing, and after a restart with the file present both surfaces were
-drawn in VRAM slots 0 and 1 with no copy.
+Host-tested only (`tests/plugin/test_scan_direct.c`); nothing installed. Everything this section says about hardware
+behaviour is (unverified). What it starts from was seen on the XTX machine, boot of 2026-11-26 00:42: `ws-direct`
+created while WindowServer ran did nothing, and after a restart with the file present both surfaces were drawn in VRAM
+slots 0 and 1 with no copy.
 
-**Live switch-on.** The file was read live, but only a GPU present *start* chose direct, so a running copy path never
-asked again. The surfaces' VRAM placement is not decided at allocation: the bind moves the GPU maps of the plugin's host
-import onto the slot (selector 22) with the queue drained, and the seed copy takes the pages' current content. So a
-live move takes the same steps as a start. Now, at the end of a copy-path present (a frame boundary: the copy's fence
-is waited, the flip made), at most every 250 ms, `nvmtl_scan_direct_live_locked` builds the start's own inputs
-(`nvmtl_sd_start`: pair known, shown surface in it, formats, kext OK, async, cooldown) and, only if a start now would
-choose direct, waits for a quiet moment (no full-screen write in flight; after 2 s it goes anyway, the bind drains),
-logs `ws-direct appeared: direct scan-out engages at this frame boundary`, releases the plane exactly as the
-switch-off does and lets the next present start again, which does the bind with every check the start makes. The
-console shows from the release until the new plane's first flip (the switch-off waits 0.5 s before its start; the live
-move starts at the next present). A start that cannot bind is an ordinary direct failure (10 s cooldown, five of them:
-off), and the live move itself is capped at three per process, 5 s apart; a move that binds counts too. Display
-surfaces are noted only while the file is there (`nvmtl_ws_direct_note`), so after the file appears the pair is known
-after the next two unwaited CoreDisplay commits. The timings are named in `nvmtl_scan_direct.h` (`NVMTL_SD_LIVE_*`).
+**Switch-on is at the next WindowServer start (decided, not built live).** A first version moved the copy path to direct
+at a frame boundary. The clean-up pass read these risks from the code, and the move was dropped (a real Mac has no such
+toggle; direct scan-out is to be the default, so the file only matters at a start):
+- the start's acquire is refused while the release's console flip is pending; with no plane loss yet that sets
+  `state = -1`, GPU present off for the life of WindowServer;
+- the three tries were never given back, and nothing was logged when they were used up;
+- the quiet wait for no write in flight would mostly end in its 2 s fallback during an animation;
+- the release replaces the last flip with the console, whose CPU copy can show a frame the GPU is still drawing;
+- the kext drops the Adaptive Sync range at the release and restores it at the acquire (VRR off and on once).
+
+Now, when `ws-direct` appears while the copy path presents and it was not there at the start, the plugin logs once
+`ws-direct appeared: takes effect at the next WindowServer start` and does nothing else (`nvmtl_sd_appeared_note`).
+Removing the file still ends direct at the next present (copy back, release).
 
 **Writes that waited for a flip (16 %, 1.7 ms average).** The cause, from reading the code (the new counter is there
 to confirm it on the machine), is two surfaces, not a bug: CoreDisplay's next frame is written to the surface that is
@@ -375,41 +374,24 @@ still on screen until the flip to the other one latches at the next vblank (aver
 0.4 of a 240 Hz period). The gate cannot let it through (HUBP0 may still fetch it) and the bounce is no help while a
 flip is pending (a second flip would replace the first). A third slot has no surface to hold: CoreDisplay draws into
 two. An earlier flip is not possible: the present runs when the GPU has finished the frame. So it is left as it is;
-the log line now says how many of the waits found a flip still to latch at their first blocked poll (`dgatePend`), to
-confirm on the machine that it is all of them. No register write is involved.
+the log line says how many of the waits found a flip still to latch at their first blocked poll (`dgatePend`). No
+register write is involved.
 
 **Stale screenshots.** The cause is the documented one (section 8, known costs): while bound, a surface's pages are not
-drawn into (the GPU writes the slot), so `screencapture` read the frame from the bind. Fix in the plugin: once nothing
-has been presented for 100 ms, the keepalive copies each flipped surface's VRAM onto its pages (a read of the slot, so
-HUBP0 is not disturbed; held off while a write to it is in flight). A screenshot of a still desktop is current within
-about 350 ms (100 ms idle, then the next tick of the keepalive, which now runs at 4 Hz and sends Status once a
-second). One taken during an animation can still read an older frame; that is not fixed (needs the CPU reader to tell
-us, or a copy per frame). Counted as `idle syncs` in the 3000-present line.
-
-**Open points from the clean-up pass (2026-11-26; read from the code, none seen on hardware, nothing changed).**
-1. The live move starts again at the next present (`retryAt = 0`); every other way out waits 0.5 s. The kext's acquire
-   answers "not ready" while the console flip of the release has not latched (the release waits up to 50 ms for it,
-   then forces it). If that acquire fails and the process has had no plane loss yet (`restarts == 0`), the start sets
-   `state = -1`: GPU present off for the life of WindowServer.
-2. The three tries are never given back. A move that binds counts, nothing is logged when they are used up, and after
-   that a new `ws-direct` does nothing until WindowServer restarts. An ordinary way out of direct with the file present
-   (new surfaces after an HDR toggle) can come back through the copy path and a live move, which uses a try.
-3. The quiet wait samples the in-flight counts once per check (250 ms), at the end of a present. With async presents
-   and a running animation the next frame's write is usually committed by then, so a move during an animation is
-   likely to be the 2 s fallback. The fallback is a start with writes in flight, which b162 already handles: the first
-   direct presents are held (counted as drops) while an ungated write runs, and a hold over 250 ms is a direct failure
-   (cooldown).
-4. The present that triggers the move has just flipped to its slot; the release replaces that flip with the console,
-   and the slots are freed. Until the first direct flip the panel shows the display pipe's CPU copy, which can read a
-   frame the GPU is still drawing (the tear GPU present was built to remove). The start in between builds the
-   pipeline, drains (up to 1 s), imports and seeds two surfaces and registers the bounce slot with `g_scan_lock` held.
-5. The kext drops the Adaptive Sync range at the release and brings it back at the acquire, so a live move switches
-   VRR off and on once.
-6. The idle sync copies with `g_scan_lock` held and waits for the fence (up to 1 s per surface): a present or a write
-   gate that arrives then waits for it. The pages are written with no IOSurface lock and no seed change, so a CPU
-   reader during the copy can get a frame that is part new, part old, and one that caches by seed may not look again.
-   `dirty` is cleared before the copy (a failed copy is not tried again until the next present) and set only by a
-   flip (a finished write whose present was held leaves VRAM newer than the pages until that surface is flipped).
-7. The keepalive wakes WindowServer four times a second for as long as GPU present runs, on the copy path too (it was
-   once a second). While the file is there and the copy path runs, the present path makes a scan query every 250 ms,
-   also after the tries are used up.
+drawn into (the GPU writes the slot), so `screencapture` read the frame from the bind. Fix in the plugin, the idle
+page sync (`nvmtl_scan_sync_*`, `nvmtl_sd_sync` in `nvmtl_scan_direct.h`):
+- When: nothing presented for 100 ms, no write to the surface in flight, and the surface's token changed. The token
+  moves when a write to it finishes (`nvmtl_vk_scanout_write_note(sid, -1)`) or it is flipped, so a finished write
+  whose present was held still counts.
+- The scan-out lock is not held across the fence wait. The copy runs on its own command buffer and fence: the tick
+  submits it (a bounded step) and marks the surface; the write gate holds writes to a marked surface (as for a flip to
+  latch, no bounce) and reaps a finished copy on each poll; the keepalive tick and the ways out (drain, teardown) reap
+  too. A present never waits for the copy.
+- The pages are written under `IOSurfaceLock` (write), held from the submit to the reap, so the surface's seed moves
+  when the copy is done and a reader that locks sees the old frame or the new one.
+- The surface is clean only after a successful copy, and only at the token the copy started with: a write that
+  finished meanwhile keeps it dirty. A failed copy is retried at the next tick (the log line is limited to four).
+- The keepalive ticks four times a second only while direct is bound, once a second otherwise (as before).
+- A screenshot of a still desktop is current within about 350 ms. One taken during an animation can still read an
+  older frame (not fixed). Counted as `idle syncs` in the 3000-present line. Whether holding the IOSurface lock in
+  WindowServer's own process across the copy upsets anything is (unverified).

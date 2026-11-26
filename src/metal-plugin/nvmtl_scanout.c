@@ -19,13 +19,11 @@
  * waits for the GPU, copies both surfaces back onto their pages and releases (the kext flips to the console and checks
  * it), with the submit lock held so nothing writes them in between; the copy path then runs as before.
  *
- * The switch works live in both directions. Removed: the next present ends direct. Created while the copy path presents:
- * at the end of a present (a frame boundary, its fence waited) the copy path asks what a start would choose now, and if
- * that is direct it releases the plane and the next present starts again, binding the pair under the start's own drain
- * (nvmtl_scan_direct_live_locked). A surface written when no start has bound it yet is not lost: the bind seeds each
- * slot from the surface's pages. While bound, a surface's pages are not drawn into; once nothing is presented for 100 ms
- * (NVMTL_SD_SYNC_IDLE_NS) the keepalive copies each flipped surface's VRAM onto its pages so a screenshot reads the
- * current frame. The live switch-on and the page sync are host-tested only (unverified on hardware).
+ * The switch is live one way: removing ws-direct ends direct at the next present. Creating it while the copy path presents
+ * does nothing until the next WindowServer start (one log line says so): a move would release the plane and the bind
+ * drains the queue (nvmtl_sd_appeared_note). While bound, a surface's pages are not drawn into; once nothing is presented
+ * for 100 ms (NVMTL_SD_SYNC_IDLE_NS) each surface that changed has its VRAM copied onto its pages so a screenshot reads the
+ * current frame (nvmtl_scan_sync_*; host-tested only, unverified on hardware).
  */
 #include "scan_l10r_spv.h"   /* glslangValidator -V --vn scan_l10r_spv scan_l10r.comp -o scan_l10r_spv.h */
 struct nvmtl_scan_query { uint32_t h_active, v_active, h_total, v_total, pitch_px, hubp_format, sw_mode, otg, refresh_mhz, pix_clk_khz, dcc_en, flags;
@@ -54,7 +52,8 @@ struct nvmtl_scan_reg { uint32_t handle, reserved0; uint64_t offset; uint32_t pi
 typedef struct {   /* a display surface bound to a slot */
     void *ref, *owner, *base;        /* retained IOSurface and backing texture; the surface's pages */
     uint32_t sid, slotId; int l10r, bound;
-    int dirty;                       /* flipped since its pages were last brought up to date (nvmtl_scan_direct_sync_locked) */
+    uint32_t flips;                  /* presents of this surface; with g_sd_wgen the token of nvmtl_sd_sync */
+    nvmtl_sd_sync sync;              /* its pages vs its VRAM (nvmtl_scan_sync_*) */
     VkBuffer buf; VkDeviceMemory mem; /* its texture's host import, now reaching the slot's VRAM */
     nvk_buffer pages;                 /* a second import of its pages: the seed copy in, the copy back out */
 } nvmtl_scan_dsurf;
@@ -82,12 +81,16 @@ static struct {
     int (*bohandle)(VkDevice, VkDeviceMemory, uint32_t *);
     nvmtl_scan_dsurf dsurf[2];
     uint64_t dpresents, dbounces, dgates, dgateWaits, dgateUs, dgatePend, dsyncs;
+    VkCommandBuffer scb; VkFence sfence; int syncIdx;   /* the page sync's copy in flight (surface syncIdx), its own fence */
 } g_scan;
 static pthread_mutex_t g_scan_lock = PTHREAD_MUTEX_INITIALIZER;
-/* The keepalive timer (nvmtl_scan_keepalive) ticks at 4 Hz for the page sync. Status goes out on the first tick that is
-   NVMTL_SCAN_STATUS_MIN_NS or more after the last one: once a second (the fourth tick, with room for the leeway). */
-#define NVMTL_SCAN_KEEPALIVE_NS        (NSEC_PER_SEC / 4)
-#define NVMTL_SCAN_KEEPALIVE_LEEWAY_NS (NVMTL_SCAN_KEEPALIVE_NS / 10)
+static void nvmtl_scan_sync_reap_locked(int wait);
+/* The keepalive timer (nvmtl_scan_keepalive): once a second on the copy path (Status keeps the plane), four times a second
+   while direct scan-out is bound (the page sync). Status goes out on the first tick that is NVMTL_SCAN_STATUS_MIN_NS or
+   more after the last one. */
+#define NVMTL_SCAN_KEEPALIVE_NS        NSEC_PER_SEC
+#define NVMTL_SCAN_KEEPALIVE_DIRECT_NS (NSEC_PER_SEC / 4)
+#define NVMTL_SCAN_KEEPALIVE_LEEWAY_NS(ns) ((ns) / 10)
 #define NVMTL_SCAN_STATUS_MIN_NS       900000000ull
 
 /* the plane did not match the display surface (a resolution change): retrying, not counted as a loss */
@@ -109,10 +112,11 @@ static _Atomic int g_sd_on;                 /* = g_scan.direct, for the write ga
 static _Atomic uint32_t g_sd_out[64];       /* writes the gate let through to a bound surface (id & 63), until they finished */
 static _Atomic uint32_t g_sd_ungated;       /* full-screen writes committed without the gate (direct was off) and not finished */
 static unsigned g_sd_fails, g_sd_flaps; static int g_sd_off; static uint64_t g_sd_until, g_sd_wait0, g_sd_flap0;
-static nvmtl_sd_live g_sd_live; static uint64_t g_sd_live_checked;   /* live switch-on (nvmtl_scan_direct_live_locked), under g_scan_lock */
-/* /Library/GPUBundles/nvmtl/ws-direct (re-read every second): the switch, both ways while WindowServer runs. Absent: the
-   copy path (a bound pair is copied back and released at the next present). Appearing: the copy path moves to direct at
-   a frame boundary (nvmtl_scan_direct_live_locked, nvmtl_sd_live_on in nvmtl_scan_direct.h). */
+static _Atomic uint32_t g_sd_wgen[64];      /* writes to a bound surface (id & 63) that finished: part of the page sync's token */
+static int g_sd_wanted_at_start, g_sd_appeared_said;   /* nvmtl_sd_appeared_note, under g_scan_lock */
+/* /Library/GPUBundles/nvmtl/ws-direct (re-read every second): the switch. Absent: the copy path (a bound pair is copied
+   back and released at the next present). Appearing while the copy path presents: read at the next start (the present
+   logs it once, nvmtl_sd_appeared_note). */
 static int nvmtl_sd_wanted(void)
 {
     static _Atomic int on = 0; static _Atomic uint64_t checked;
@@ -136,7 +140,8 @@ int nvmtl_vk_scanout_direct_on(void) { return atomic_load(&g_sd_on); }
 void nvmtl_vk_scanout_write_note(uint32_t sid, int delta)
 {
     if (delta > 0) atomic_fetch_add(&g_sd_out[sid & 63], 1);
-    else { uint32_t v = atomic_load(&g_sd_out[sid & 63]);
+    else { atomic_fetch_add(&g_sd_wgen[sid & 63], 1);   /* a write finished: its VRAM may have changed */
+           uint32_t v = atomic_load(&g_sd_out[sid & 63]);
            while (v && !atomic_compare_exchange_weak(&g_sd_out[sid & 63], &v, v - 1)) {} }
 }
 /* A full-screen write is being committed: 1 = gated (direct is on: call nvmtl_vk_scanout_write_gate), 0 = ungated, counted
@@ -178,27 +183,32 @@ static void nvmtl_sd_reap(void)
     for (unsigned i = 0; i < n; i++) { CFRelease(d[i].owner); CFRelease(d[i].ref); }
 }
 /* One GPU buffer copy on the present command buffer, waited for (submitted under the submit lock, which is recursive). */
+static int nvmtl_scan_copy_submit_locked(VkCommandBuffer *cb, VkFence fence, VkBuffer src, VkBuffer dst, VkDeviceSize bytes)
+{
+    if (*cb) pvkFreeCommandBuffers(g_dev, g_scan.pool, 1, cb);
+    *cb = VK_NULL_HANDLE;
+    VkCommandBufferAllocateInfo cbai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, NULL, g_scan.pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1 };
+    if (!g_scan.pool || !fence || pvkAllocateCommandBuffers(g_dev, &cbai, cb) != VK_SUCCESS) { *cb = VK_NULL_HANDLE; return -1; }
+    VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, NULL, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, NULL };
+    pvkBeginCommandBuffer(*cb, &bi);
+    VkMemoryBarrier before = { VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT };
+    pvkCmdPipelineBarrier(*cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, NULL, 0, NULL);
+    VkBufferCopy rg = { 0, 0, bytes };
+    pvkCmdCopyBuffer(*cb, src, dst, 1, &rg);
+    VkMemoryBarrier after = { VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
+    pvkCmdPipelineBarrier(*cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &after, 0, NULL, 0, NULL);
+    pvkEndCommandBuffer(*cb);
+    VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, 0, NULL, NULL, 1, cb, 0, NULL };
+    pvkResetFences(g_dev, 1, &fence);
+    pthread_mutex_lock(&nvmtl_submit_mutex);
+    VkResult sr = g_state == 1 ? pvkQueueSubmit(g_queue, 1, &si, fence) : VK_ERROR_DEVICE_LOST;
+    pthread_mutex_unlock(&nvmtl_submit_mutex);
+    return sr == VK_SUCCESS ? 0 : -1;
+}
 static int nvmtl_scan_copy_wait_locked(VkBuffer src, VkBuffer dst, VkDeviceSize bytes)
 {
-    if (g_scan.cb) pvkFreeCommandBuffers(g_dev, g_scan.pool, 1, &g_scan.cb);
-    g_scan.cb = VK_NULL_HANDLE;
-    VkCommandBufferAllocateInfo cbai = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, NULL, g_scan.pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY, 1 };
-    if (!g_scan.pool || !g_scan.fence || pvkAllocateCommandBuffers(g_dev, &cbai, &g_scan.cb) != VK_SUCCESS) { g_scan.cb = VK_NULL_HANDLE; return -1; }
-    VkCommandBufferBeginInfo bi = { VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, NULL, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, NULL };
-    pvkBeginCommandBuffer(g_scan.cb, &bi);
-    VkMemoryBarrier before = { VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_MEMORY_WRITE_BIT, VK_ACCESS_TRANSFER_READ_BIT };
-    pvkCmdPipelineBarrier(g_scan.cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &before, 0, NULL, 0, NULL);
-    VkBufferCopy rg = { 0, 0, bytes };
-    pvkCmdCopyBuffer(g_scan.cb, src, dst, 1, &rg);
-    VkMemoryBarrier after = { VK_STRUCTURE_TYPE_MEMORY_BARRIER, NULL, VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
-    pvkCmdPipelineBarrier(g_scan.cb, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &after, 0, NULL, 0, NULL);
-    pvkEndCommandBuffer(g_scan.cb);
-    VkSubmitInfo si = { VK_STRUCTURE_TYPE_SUBMIT_INFO, NULL, 0, NULL, NULL, 1, &g_scan.cb, 0, NULL };
-    pvkResetFences(g_dev, 1, &g_scan.fence);
-    pthread_mutex_lock(&nvmtl_submit_mutex);
-    VkResult sr = g_state == 1 ? pvkQueueSubmit(g_queue, 1, &si, g_scan.fence) : VK_ERROR_DEVICE_LOST;
-    pthread_mutex_unlock(&nvmtl_submit_mutex);
-    return sr == VK_SUCCESS && pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, 1000000000ull) == VK_SUCCESS ? 0 : -1;
+    return nvmtl_scan_copy_submit_locked(&g_scan.cb, g_scan.fence, src, dst, bytes) ||
+           pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, 1000000000ull) != VK_SUCCESS ? -1 : 0;
 }
 /* Every submission this process made to its queue (the plugin's only one) has finished: an empty submit's fence, which
    signals once all work submitted before it has completed. 1 s at most (not vkDeviceWaitIdle: no limit). */
@@ -217,6 +227,7 @@ static int nvmtl_scan_drain_locked(void)
 static void nvmtl_scan_direct_copyback_locked(void)
 {
     const int idle = !nvmtl_scan_drain_locked();
+    nvmtl_scan_sync_reap_locked(1);   /* a page sync still running: finished by the drain, its lock released */
     int copied = 0;
     for (int i = 0; i < 2; i++) {
         nvmtl_scan_dsurf *d = &g_scan.dsurf[i];
@@ -246,6 +257,9 @@ static void nvmtl_scan_off_locked(const char *why)
    (each present waits for its fence). */
 static void nvmtl_scan_teardown_locked(void)
 {
+    nvmtl_scan_sync_reap_locked(1);
+    if (g_scan.sfence) pvkDestroyFence(g_dev, g_scan.sfence, NULL);
+    g_scan.sfence = VK_NULL_HANDLE; g_scan.scb = VK_NULL_HANDLE;   /* the pool frees the command buffer */
     if (g_scan.cb) pvkFreeCommandBuffers(g_dev, g_scan.pool, 1, &g_scan.cb);
     if (g_scan.pool) pvkDestroyCommandPool(g_dev, g_scan.pool, NULL);
     if (g_scan.fence) pvkDestroyFence(g_dev, g_scan.fence, NULL);
@@ -302,24 +316,64 @@ static void nvmtl_scan_direct_out_locked(const char *why, int fail)
 }
 
 /* Stale pages: a bound surface's pages are not drawn into, so a CPU reader (screencapture) sees the frame from the bind.
-   Once nothing has been presented for NVMTL_SD_SYNC_IDLE_NS, each surface flipped since its last sync has its VRAM copied
-   onto its pages (the copy only reads the slot). With g_scan_lock held no write can pass the gate meanwhile, and one that
-   already passed (g_sd_out) or skipped it (g_sd_ungated) postpones the copy. */
-static void nvmtl_scan_direct_sync_locked(uint64_t now)
+   Once nothing has been presented for NVMTL_SD_SYNC_IDLE_NS, a surface whose token changed (nvmtl_sd_sync: a write to it
+   finished, or it was flipped) has its VRAM copied onto its pages. The copy runs on its own command buffer and fence
+   and is NOT waited for under g_scan_lock: begin submits it (a bounded step) and marks the surface, the write gate holds
+   writes to a marked surface, and whoever takes the lock next reaps it (the gate's poll, the keepalive tick, the way out).
+   So a present never stalls behind the copy, and no write lands while the pages are being written. The pages are written
+   under IOSurfaceLock(write), held from the submit to the reap, so the surface's seed moves when the copy is done and a
+   reader that locks sees either the old frame or the new one, not a mix. The surface is clean only if the copy
+   succeeded (nvmtl_sd_sync_end). One copy at a time (one command buffer). */
+static int nvmtl_scan_sync_busy_locked(void)
 {
-    if (!g_scan.direct || g_scan.state != 1 || !g_scan.lastT) return;
+    for (int i = 0; i < 2; i++) if (g_scan.dsurf[i].sync.inflight) return 1;
+    return 0;
+}
+static void nvmtl_scan_sync_reap_locked(int wait)
+{
     for (int i = 0; i < 2; i++) {
         nvmtl_scan_dsurf *d = &g_scan.dsurf[i];
-        const int writeInFlight = atomic_load(&g_sd_ungated) != 0 || atomic_load(&g_sd_out[d->sid & 63]) != 0;
-        if (!d->bound || !d->pages.buf || !nvmtl_sd_sync_due(d->dirty, writeInFlight, now - g_scan.lastT)) continue;
-        d->dirty = 0;   /* before the copy: one that fails is not tried again until the surface's next present */
-        if (nvmtl_scan_copy_wait_locked(d->buf, (VkBuffer)d->pages.buf, (VkDeviceSize)g_scan.pitch * g_scan.h)) {
-            static unsigned said; if (said++ < 4) nvlog("ws gpu present: direct: surface %u's pages could not be brought up to date", d->sid); }
-        else g_scan.dsyncs++;
+        if (!d->sync.inflight) continue;
+        const VkResult r = pvkWaitForFences(g_dev, 1, &g_scan.sfence, VK_TRUE, wait ? 1000000000ull : 0);
+        if (r == VK_TIMEOUT && !wait) return;   /* still running: the next lock holder looks again */
+        const int ok = r == VK_SUCCESS;
+        IOSurfaceUnlock((IOSurfaceRef)d->ref, 0, NULL);   /* the write lock: moves the surface's seed */
+        if (ok && g_scan.scb) { pvkFreeCommandBuffers(g_dev, g_scan.pool, 1, &g_scan.scb); g_scan.scb = VK_NULL_HANDLE; }
+        nvmtl_sd_sync_end(&d->sync, ok);   /* dirty again if it failed */
+        if (ok) g_scan.dsyncs++;
+        else { static unsigned said; if (said++ < 4) nvlog("ws gpu present: direct: surface %u's pages could not be brought up to date", d->sid); }
+    }
+}
+static void nvmtl_scan_sync_begin_locked(nvmtl_scan_dsurf *d, uint32_t tok)
+{
+    if (!g_scan.sfence) { VkFenceCreateInfo fci = { VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, NULL, 0 };
+        if (pvkCreateFence(g_dev, &fci, NULL, &g_scan.sfence) != VK_SUCCESS) { g_scan.sfence = VK_NULL_HANDLE; return; } }
+    if (IOSurfaceLock((IOSurfaceRef)d->ref, 0, NULL) != kIOReturnSuccess) return;
+    nvmtl_sd_sync_begin(&d->sync, tok);
+    if (nvmtl_scan_copy_submit_locked(&g_scan.scb, g_scan.sfence, d->buf, (VkBuffer)d->pages.buf, (VkDeviceSize)g_scan.pitch * g_scan.h)) {
+        IOSurfaceUnlock((IOSurfaceRef)d->ref, 0, NULL);
+        nvmtl_sd_sync_end(&d->sync, 0);
+        static unsigned said; if (said++ < 4) nvlog("ws gpu present: direct: surface %u's pages could not be brought up to date", d->sid);
+    }
+}
+static void nvmtl_scan_sync_tick_locked(uint64_t now)
+{
+    if (!g_scan.direct || g_scan.state != 1) return;
+    nvmtl_scan_sync_reap_locked(0);
+    if (!g_scan.lastT || nvmtl_scan_sync_busy_locked()) return;
+    const uint32_t ungated = atomic_load(&g_sd_ungated);
+    for (int i = 0; i < 2; i++) {
+        nvmtl_scan_dsurf *d = &g_scan.dsurf[i];
+        if (!d->bound || !d->pages.buf) continue;
+        const uint32_t tok = d->flips + atomic_load(&g_sd_wgen[d->sid & 63]);
+        const int writeInFlight = ungated != 0 || atomic_load(&g_sd_out[d->sid & 63]) != 0;
+        if (!nvmtl_sd_sync_due(&d->sync, tok, writeInFlight, now - g_scan.lastT)) continue;
+        nvmtl_scan_sync_begin_locked(d, tok);
+        break;
     }
 }
 /* The kernel restores the console after 5 s without a call: an idle desktop presents nothing, so Status keeps it (once a
-   second, NVMTL_SCAN_STATUS_MIN_NS; the timer ticks four times a second for the page sync). lastStatus is kept across
+   second, NVMTL_SCAN_STATUS_MIN_NS; the timer ticks four times a second while direct is bound, for the page sync). lastStatus is kept across
    restarts of GPU present. */
 static void nvmtl_scan_keepalive(void *ctx)
 {
@@ -329,7 +383,7 @@ static void nvmtl_scan_keepalive(void *ctx)
     const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     if (g_scan.state == 1 && now - lastStatus >= NVMTL_SCAN_STATUS_MIN_NS) { struct nvmtl_scan_status st; memset(&st, 0, sizeof st); lastStatus = now;
         if (g_scan.status(g_dev, &st) || !st.acquired) nvmtl_scan_lost_locked("the plane was taken back", &st); }
-    nvmtl_scan_direct_sync_locked(now);
+    nvmtl_scan_sync_tick_locked(now);
     pthread_mutex_unlock(&g_scan_lock);
 }
 
@@ -367,8 +421,7 @@ static int nvmtl_scan_direct_bind_locked(const nvmtl_sd_cand *c0, const nvmtl_sd
 }
 
 /* The inputs of nvmtl_sd_start for the shown surface (all but waitedNs, left 0 for the caller), and the pair it would
-   bind: *c0 / *c1 are set only when in->pairs is 2. Used by the start (nvmtl_scan_direct_choose_locked) and by the live
-   switch-on, so both decide on the same inputs. Looks up RADV's two N48N exports on first use. */
+   bind: *c0 / *c1 are set only when in->pairs is 2. Looks up RADV's two N48N exports on first use. */
 static void nvmtl_scan_direct_input_locked(uint32_t sid, uint32_t w, uint32_t h, uint32_t pitch, const struct nvmtl_scan_query *q,
                                            nvmtl_sd_start_in *in, nvmtl_sd_cand *c0, nvmtl_sd_cand *c1, uint64_t now)
 {
@@ -394,6 +447,7 @@ static int nvmtl_scan_direct_choose_locked(uint32_t sid, uint32_t w, uint32_t h,
     const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     nvmtl_sd_start_in in;
     nvmtl_scan_direct_input_locked(sid, w, h, pitch, q, &in, c0, c1, now);
+    g_sd_wanted_at_start = nvmtl_sd_wanted();
     if (!g_sd_wait0) g_sd_wait0 = now;
     in.waitedNs = now - g_sd_wait0;
     const int d = nvmtl_sd_start(&in);
@@ -405,33 +459,6 @@ static int nvmtl_scan_direct_choose_locked(uint32_t sid, uint32_t w, uint32_t h,
               in.async, q->hubp_format, q->pitch_px, in.pairs, w, h, in.pairs >= 2 && !in.shownInPair ? ", the shown one not among them" : ""); }
     return d == NVMTL_SD_START_DIRECT ? 1 : d == NVMTL_SD_START_WAIT ? -1 : 0;
 }
-/* Live switch-on: called at the end of a copy-path present (the frame boundary: this present's copy has finished and its
-   flip is made). If ws-direct is there and a start now would choose direct, the plane is released and torn down, and the
-   next present starts again (the start binds under its own drain). Returns 1 if it moved. Quiet when nothing to do:
-   checked at most every NVMTL_SD_LIVE_CHECK_NS, and only while the switch is on. */
-static int nvmtl_scan_direct_live_locked(uint32_t sid, uint32_t w, uint32_t h, uint32_t pitch)
-{
-    const uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
-    if (g_scan.direct || g_scan.state != 1 || now - g_sd_live_checked < NVMTL_SD_LIVE_CHECK_NS) return 0;
-    g_sd_live_checked = now;
-    if (!nvmtl_sd_wanted() || g_sd_off || now < g_sd_until || !g_scan.query) { g_sd_live.eligibleNs = 0; return 0; }
-    struct nvmtl_scan_query q;
-    memset(&q, 0, sizeof q);
-    if (g_scan.query(g_dev, &q) || q.plane_w != w || q.plane_h != h || q.pitch_px * 4 != pitch) { g_sd_live.eligibleNs = 0; return 0; }
-    nvmtl_sd_start_in in; nvmtl_sd_cand c0, c1;
-    nvmtl_scan_direct_input_locked(sid, w, h, pitch, &q, &in, &c0, &c1, now);
-    uint32_t writesInFlight = atomic_load(&g_sd_ungated);   /* full-screen writes committed and not finished */
-    for (unsigned i = 0; i < 64; i++) writesInFlight += atomic_load(&g_sd_out[i]);
-    if (!nvmtl_sd_live_on(&in, writesInFlight != 0, &g_sd_live, now)) return 0;
-    g_sd_live.tries++; g_sd_live.lastTryNs = now;
-    nvlog("ws gpu present: ws-direct appeared: direct scan-out engages at this frame boundary (try %u, %d display surfaces of %ux%u)", g_sd_live.tries, in.pairs, w, h);
-    nvmtl_scan_off_locked("ws-direct appeared");
-    nvmtl_scan_teardown_locked();
-    g_scan_geom_wait = 1;   /* not a plane loss */
-    g_scan.state = 0; g_scan.retryAt = 0;   /* the next present starts (the other ways out wait 0.5 s) */
-    return 1;
-}
-
 static int nvmtl_scan_start_locked(uint32_t sid, uint32_t w, uint32_t h, uint32_t pitch)
 {
     g_scan.query = dlsym(g_lib, "radv_darwin_scanout_query"); g_scan.acquire = dlsym(g_lib, "radv_darwin_scanout_acquire");
@@ -513,7 +540,9 @@ static int nvmtl_scan_start_locked(uint32_t sid, uint32_t w, uint32_t h, uint32_
             if (g_scan.direct) nvmtl_scan_direct_out_locked("the bounce slot: slot register failed", 1); else nvmtl_scan_off_locked("slot register failed"); return -1; }
     }
     g_scan.keepalive = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
-    if (g_scan.keepalive) { dispatch_source_set_timer(g_scan.keepalive, dispatch_time(DISPATCH_TIME_NOW, NVMTL_SCAN_KEEPALIVE_NS), NVMTL_SCAN_KEEPALIVE_NS, NVMTL_SCAN_KEEPALIVE_LEEWAY_NS);
+    if (g_scan.keepalive) { dispatch_source_set_timer(g_scan.keepalive, dispatch_time(DISPATCH_TIME_NOW, g_scan.direct ? NVMTL_SCAN_KEEPALIVE_DIRECT_NS : NVMTL_SCAN_KEEPALIVE_NS),
+                                                    g_scan.direct ? NVMTL_SCAN_KEEPALIVE_DIRECT_NS : NVMTL_SCAN_KEEPALIVE_NS,
+                                                    NVMTL_SCAN_KEEPALIVE_LEEWAY_NS(g_scan.direct ? NVMTL_SCAN_KEEPALIVE_DIRECT_NS : NVMTL_SCAN_KEEPALIVE_NS));
         dispatch_set_context(g_scan.keepalive, NULL); dispatch_source_set_event_handler_f(g_scan.keepalive, nvmtl_scan_keepalive); dispatch_resume(g_scan.keepalive); }
     nvlog("ws gpu present: ON - %ux%u, console MC 0x%llx, %s", w, h, (unsigned long long)console,
           g_scan.direct ? "direct scan-out (display surfaces in slots 0 and 1, the bounce in slot 2)" : "three VRAM slots registered");
@@ -573,7 +602,7 @@ static int nvmtl_scan_direct_present_locked(const void *ref, uint32_t sid, int l
     if (g_scan.lastT) { const uint64_t gap = (t1 - g_scan.lastT) / 1000000;
         g_scan.gapBin[gap < 8 ? 0 : gap < 16 ? 1 : gap < 33 ? 2 : gap < 100 ? 3 : 4]++; }
     g_scan.lastT = t1; g_scan.flipUs += (t1 - t0) / 1000;
-    d->dirty = 1;   /* its pages are now older than its VRAM */
+    d->flips++;   /* its pages are now older than its VRAM */
     nvmtl_e0("Q sid %u flipped its own slot %u (direct)", sid, d->slotId);
     if (++g_scan.dpresents % 3000 == 0)
         nvlog("ws gpu present: direct: %llu presents (flip %llu us average, no copy), %llu bounces, %llu of %llu display writes waited for a flip (%llu us average, %llu of them behind a flip still to latch); %llu idle syncs of the pages; present gaps <8ms %llu, <16 %llu, <33 %llu, <100 %llu, longer %llu",
@@ -608,6 +637,7 @@ int nvmtl_vk_scanout_write_gate(uint32_t n, const uint32_t *sid, const void *con
             for (uint32_t j = 0; j < n; j++)
                 for (int i = 0; i < 2; i++) if (g_scan.dsurf[i].bound && g_scan.dsurf[i].sid == sid[j]) { d[j] = &g_scan.dsurf[i]; mine[i] = 1; nb++; }
         if (!nb) { pthread_mutex_unlock(&g_scan_lock); ret = 1; break; }
+        nvmtl_scan_sync_reap_locked(0);   /* a finished page copy releases its surface */
         int foreign = 0;
         for (uint32_t j = 0; j < n; j++) if (d[j] && mem[j] != (const void *)d[j]->mem) foreign = 1;
         if (foreign) {   /* written through another texture: that write would miss the slot */
@@ -619,7 +649,7 @@ int nvmtl_vk_scanout_write_gate(uint32_t n, const uint32_t *sid, const void *con
         const uint64_t us = (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - t0) / 1000;
         const nvmtl_scan_dsurf *blocked = NULL;
         for (uint32_t j = 0; j < n && !blocked; j++)
-            if (d[j] && !(st.slot[d[j]->slotId].flags & NVMTL_SCANSLOT_WRITABLE)) blocked = d[j];
+            if (d[j] && (!(st.slot[d[j]->slotId].flags & NVMTL_SCANSLOT_WRITABLE) || nvmtl_sd_sync_blocks_write(&d[j]->sync))) blocked = d[j];
         if (!blocked) {
             for (uint32_t j = 0; j < n; j++) if (d[j]) { atomic_fetch_add(&g_sd_out[sid[j] & 63], 1); *let |= 1u << j; }
             g_scan.dgates++;
@@ -629,7 +659,8 @@ int nvmtl_vk_scanout_write_gate(uint32_t n, const uint32_t *sid, const void *con
         const int bi = blocked == &g_scan.dsurf[0] ? 0 : 1;
         const int partnerOut = !mine[1 - bi] && atomic_load(&g_sd_out[g_scan.dsurf[1 - bi].sid & 63]) != 0;
         const int bounceFree = g_scan.nslots >= 1 && (st.slot[g_scan.slotId[0]].flags & NVMTL_SCANSLOT_WRITABLE) != 0;
-        const int act = nvmtl_sd_gate(0, st.pending_slot != NVMTL_SCAN_NO_SLOT, partnerOut, bounceFree, bounced, us);
+        /* a surface whose pages are being written waits like one with a flip to latch: no bounce, the copy ends in ms */
+        const int act = nvmtl_sd_gate(0, st.pending_slot != NVMTL_SCAN_NO_SLOT || nvmtl_sd_sync_blocks_write(&blocked->sync), partnerOut, bounceFree, bounced, us);
         if (act == NVMTL_SD_FAIL) {
             nvlog("ws gpu present: direct: surface %u (slot %u) still not writable after %llu us (flags 0x%x, front %u, pending %u)", blocked->sid,
                   blocked->slotId, (unsigned long long)us, st.slot[blocked->slotId].flags, st.front_slot, st.pending_slot);
@@ -801,7 +832,8 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
               (unsigned long long)(g_scan.flipUs / g_scan.presents), (unsigned long long)g_scan.gapBin[0], (unsigned long long)g_scan.gapBin[1],
               (unsigned long long)g_scan.gapBin[2], (unsigned long long)g_scan.gapBin[3], (unsigned long long)g_scan.gapBin[4]);
     ret = 0;
-    (void)nvmtl_scan_direct_live_locked(sid, w, h, pitch);   /* ws-direct created while this process runs */
+    if (nvmtl_sd_appeared_note(g_sd_wanted_at_start, nvmtl_sd_wanted(), &g_sd_appeared_said))
+        nvlog("ws gpu present: ws-direct appeared: takes effect at the next WindowServer start");
 out:
     pthread_mutex_unlock(&g_scan_lock);
     return ret;

@@ -11,8 +11,9 @@
 #
 # SQUAT MODE (2026-10-24): a boot where PhxBringup's PhxFBSquatter holds the IOFramebuffer category (armed by the
 # one-shot NVRAM var phxfb-squat, which the kext clears at probe) has NO IONDRV console: PhxAMDFB is the only display,
-# so that boot is the desktop-arm boot. SUCCESS re-arms phxfb-squat for the next boot unless $G/phxboot-auto-off exists; any
-# failure (or kill switch / unfinished previous attempt) on a squat boot reboots, and the next boot comes up on IONDRV.
+# so that boot is the desktop-arm boot. SUCCESS re-arms phxfb-squat for the next boot unless $G/phxboot-auto-off exists;
+# any failure (or kill switch / unfinished previous attempt) on a squat boot reboots, and the next boot comes up on
+# IONDRV.
 #
 # Fail-safes: kill switch $OFF (the owner's); unfinished boot (MARK, from the bring-up on) -> GOP; any failure -> m2_fail
 # reverts to GOP; the record $FAILS brings the full desktop back by itself after clean fallback boots. NO forced
@@ -49,7 +50,9 @@ if [ -f "$PRE" ]; then
 fi
 # Feature switches (2026-11-26, docs/INSTALL.md 7.3): every proven feature is ON by default, as on the XTX machine; the
 # file ~/gpu/phxboot-<name>-off turns one off (the scheme of ws-gpu-present-off). The old opt-in file ~/gpu/phxboot-<name>
-# is redundant now and never an opt-out: at most one "note:" line per file per boot says so.
+# is redundant now and never an opt-out: at most one "note:" line per file per boot says so ($OLD_OPT_INS; nohdr is in
+# the list because HDR is off without it too). Value files keep their meaning: phxboot-waitstep, phxboot-bovram and
+# phxboot-vrrmin hold a value that replaces the built-in one, so they get no note.
 # Not switches (unchanged): state files (phxboot-nvstuck, phxboot-safe, the pending mark, the fails record, rate-last),
 # the kill switch phxboot-off, and the flags that stay opt-in by design: phxboot-autologin (never an automatic login by
 # default), phxboot-m7* (the second monitor), phxboot-b15*, phxboot-hdr (HDR is broken in this preview), diagnostics,
@@ -568,8 +571,8 @@ echo claim >"$MARK"; sync
 # light (pipe 1 stream) before the AGDC arm, bind (head 1 + plane + flip) after it, so the ONE WindowServer restart
 # below already sees both displays. Any M7 failure is logged and undone; the boot goes on with one monitor.
 M7LIT=0; M7PHASE=0; M7BOUND=0
-# GPU present E3 (2026-11-19, the XTX machine): on by default (off: $G/phxboot-wscdcopy-off), the restarted WindowServer gets
-# NVMTL_WS_PRESENT_CDCOPY=1 from launchd (as CI_USE_MTL_DAG_FOR_CIKL_SRC), so the plugin presents CoreDisplay's display
+# GPU present E3 (2026-11-19, the XTX machine): on by default (off: $G/phxboot-wscdcopy-off), the restarted WindowServer
+# gets NVMTL_WS_PRESENT_CDCOPY=1 from launchd (as CI_USE_MTL_DAG_FOR_CIKL_SRC), so the plugin presents CoreDisplay's display
 # surfaces (every region current) instead of SkyLight's composite targets, which only have the changed regions redrawn:
 # those regions flickered between new and old (findings 2026-11-19-gpu-present-flicker-heat.md; verified on the XTX
 # machine at 1440p60). E3 presents at GPU completion, so it needs GPU present and async GPU present on; without them
@@ -599,10 +602,11 @@ ws_tiled(){ [ -e "$G/phxboot-wstiled" ] || return 0
     echo "wstiled: NVMTL_WS_SCANOUT_TILED=1 for the restarted WindowServer (its display surface drawn tiled)"
   else echo "wstiled: launchctl setenv failed: the display surface stays linear"; fi; }
 # Fence wait step (2026-11-19, the XTX machine): debug.phxwait_step_us gets 200 before the WindowServer restart; a file
-# $G/phxboot-waitstep holds another value (empty = 200; 20-1000 accepted), $G/phxboot-waitstep-off writes nothing. A WAITSEQ that outlasts its 20 us spin sleeps in
-# timed steps of this length while IRQ waits are off; the kext's default is 50. 200 cut WindowServer's wakeups 5-15x
-# and was not worse than 50 in a blind A/B (findings 2026-11-19-gpu-present-flicker-heat.md, live test 4). Only 50 and
-# 200 were tried on hardware. The sysctl resets to 50 at every boot; with the -off file nothing is written.
+# $G/phxboot-waitstep holds another value (empty = 200; 20-1000 accepted); with $G/phxboot-waitstep-off nothing is
+# written. A WAITSEQ that outlasts its 20 us spin sleeps in timed steps of this length while IRQ waits are off; the
+# kext's default is 50. 200 cut WindowServer's wakeups 5-15x and was not worse than 50 in a blind A/B (findings
+# 2026-11-19-gpu-present-flicker-heat.md, live test 4). Only 50 and 200 were tried on hardware. The sysctl resets to 50
+# at every boot; with the -off file nothing is written.
 waitstep_boot(){ feat_on waitstep || return 0
   local v out rc
   if [ -e "$G/phxboot-waitstep" ]; then v=$(tr -d ' \t\r\n' <"$G/phxboot-waitstep" 2>/dev/null); else v=200; fi; [ -n "$v" ] || v=200
@@ -612,12 +616,13 @@ waitstep_boot(){ feat_on waitstep || return 0
   sysctl -n debug.phxwait_step_us >/dev/null 2>&1 || { echo "waitstep: PhxBringup without debug.phxwait_step_us: nothing set"; return 0; }
   out=$(sysctl -w debug.phxwait_step_us=$v 2>&1); rc=$?
   echo "waitstep: debug.phxwait_step_us=$v rc $rc, reads $(sysctl -n debug.phxwait_step_us 2>/dev/null) ($(echo "$out" | tail -1 | cut -c1-80))"; }
-# Fence waits by interrupt (2026-11-23, thread 02, the XTX machine): unless $G/phxboot-irqwait-off, before the WindowServer
-# restart, the IH ring in VRAM (debug.phxih_vram, debug.phxih), the EOP interrupt (debug.phxeopirq), the MSI
-# (debug.phxirq), then WAITSEQ sleeping on it (debug.phxwait_irq), in that order, each read back. Measured live: a short
-# waited job 265 -> 114 us median (Linux 114), p99 lower too, 1.1 M MSIs without a storm (findings
+# Fence waits by interrupt (2026-11-23, thread 02, the XTX machine): on by default (off: $G/phxboot-irqwait-off). Before
+# the WindowServer restart, the IH ring in VRAM (debug.phxih_vram, debug.phxih), the EOP interrupt (debug.phxeopirq),
+# the MSI (debug.phxirq), then WAITSEQ sleeping on it (debug.phxwait_irq), in that order, each read back. Measured live:
+# a short waited job 265 -> 114 us median (Linux 114), p99 lower too, 1.1 M MSIs without a storm (findings
 # 2026-11-23-perf-power.md, section 4). The kext keeps the timed steps when it sees a storm. Any step that doesn't read
-# back 1 turns all five off again (reverse order). The sysctls reset at every boot; with the -off file nothing is written.
+# back 1 turns all five off again (reverse order). The sysctls reset at every boot; with the -off file nothing is
+# written.
 irqwait_boot(){ feat_on irqwait || return 0
   local o out rc on=""
   sysctl -n debug.phxwait_irq >/dev/null 2>&1 || { echo "irqwait: PhxBringup without debug.phxwait_irq: polled waits stay"; return 0; }
@@ -752,10 +757,11 @@ cg_boot(){
   feat_on cg || return 0
   [ -e "$G/gfx_cg.sh" ] || { echo "cg: $G/gfx_cg.sh missing"; return 0; }
   echo "cg: $(PHXCTL=$G/phxctl.bin sh "$G/gfx_cg.sh" on 2>&1 | tail -1 | cut -c1-120)"; }
-# Memory clock hard minimum ($G/phxboot-uclk-off turns it off): without the DAL hand-off a UCLK switch under GPU load underflows the
-# display (glitches under video decode). U1 (finding 2026-11-26-u1-uclk-dal.md): `uclk.sh pin` = the DAL hard minimum at
-# the top UCLK level, what Linux's DC holds while the mode can't take a UCLK switch. On by default (off:
-# $G/phxboot-uclk-off); the content of an old phxboot-uclk (456) is not read. Needs kext >= b75 (the DAL selector); idle_dpm.sh lets it go at the settled desktop.
+# Memory clock hard minimum, on by default (off: $G/phxboot-uclk-off): without the DAL hand-off a UCLK switch under GPU
+# load underflows the display (glitches under video decode). U1 (finding 2026-11-26-u1-uclk-dal.md): `uclk.sh pin` = the
+# DAL hard minimum at the top UCLK level, what Linux's DC holds while the mode can't take a UCLK switch. The content of
+# an old phxboot-uclk (456) is not read. Needs kext >= b75 (the DAL selector); idle_dpm.sh lets it go at the settled
+# desktop.
 uclk_boot(){
   feat_on uclk || return 0
   [ -e "$G/uclk.sh" ] || { echo "uclk: $G/uclk.sh missing"; return 0; }
@@ -779,11 +785,11 @@ aoc_modes(){ { [ -e "$G/phxboot-m7-aocmodes" ] || [ -e "$G/phxboot-m7-aoc144" ];
   if sysctl -w debug.phxpipe0_modes=1 >/dev/null 2>&1; then echo "aoc: head-0 mode list armed (debug.phxpipe0_modes=1)"
   else echo "aoc: no debug.phxpipe0_modes (kext < b101): head 0 keeps one mode"; fi; }
 [ "${PHXBOOT_NO_AOC:-0}" = 1 ] || [ $SAFE = 1 ] || aoc_modes
-# 1440p high refresh (2026-11-20, the XTX machine): unless $G/phxboot-p0modes-off the pipe-0 engine is switched on and PhxAMDFB
-# head 0 lists the modes of the plan family OTG0 runs (the LG's 2560x1440 at 60/120/144 Hz), so System Settings can pick
-# one; it reads phx-pipe0-modes once, at the claim below. Needs VermilionBoot b128 (the 1440p plans: its pipe-0 stat has
-# dal_sent=) and a PhxAccel with the 1440p mode rows; with older ones nothing is armed (one mode, as before). Nothing
-# switches here: a mode change runs only when macOS asks for one. On by default; off: ~/gpu/phxboot-p0modes-off.
+# 1440p high refresh (2026-11-20, the XTX machine): unless $G/phxboot-p0modes-off the pipe-0 engine is switched on and
+# PhxAMDFB head 0 lists the modes of the plan family OTG0 runs (the LG's 2560x1440 at 60/120/144 Hz), so System Settings
+# can pick one; it reads phx-pipe0-modes once, at the claim below. Needs VermilionBoot b128 (the 1440p plans: its pipe-0
+# stat has dal_sent=) and a PhxAccel with the 1440p mode rows; with older ones nothing is armed (one mode, as before).
+# Nothing switches here: a mode change runs only when macOS asks for one. On by default; off: ~/gpu/phxboot-p0modes-off.
 p0modes_boot(){ feat_on p0modes || return 0
   sysctl -n debug.phxpipe0_stat 2>/dev/null | grep -q "dal_sent=" || { echo "p0modes: VermilionBoot before b128 (no 1440p plans): nothing armed"; return 0; }
   local o1 o2 r1 r2; o1=$(sysctl -w debug.phxpipe0_enable=1 2>&1); r1=$?; o2=$(sysctl -w debug.phxpipe0_modes=1 2>&1); r2=$?
@@ -805,9 +811,10 @@ novrr_boot(){ { [ -e "$G/phxboot-novrr" ] || [ $SAFE = 1 ]; } || return 0
   else echo "vrr: no debug.phxfb0_vrr (PhxAccel before Adaptive Sync): nothing to turn off"; fi; }
 novrr_boot
 # Adaptive Sync's floor: the XTX machine's LG flickers in Variable near its EDID minimum of 48 Hz (the monitor's own VRR
-# behaviour), so PhxAccel's default floor is 60 Hz (the XTX machine's value: no write needed). $G/phxboot-vrrmin holds another floor in Hz (24-240; 0 = the EDID's
-# minimum). Not on the safe desktop (no VRR there). macOS sees the floor in the EDID PhxAccel serves, so a new value
-# makes it a new display to macOS: its colour profile and per-display settings start over.
+# behaviour), so PhxAccel's default floor is 60 Hz (the XTX machine's value: no write needed). $G/phxboot-vrrmin holds
+# another floor in Hz (24-240; 0 = the EDID's minimum). Not on the safe desktop (no VRR there). macOS sees the floor in
+# the EDID PhxAccel serves, so a new value makes it a new display to macOS: its colour profile and per-display settings
+# start over.
 vrrmin_boot(){ [ -e "$G/phxboot-vrrmin" ] && [ $SAFE = 0 ] || return 0
   local v
   v=$(tr -d ' \t\r\n' <"$G/phxboot-vrrmin" 2>/dev/null)
@@ -955,9 +962,10 @@ else
   trap - TERM; rm -f "$MARK"; sync   # the GOP boot's bring-up and claim finished
   release; all_apps " (WindowServer stays on firmware framebuffer)" ""
   echo "no desktop arm: GOP + Metal for apps"
-  # a GOP boot with the automatic desktop on (no kill switch, no unfinished MARK: both exit earlier) re-arms the next boot unless the
-  # record says the last accelerated attempt failed and this GOP boot is not yet the last clean fallback boot it asks for
-  # (11-02: one lost NVRAM write kept every boot GOP; 2026-11-25: no manual rm, it re-arms by itself)
+  # a GOP boot with the automatic desktop on (no $G/phxboot-auto-off; no kill switch, no unfinished MARK: both exit
+  # earlier) re-arms the next boot unless the record says the last accelerated attempt failed and this GOP boot is not
+  # yet the last clean fallback boot it asks for (11-02: one lost NVRAM write kept every boot GOP; 2026-11-25: no manual
+  # rm, it re-arms by itself)
   if feat_on auto; then
     if [ "$REC_F" -gt 0 ] && [ $((REC_C + 1)) -lt "$(rec_need)" ]; then echo "phxfb-squat NOT re-armed: the last accelerated attempt failed ($FAILS: fails=$REC_F, this is clean fallback boot $((REC_C + 1)) of $(rec_need); it re-arms by itself $(rec_when))"
     else gopnote=""; [ "$REC_F" -gt 0 ] && gopnote=", clean fallback boot $((REC_C + 1)) of $(rec_need) after $REC_F failed attempt(s)"
@@ -1016,9 +1024,9 @@ b15_boot(){
   [ -e "$G/b15_boot.sh" ] || { echo "b15: $G/b15_boot.sh missing"; return 0; }
   sh "$G/b15_boot.sh" & echo "b15: started (pid $!)"; }
 [ "${PHXBOOT_NO_B15:-0}" = 1 ] || [ $SAFE = 1 ] || b15_boot
-# 2026-11-23 (thread 02, the XTX machine): unless $G/phxboot-idledpm-off, on a one-display desktop boot: memory and fabric clocks
-# free to drop at idle under an underflow watchdog for the whole boot (idle_dpm.sh; b15's step 6 for one display). Not
-# with b15 (its own recipe) and not after a pipe-1 boot (an SMU message then stalls the PMFW, above).
+# 2026-11-23 (thread 02, the XTX machine): unless $G/phxboot-idledpm-off, on a one-display desktop boot: memory and
+# fabric clocks free to drop at idle under an underflow watchdog for the whole boot (idle_dpm.sh; b15's step 6 for one
+# display). Not with b15 (its own recipe) and not after a pipe-1 boot (an SMU message then stalls the PMFW, above).
 idledpm_boot(){
   feat_on idledpm || return 0
   [ $DESK = 1 ] || { echo "idledpm: not a desktop boot: skip"; return 0; }
@@ -1027,8 +1035,10 @@ idledpm_boot(){
   [ -e "$G/idle_dpm.sh" ] || { echo "idledpm: $G/idle_dpm.sh missing"; return 0; }
   PHXBOOT_G=$G sh "$G/idle_dpm.sh" & echo "idledpm: started (pid $!)"; }
 [ "${PHXBOOT_NO_IDLEDPM:-0}" = 1 ] || [ $SAFE = 1 ] || idledpm_boot
-# 2026-11-23 (thread 02 part B): for the processes in $BOVRAM_DEFAULT (or the comma-separated names in $G/phxboot-bovram; off: -bovram-off), on a
-# desktop boot: VermilionBoot b156's VRAM-backed BOs for those processes. The kext's self-test first
+# 2026-11-23 (thread 02 part B): on a desktop boot, VermilionBoot b156's VRAM-backed BOs for the processes named in
+# $G/phxboot-bovram (comma-separated, e.g. "vkbench,metalbench"). The feature is on by default (off:
+# $G/phxboot-bovram-off), but without the file the list is $BOVRAM_DEFAULT, which names no process: one log line, no
+# sysctl write. The kext's self-test first
 # (debug.phxbo_vram_selftest=1 must read 1), then debug.phxbo_vram_proc and debug.phxbo_vram=1, each read back. Names:
 # letters, digits, . _ - and space, at most 127 characters; WindowServer is refused (it stays on the proven path until
 # M3). Measured on the XTX machine: 42.9 -> 840.9 GB/s buffer bandwidth, new buffers zero (VRAM BO design note).
@@ -1051,10 +1061,11 @@ bovram_boot(){
     echo "bovram: on for $v (self-test 1)"
   else echo "bovram: debug.phxbo_vram=1 refused: off"; fi; }
 [ "${PHXBOOT_NO_BOVRAM:-0}" = 1 ] || [ $SAFE = 1 ] || bovram_boot
-# 2026-11-23 (thread 03): unless $G/phxboot-gl-off, on a desktop boot: OpenGL over Metal (VermilionAccel's debug.phxgl=1, which
-# publishes IOGLBundleName=AppleMetalOpenGLRenderer on NMXAccel), read back. Only OpenGL processes started afterwards use
-# it; `sysctl -w debug.phxgl=0` turns it off for new processes without a restart. Seen on the XTX machine: the renderer
-# "AMD Radeon RX 7900 XTX (RADV NAVI31) ... 4.1 Metal" instead of the Apple Software Renderer, Minecraft 26.3 on it.
+# 2026-11-23 (thread 03): unless $G/phxboot-gl-off, on a desktop boot: OpenGL over Metal (VermilionAccel's
+# debug.phxgl=1, which publishes IOGLBundleName=AppleMetalOpenGLRenderer on NMXAccel), read back. Only OpenGL processes
+# started afterwards use it; `sysctl -w debug.phxgl=0` turns it off for new processes without a restart. Seen on the XTX
+# machine: the renderer "AMD Radeon RX 7900 XTX (RADV NAVI31) ... 4.1 Metal" instead of the Apple Software Renderer,
+# Minecraft 26.3 on it.
 gl_boot(){
   feat_on gl || return 0
   [ $DESK = 1 ] || { echo "gl: not a desktop boot: skip"; return 0; }
@@ -1063,11 +1074,11 @@ gl_boot(){
     echo "gl: OpenGL over Metal on"
   else echo "gl: debug.phxgl=1 refused: off"; fi; }
 [ "${PHXBOOT_NO_GL:-0}" = 1 ] || [ $SAFE = 1 ] || gl_boot
-# 2026-11-24 (thread 04): unless $G/phxboot-audio-off, on a desktop boot: DP audio on head 0, as a real Mac with an AMD GPU has
-# it. First the display engine's audio blocks from the monitor's EDID ($G/phxaudio apply: Linux DC's sequence for DIG1;
-# its full output in $G/phxaudio.log), then Apple's AppleGFXHDA on the GPU's audio function ($G/audio_match.sh on, which
-# needs VermilionAudio 1.6.0 in the EFI and waits for the audio engine). Once per boot, never undone: a detach makes the
-# next attach hot-reset the whole GPU (findings/2026-11-24-gfxhda-detach-gpu-hot-reset.md).
+# 2026-11-24 (thread 04): unless $G/phxboot-audio-off, on a desktop boot: DP audio on head 0, as a real Mac with an AMD
+# GPU has it. First the display engine's audio blocks from the monitor's EDID ($G/phxaudio apply: Linux DC's sequence
+# for DIG1; its full output in $G/phxaudio.log), then Apple's AppleGFXHDA on the GPU's audio function ($G/audio_match.sh
+# on, which needs VermilionAudio 1.6.0 in the EFI and waits for the audio engine). Once per boot, never undone: a detach
+# makes the next attach hot-reset the whole GPU (findings/2026-11-24-gfxhda-detach-gpu-hot-reset.md).
 audio_boot(){
   feat_on audio || return 0
   [ $DESK = 1 ] || { echo "audio: not a desktop boot: skip"; return 0; }

@@ -733,8 +733,9 @@ not the threat this guard answers: the machine lock and the review of every chan
 - Same rule as the three display switches above: a real Mac has no switches, so what the XTX machine runs at every boot
   is the default and a stranger's install (no flag files) gets it. A feature is turned off with an empty
   `~/gpu/phxboot-<name>-off`. On by default: `auto`, `sdma`, `cg`, `uclk`, `p0modes`, `irqwait`, `waitstep` (200 us),
-  `wscdcopy`, `vcn`, `idledpm`, `idledpm-dcf`, `bovram` (on, but names no process by default: the reference machine's own list is its two games, not a rule), `gl`, `audio`. The release package writes
-  no flag file any more (it wrote `sdma`, `cg`, `uclk=456`, `auto`, `nohdr`); `phxboot-uclk=456` is gone everywhere.
+  `wscdcopy`, `vcn`, `idledpm`, `idledpm-dcf`, `bovram` (on, but names no process by default: the reference machine's
+  own list is its two games, not a rule), `gl`, `audio`. The release package writes no flag file any more (it wrote
+  `sdma`, `cg`, `uclk=456`, `auto`, `nohdr`); `phxboot-uclk=456` is gone everywhere.
 - **Same programming, nothing added:** each of these runs on the XTX machine today, so the default adds no SMU, PSP or
   DAL message and no register write beyond what it already does (hard rule 1). `phxboot-b15*`, `m7*`, `aoc-rate`,
   `hotplug*`, `dpwatch`, `gamma`, `wstiled`, `dispovr`, `noflip` are not on the XTX machine and stay opt-in.
@@ -746,9 +747,10 @@ not the threat this guard answers: the machine lock and the review of every chan
 - **Old files keep working:** an old opt-in file (`phxboot-sdma` ...) is redundant, never an opt-out; the daemon logs one
   `note: ~/gpu/phxboot-X is no longer needed (on by default)` line per file per boot. Value files (`vrrmin`, `waitstep`,
   `bovram`) still override the built-in value. `phxboot-uclk`'s content (456) was already not read (U1).
-- **Known limit:** the package ships `idle_dpm.sh` (added) but not yet the VCN and audio helpers (`vcnup/`, `phxaudio`,
-  `audio_match.sh`); on a stranger's install `vcn` and `audio` log `... missing` and skip. `bovram` names two processes
-  of the XTX machine's games; for any other app it does nothing until a list is in `phxboot-bovram`.
+- **Known limit:** the package ships `idle_dpm.sh`, `phxaudio` and `audio_match.sh` (added) but not yet the VCN helpers
+  (`vcnup/`: `vcn_up.sh` needs data captured on the reference machine); on a stranger's install `vcn` logs
+  `... missing` and skips. `bovram` names no process by default; it does nothing until a list is in `phxboot-bovram`
+  (the XTX machine keeps its file with its two game processes).
 - **Revisit:** if a default misbehaves on another board; the `-off` files are the user's way out.
 - Host-tested only (the mock suite); not run on the XTX machine without its old files (unverified).
 

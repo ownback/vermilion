@@ -166,7 +166,8 @@ of the live stage (`vermilion-trust-bar1g-audio`; not booted yet, unverified). R
 
 Use upstream's guide ([INSTALL.md](INSTALL.md)) with these differences:
 
-- Flags: none. The features are on by default (INSTALL.md 7.3); `phxboot-m7*`, `phxboot-aoc*`, `phxboot-b15*` stay opt-in and are not used on one monitor.
+- Flags: none. The features are on by default (INSTALL.md 7.3); `phxboot-m7*`, `phxboot-aoc*`, `phxboot-b15*` stay
+  opt-in and are not used on one monitor.
 - Power off fully when coming from Linux.
 - First boot without desktop arm (apps get Metal, the GOP keeps the screen), then the squat boot.
 - Watch GPU temperature and power for the first minutes. Without clock gating the idle card runs hot.

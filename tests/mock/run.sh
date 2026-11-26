@@ -511,14 +511,14 @@ sc_b15_off() {          world; b15_stub; expect_log 'SUCCESS'; expect_nolog 'b15
 sc_b15_on() {           world; b15_stub; touch "$FR/gpu/phxboot-b15"; expect_log 'SUCCESS'; expect_log 'b15: started'; expect_log 'b15: stub ran'; expect_no_reboot; go b15_on; }
 sc_b15_missing() {      world; touch "$FR/gpu/phxboot-b15"; expect_log 'SUCCESS'; expect_log 'b15: .*b15_boot.sh missing'; expect_no_reboot; go b15_missing; }
 sc_b15_nodesk() {       world; DESK=0; b15_stub; touch "$FR/gpu/phxboot-b15"; expect_log 'b15: not a desktop boot'; expect_nolog 'b15: stub ran'; expect_no_reboot; go b15_nodesk; }
-# 11-23 idledpm: ~/gpu/phxboot-idledpm starts idle_dpm.sh in the background on a one-display desktop boot, never next to b15
+# 11-23 idledpm: idle_dpm.sh starts in the background on a one-display desktop boot, never next to b15 (off: phxboot-idledpm-off)
 idpm_stub(){ printf '#!/bin/sh\necho "idledpm: stub ran G=$PHXBOOT_G"\n' > "$FR/gpu/idle_dpm.sh"; }
 sc_idledpm_off() {      world; idpm_stub; touch "$FR/gpu/phxboot-idledpm-off"; expect_log 'SUCCESS'; expect_nolog 'idledpm'; expect_no_reboot; go idledpm_off; }
 sc_idledpm_on() {       world; idpm_stub; expect_log 'SUCCESS'; expect_log 'idledpm: started'; expect_log 'idledpm: stub ran G=.'; expect_no_reboot; go idledpm_on; }
 sc_idledpm_missing() {  world; expect_log 'SUCCESS'; expect_log 'idledpm: .*idle_dpm.sh missing'; expect_no_reboot; go idledpm_missing; }
 sc_idledpm_b15() {      world; idpm_stub; b15_stub; touch "$FR/gpu/phxboot-b15"; expect_log 'idledpm: phxboot-b15 present'; expect_nolog 'idledpm: stub ran'; expect_log 'b15: stub ran'; expect_no_reboot; go idledpm_b15; }
 sc_idledpm_nodesk() {   world; DESK=0; idpm_stub; expect_log 'idledpm: not a desktop boot'; expect_nolog 'idledpm: stub ran'; expect_no_reboot; go idledpm_nodesk; }
-# 11-23 bovram: ~/gpu/phxboot-bovram -> the self-test, then debug.phxbo_vram_proc and debug.phxbo_vram=1
+# 11-23 bovram: the names in ~/gpu/phxboot-bovram -> the self-test, then debug.phxbo_vram_proc and debug.phxbo_vram=1 (off: phxboot-bovram-off)
 bv_flag(){ printf '%s' "$1" >"$FR/gpu/phxboot-bovram"; }
 sc_bovram_off() {       world; touch "$FR/gpu/phxboot-bovram-off"; expect_nolog 'bovram'; expect_writes 'phxbo_vram' 0; expect_log 'SUCCESS'; go bovram_off; }
 sc_bovram_on() {        world; bv_flag 'vkbench,metalbench'; expect_writes '^-w debug.phxbo_vram_selftest=1$' 1; expect_writes '^-w debug.phxbo_vram_proc=vkbench,metalbench$' 1
@@ -530,12 +530,12 @@ sc_bovram_bad() {       world; bv_flag 'a;rm -rf /'; expect_writes 'phxbo_vram' 
 sc_bovram_empty() {     world; bv_flag ''; expect_writes 'phxbo_vram' 0; expect_log 'bovram: .*not a list of process names'; go bovram_empty; }
 sc_bovram_oldkext() {   world; bv_flag 'vkbench'; SIM_BOVRAM_NOOID=1; expect_writes 'phxbo_vram' 0; expect_log 'bovram: VermilionBoot before b156'; go bovram_oldkext; }
 sc_bovram_nodesk() {    world; DESK=0; bv_flag 'vkbench'; expect_writes 'phxbo_vram' 0; expect_log 'bovram: not a desktop boot'; go bovram_nodesk; }
-# 11-23 (thread 03) gl: ~/gpu/phxboot-gl -> debug.phxgl=1, read back
+# 11-23 (thread 03) gl: debug.phxgl=1, read back (on by default; off: ~/gpu/phxboot-gl-off)
 sc_gl_off() {           world; touch "$FR/gpu/phxboot-gl-off"; expect_nolog 'gl: '; expect_writes 'phxgl' 0; expect_log 'SUCCESS'; go gl_off; }
 sc_gl_on() {            world; expect_writes '^-w debug.phxgl=1$' 1; expect_log 'gl: OpenGL over Metal on'; expect_log 'SUCCESS'; go gl_on; }
 sc_gl_oldkext() {       world; SIM_GL_NOOID=1; expect_writes 'phxgl' 0; expect_log 'gl: VermilionAccel without debug.phxgl'; expect_log 'SUCCESS'; go gl_oldkext; }
 sc_gl_fail() {          world; SIM_SYSCTL_FAIL=debug.phxgl; expect_log 'gl: debug.phxgl=1 refused: off'; expect_log 'SUCCESS'; go gl_fail; }
-# 11-24 (thread 04) audio: ~/gpu/phxboot-audio -> phxaudio apply, then audio_match.sh on (each stub leaves a marker file)
+# 11-24 (thread 04) audio: phxaudio apply, then audio_match.sh on (each stub leaves a marker file); off: ~/gpu/phxboot-audio-off
 audio_stub(){   # audio_stub <phxaudio rc>
   printf '#!/bin/bash\n: >"%s/audio.dc"\necho "phxaudio: 90 writes, end state %s"\nexit %s\n' "$FR" "$([ "$1" = 0 ] && echo ok || echo WRONG)" "$1" >"$FR/gpu/phxaudio"; chmod +x "$FR/gpu/phxaudio"
   printf '#!/bin/sh\n[ "$1" = on ] && : >"%s/audio.match"\necho "audio: DP audio engine up after 1 s"\n' "$FR" >"$FR/gpu/audio_match.sh"; }
@@ -918,9 +918,9 @@ sc_wstiled_on() {       world; touch "$FR/gpu/phxboot-wstiled"; expect_log 'wsti
 sc_wstiled_lcfail() {   world; touch "$FR/gpu/phxboot-wstiled"; SIM_LAUNCHCTL_FAIL=1; expect_log 'wstiled: launchctl setenv failed'
                         expect_log 'SUCCESS'; expect_killall; go wstiled_lcfail; }
 sc_wstiled_nodesk() {   world; DESK=0; touch "$FR/gpu/phxboot-wstiled"; expect_nolog 'wstiled'; expect_log 'no desktop arm: GOP'; expect_no_killall; lt_hasnt; go wstiled_nodesk; }
-# 11-19 waitstep: debug.phxwait_step_us from ~/gpu/phxboot-waitstep before the WindowServer restart (desktop boots only)
+# 11-19 waitstep: debug.phxwait_step_us (200, or the value in ~/gpu/phxboot-waitstep) before the WindowServer restart (desktop boots only; off: phxboot-waitstep-off)
 ws_flag(){ printf '%s' "$1" >"$FR/gpu/phxboot-waitstep"; }
-# 11-20 p0modes: ~/gpu/phxboot-p0modes arms the pipe-0 engine and the head-0 mode list before the claim (b128, 1440p)
+# 11-20 p0modes: the pipe-0 engine and the head-0 mode list armed before the claim (b128, 1440p); off: ~/gpu/phxboot-p0modes-off
 sc_p0modes_off() {      world; touch "$FR/gpu/phxboot-p0modes-off"; expect_nolog 'p0modes'; expect_writes 'phxpipe0_enable' 0; expect_writes 'phxpipe0_modes' 0; expect_log 'SUCCESS'; go p0modes_off; }
 alu(){ "$MOCK_PB" -c "Print :autoLoginUser" "$FR/Library/Preferences/com.apple.loginwindow.plist" 2>/dev/null || echo absent; }
 expect_alu(){ expect_cmd "[ \"\$(alu)\" = $1 ]"; }
@@ -965,7 +965,7 @@ sc_waitstep_nooid() {   world; ws_flag 200; SIM_WAITSTEP_NOOID=1; expect_writes 
 sc_waitstep_fail() {    world; ws_flag 200; SIM_SYSCTL_FAIL=debug.phxwait_step_us; expect_writes '^-w debug.phxwait_step_us=200$' 1
                         expect_log 'waitstep: debug.phxwait_step_us=200 rc 1, reads 50 \(sysctl: .*Operation not permitted\)'; expect_log 'SUCCESS'; expect_killall; go waitstep_fail; }
 sc_waitstep_nodesk() {  world; DESK=0; ws_flag 200; expect_nolog 'waitstep'; expect_writes 'phxwait_step_us' 0; expect_log 'no desktop arm: GOP'; go waitstep_nodesk; }
-# 11-23 irqwait: the five interrupt-wait sysctls from ~/gpu/phxboot-irqwait before the WindowServer restart
+# 11-23 irqwait: the five interrupt-wait sysctls before the WindowServer restart (on by default; off: ~/gpu/phxboot-irqwait-off)
 sc_irqwait_off() {      world; touch "$FR/gpu/phxboot-irqwait-off"; expect_nolog 'irqwait'; expect_writes 'phxih|phxirq|phxeopirq|phxwait_irq' 0; expect_log 'SUCCESS'; go irqwait_off; }
 sc_irqwait_on() {       world; expect_writes '^-w debug.phxih_vram=1$' 1; expect_writes '^-w debug.phxih=1$' 1
                         expect_writes '^-w debug.phxeopirq=1$' 1; expect_writes '^-w debug.phxirq=1$' 1; expect_writes '^-w debug.phxwait_irq=1$' 1

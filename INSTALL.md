@@ -236,7 +236,8 @@ seen on the reference machine.
 
 **Display**
 
-- **HDR is off.** The plugin shows stale frames when WindowServer composites in HDR. It is switched off by a flag.
+- **HDR is off.** The plugin shows stale frames when WindowServer composites in HDR. It is off by default
+  (`touch ~/gpu/phxboot-hdr` turns it on to try it).
 - **No recovery after a monitor power-cycle, a replug or an input switch.** The screen stays black until you restart.
   Audio comes back only after a restart too.
 - **No display sleep.** The screen goes black but the monitor never goes to standby.
@@ -299,7 +300,8 @@ Never Reset NVRAM to fix a boot problem. Never restart into macOS from Linux or 
 Every feature below is on by default. To turn one off, create an empty file with the name in the second column in
 `~/gpu` (`touch ~/gpu/phxboot-cg-off`) and restart; `rm` the file to turn it on again. Leave the other features alone
 unless the log points at one (`/var/log/phxboot.log`, one line per feature). An old `~/gpu/phxboot-<name>` file from an
-earlier install does nothing now; the log says so in one `note:` line.
+earlier install does nothing now; the log says so in one `note:` line. Exceptions: `phxboot-waitstep` and
+`phxboot-bovram` hold a value and are still read (the table).
 
 | Feature | Create this file to turn it off |
 |---|---|
@@ -310,10 +312,10 @@ earlier install does nothing now; the log says so in one `note:` line.
 | Idle memory and fabric clocks | `phxboot-idledpm-off` (and `phxboot-idledpm-dcf-off` for the DCFCLK part only) |
 | 1440p modes in System Settings | `phxboot-p0modes-off` |
 | Fence waits by interrupt | `phxboot-irqwait-off` |
-| Fence wait step | `phxboot-waitstep-off` (or a value 20-1000 in `phxboot-waitstep`) |
+| Fence wait step (200 us; `phxboot-waitstep` holds another value, 20-1000) | `phxboot-waitstep-off` |
 | CoreDisplay's surfaces for GPU present | `phxboot-wscdcopy-off` |
-| Video decode engine (VCN) | `phxboot-vcn-off` |
-| VRAM buffers for named apps | `phxboot-bovram-off` (or a comma-separated list in `phxboot-bovram`) |
+| Video decode engine (VCN; skipped on a package install, which does not ship its bring-up files yet) | `phxboot-vcn-off` |
+| VRAM buffers for named apps (no app is named by default: nothing runs until `phxboot-bovram` holds a comma-separated list of process names) | `phxboot-bovram-off` |
 | OpenGL over Metal | `phxboot-gl-off` |
 | DisplayPort audio | `phxboot-audio-off` |
 | Adaptive Sync ("Variable") | `phxboot-novrr` |
@@ -376,7 +378,8 @@ in Apple's NVRAM GUID:
 printf '\007\000\000\000\061' | sudo tee /sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82 >/dev/null
 ```
 
-Then power off fully (not a restart) and boot macOS. The daemon re-arms the variable after each good boot (unless `~/gpu/phxboot-auto-off` exists).
+Then power off fully (not a restart) and boot macOS. The daemon re-arms the variable after each good boot (unless
+`~/gpu/phxboot-auto-off` exists).
 
 **To delete `phxfb-squat` or `phxfb-boot` from Linux** (the uninstaller says so when macOS could not delete them): the
 files are immutable. For each variable, in the same directory and GUID:

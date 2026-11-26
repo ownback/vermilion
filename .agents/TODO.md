@@ -17,13 +17,19 @@ Rules:
 ## Flag defaults (`ownback/flag-defaults`, 2026-11-26)
 
 - [ ] **Run the defaults on the XTX machine without its old flag files** (owner, one boot): move `~/gpu/phxboot-{sdma,cg,
-  uclk,vcn,gl,audio,irqwait,p0modes,idledpm,idledpm-dcf,wscdcopy,auto,nohdr,waitstep,bovram,vrrmin}` away, boot, check
-  that `/var/log/phxboot.log` shows every feature as before and no `note:` line. Until then the defaults are
+  uclk,vcn,gl,audio,irqwait,p0modes,idledpm,idledpm-dcf,wscdcopy,auto,nohdr,waitstep,vrrmin}` away, boot, check
+  that `/var/log/phxboot.log` shows every feature as before and no `note:` line. Keep `phxboot-bovram`: its list is no
+  longer the default (without the file the log says `bovram: no process list`). Until then the defaults are
   host-tested only.
-- [ ] Ship the VCN and audio helpers in the package (`vcnup/`, `phxaudio`, `audio_match.sh`): `vcn` and `audio` are on
-  by default but skip with a `missing` line on a stranger's install.
-- [ ] `bovram` default is the XTX machine's two game processes; decide a general rule (all but WindowServer?) after a
-  measurement on another app.
+- [ ] Ship the VCN helpers in the package (`vcnup/`; `vcn_up.sh` needs data captured on the reference machine): `vcn`
+  is on by default but skips with a `missing` line on a stranger's install. (`phxaudio` and `audio_match.sh` ship.)
+- [ ] `bovram` names no process by default (the XTX machine's list is its two game processes, in its own file); decide
+  a general rule (all but WindowServer?) after a measurement on another app.
+- [ ] Seen in the clean-up pass of #55, left alone because each changes what the daemon does or logs (the list is in
+  the PR's clean-up report): the `note:` text for `phxboot-nohdr`, `irqwait` / `waitstep` on the safe desktop,
+  `idle_dpm.sh`'s watchdog pin under `phxboot-uclk-off`, `recovery_install.sh` without the audio tools,
+  `phxboot-novrr` not renamed to the `-off` scheme, stale `phxboot-nohdr` / `phxboot-wscdcopy` comments in
+  `src/vermilion-accel/accel/phxfb.cpp` and `src/metal-plugin/nvmtl_scanout.c`.
 
 ## Staged now
 
@@ -254,14 +260,16 @@ PROJECT_KNOWLEDGE.
 - [x] **03: VermilionAccel with `debug.phxgl`** (not an EFI change): installed 23:05, booted 23:18 (UUID `2B25514A`),
   OpenGL over Metal verified 23:25 (finding section 8). Rollback:
   `~/vermilion-rollback/VermilionAccel.kext.pre-phxgl-20261123`, `kmutil load -p`, Allow, restart; or just
-  `rm ~/gpu/phxboot-gl` (GL off from the next boot) / `sysctl -w debug.phxgl=0`.
+  `touch ~/gpu/phxboot-gl-off` (GL off from the next boot; before the flag defaults: `rm ~/gpu/phxboot-gl`) /
+  `sysctl -w debug.phxgl=0`.
 
 - [ ] **Boots that stop without a macOS log** (watch item, counter in [OWNER-TESTS](OWNER-TESTS.md) 01): #1 05:09
   cold (b155), #2 15:45 warm (b159; OpenCore stopped with "Missing compatible GOP"). A third one on b159 or later
   means reverting to EFI change 19 (`~/vermilion-rollback/EFI-OC.change19-20261123`, with the plugin it trusts)
   before going on. Every thread that restarts asks the owner to glance at the screen.
 
-- [ ] **HDR off as a workaround since 2026-11-24 01:00** (`~/gpu/phxboot-nohdr`; remove it to get HDR back once fixed).
+- [ ] **HDR off as a workaround since 2026-11-24 01:00** (`~/gpu/phxboot-nohdr`; since the flag defaults HDR is off
+  without it too, and `~/gpu/phxboot-hdr` turns it on: make HDR the default again once fixed).
   After the HDMI / DP replug at 00:08 WindowServer composites in BGRA while the scan-out is 10-bit HDR, the plugin's
   CPU widen path presents stale frames: the picture freezes a few minutes after login (input works).
   [Finding](findings/2026-11-24-hdr-freeze-after-replug.md). Fix: the widen path in the plugin (a trust + EFI change)

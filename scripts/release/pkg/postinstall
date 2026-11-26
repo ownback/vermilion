@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
 # postinstall of Vermilion-<version>.pkg (docs/RELEASE.md). Runs as root after the payload is laid down. In order:
-#   1. the boot daemon, bring-up scripts, tools and flags into the desktop user's ~/gpu (the layout the scripts read
+#   1. the boot daemon, bring-up scripts and tools into the desktop user's ~/gpu (the layout the scripts read
 #      today: tools/phxctl/recovery_install.sh puts the same files there), a rollback copy of each replaced file first;
 #   2. the LaunchDaemon local.phxboot (written, not loaded: launchd starts it at the next boot);
 #   3. AMD's firmware, fetched from linux-firmware at the commit pinned in fw.lock (md5 and SHA-256 checked);
@@ -77,7 +77,7 @@ else
   say "AIR reader: already installed (no copy in the package)"
 fi
 
-# 5. caches, first-boot flags, marker
+# 5. caches, marker (no flag files)
 GB=$R/Library/GPUBundles
 for c in aircache spvcache; do
   [ -e "$GB/nvmtl/$c" ] || printf 'N %s\n' "$GB/nvmtl/$c" >>"$RB/MANIFEST"

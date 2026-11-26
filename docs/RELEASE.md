@@ -71,7 +71,7 @@ The bundle is not relocatable and not version-checked (an install over the same 
 | Decoder: `PhxVA.bundle` and its dylibs | `/Library/GPUBundles` | A6 lands; before that the decoder is not in the package (no system-volume writes from an installer) |
 | `VermilionAccel.kext` | `/Library/Extensions` (the package ends by asking for the Allow click, a known step: [INSTALL.md](../INSTALL.md#34-the-allow-click)) | always (owner decision) |
 | `phxctl`, `mesboot`, `vermilion-uninstall`, `vermilion-firmware` | `/usr/local/sbin` | always |
-| Boot daemon, bring-up scripts, `phxctl.bin`, `metaltest`: a pristine copy, `fetch_firmware.sh` + `fw.lock`, the LaunchDaemon template, `lib.sh`, the AIR reader's files (removed after use) | `/usr/local/libexec/vermilion` | always |
+| Boot daemon, bring-up scripts, `phxctl.bin`, `metaltest`, `phxaudio`: a pristine copy, `fetch_firmware.sh` + `fw.lock`, the LaunchDaemon template, `lib.sh`, the AIR reader's files (removed after use) | `/usr/local/libexec/vermilion` | always |
 | the same daemon and scripts, the firmware (no flag files: every proven feature is on by default in the daemon) | **the desktop user's `~/gpu`**, written by the post-install script | B1 |
 | `local.phxboot.plist` (written, not loaded) | `/Library/LaunchDaemons` | B1 |
 
@@ -96,7 +96,7 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    would do), the SIP bits, the VermilionTrust version match, the migration of a manual install (the preinstall
    notes it and the rollback folder keeps what the package replaces).
 2. **postinstall (built).** Installs `~/gpu` and the LaunchDaemon (each replaced file copied to the rollback folder
-   first), fetches the firmware, installs the AIR reader, creates the shader cache folders and the first-boot flags,
+   first), fetches the firmware, installs the AIR reader, creates the shader cache folders (no flag files, below),
    writes the install marker, prints the Allow-click step. It does not start the daemon.
    The firmware step runs `tools/firmware/fetch_firmware.sh` into `~/gpu/fw/navi31`: the 20 files of `fw.lock`, from
    linux-firmware at the pinned commit (GitLab mirror, then git.kernel.org), md5 and SHA-256 checked, any mismatch
@@ -111,11 +111,12 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    them, and the post-install text repeats it. (The design had Software Update's automatic install off, as
    `recovery_install.sh` does.)
 
-The package writes no flag files (2026-11-26): the daemon's features are on by default (`phxboot-<name>-off` turns one off), HDR
-is off by default (broken in this preview), and automatic login and the second monitor stay off without their file. The
-MANIFEST therefore has no flag lines; an uninstall leaves the user's own flag files alone. **The package does not write NVRAM.** The
-daemon arms the accelerated desktop: on a GOP boot whose bring-up and claim finished, unless `phxboot-auto-off` exists, it sets
-`phxfb-squat` for the next boot (read back) and posts "Graphics acceleration is ready". That needs the firmware and
+The package writes no flag files (2026-11-26): the daemon's features are on by default (`phxboot-<name>-off` turns one
+off), HDR is off by default (broken in this preview), and automatic login and the second monitor stay off without
+their file. The MANIFEST therefore has no flag lines; an uninstall leaves the user's own flag files alone. **The
+package does not write NVRAM.** The daemon arms the accelerated desktop: on a GOP boot whose bring-up and claim
+finished, unless `phxboot-auto-off` exists, it sets `phxfb-squat` for the next boot (read back) and posts "Graphics
+acceleration is ready". That needs the firmware and
 VermilionAccel, so a missing firmware or Allow click never arms a dark squat boot; a GOP boot without VermilionAccel
 loaded starts no bring-up, counts no failure and posts "Graphics acceleration needs your approval". The uninstaller
 deletes `phxfb-squat` where macOS can. **(Unverified on a Mac; mock-tested.)**

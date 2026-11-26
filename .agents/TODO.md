@@ -647,6 +647,10 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   **Built 2026-11-25** (branch `ownback/ws-vram-scanout`, VermilionBoot b162 + NVMTLDriver, switch file `ws-direct`,
   hw-safety re-check OK; finding section 8). Not installed. Deploy: b162 alone (one boot), then plugin + VermilionTrust
   (one boot), then the switch file live; owner test and rollback in section 8.
+  **Follow-ups, built 2026-11-26** (branch `ownback/scanout-live-on`, plugin only, finding section 9): the switch
+  file now also works live when created (moves to direct at a frame boundary); stale screenshots of a still desktop
+  fixed by an idle page sync; the 16 % gate waits are the second surface's flip latching (inherent with two surfaces),
+  now counted by cause. Not installed; all (unverified) on hardware.
 - [ ] **1b. Narrow render-pass dependencies** (plugin, S-M): every pass has image-less ALL_COMMANDS / MEMORY_* entry
   and exit dependencies, likely an L2 flush per pass in RADV (unverified); ~0.4-0.5 ms of WindowServer's frame is
   the ~13 us per-pass floor. Measure RADV's flush bits per pass (or A/B `NVMTL_RP_K1=1`) before changing it.

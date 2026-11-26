@@ -317,14 +317,14 @@ host tests pass.
 2. Boot 2: install NVMTLDriver (the runbook's "Deploying a plugin ...": old binary to `~/vermilion-rollback/`), then
    `PHXTRUST_KEEP=1 sh scripts/build/trust.sh`, then an EFI change with only `Kexts/VermilionTrust.kext`, one boot.
    Without the switch file the plugin runs today's copy path: check that nothing changed.
-3. No restart: `sudo touch /Library/GPUBundles/nvmtl/ws-direct`. WindowServer's plugin reads it within 1 s.
+3. No restart: `sudo touch /Library/GPUBundles/nvmtl/ws-direct`. WindowServer's plugin reads it within 1 s and moves to direct at the next frame boundary (section 9).
 
 **Owner test.**
 1. Desktop: the log shows `ws gpu present: direct: ...` bind lines. The `direct:` part of `sysctl
    debug.phxscan_layout` shows slots bound and binds > 0.
 2. Move windows and scroll: no tearing, no flicker, no stale frame.
 3. Maps fullscreen 3D, then the section 6 capture: the `present` copy+wait (0.93-1.05 ms) should be gone (unverified).
-4. Screenshot (Cmd-Shift-3): note whether it is current or stale. Stale is a known cost, to be fixed.
+4. Screenshot (Cmd-Shift-3) of a still desktop: should be current (section 9, the idle page sync); during an animation it may be older.
 5. An HDR toggle and a mode change: the log shows `direct scan-out ends ... copied back`, then the copy path or a new
    bind, with no black screen.
 6. `rm` the file: copy path again, desktop current.
@@ -344,3 +344,38 @@ host tests pass.
   - the Maps gain.
 - The plugin's handling of a WindowServer crash while bound: the kext's close path is the existing one, but it has not
   been exercised with direct slots.
+
+## 9. Direct scan-out follow-ups (2026-11-26, branch `ownback/scanout-live-on`)
+
+Host-tested only; nothing installed. Everything about hardware behaviour here is (unverified). From the XTX machine's
+boot of 2026-11-26 00:42: `ws-direct` created while WindowServer ran did nothing, and after a restart with the file
+present both surfaces were drawn in VRAM slots 0 and 1 with no copy.
+
+**Live switch-on.** The file was read live, but only a GPU present *start* chose direct, so a running copy path never
+asked again. The surfaces' VRAM placement is not decided at allocation: the bind moves the GPU maps of the plugin's host
+import onto the slot (selector 22) with the queue drained, and the seed copy takes the pages' current content. So a
+live move is safe by the same steps as a start. Now, at the end of a copy-path present (a frame boundary: the copy's
+fence is waited, the flip made), at most every 250 ms, `nvmtl_scan_direct_live_locked` builds the start's own inputs
+(`nvmtl_sd_start`: pair known, shown surface in it, formats, kext OK, async, cooldown) and, only if a start now would
+choose direct, waits for a quiet moment (no full-screen write in flight; after 2 s it goes anyway, the bind drains),
+logs `ws-direct appeared: direct scan-out engages at this frame boundary`, releases the plane exactly as the
+switch-off does and lets the next present start again, which does the bind with every check the start makes. The
+console shows for that one present gap (same as the switch-off). A start that cannot bind is an ordinary direct failure
+(10 s cooldown, five of them: off), and the live move itself is capped at three per process, 5 s apart. Display
+surfaces are noted only while the file is there (`nvmtl_ws_direct_note`), so after the file appears the pair is known
+after the next two unwaited CoreDisplay commits.
+
+**Writes that waited for a flip (16 %, 1.7 ms average).** The cause is two surfaces, not a bug: CoreDisplay's next
+frame is written to the surface that is still on screen until the flip to the other one latches at the next vblank
+(average half a period; 1.7 ms is about 0.4 of a 240 Hz period). The gate cannot let it through (HUBP0 may still fetch
+it) and the bounce is no help while a flip is pending (a second flip would replace the first). A third slot has no
+surface to hold: CoreDisplay draws into two. An earlier flip is not possible: the present runs when the GPU has
+finished the frame. So it is left as it is; the log line now says how many of the waits were behind a flip still to
+latch (`dgatePend`), to confirm on the machine that it is all of them. No register write is involved.
+
+**Stale screenshots.** The cause is the documented one (section 8, known costs): while bound, a surface's pages are not
+drawn into (the GPU writes the slot), so `screencapture` read the frame from the bind. Fix in the plugin: once nothing
+has been presented for 100 ms, the keepalive copies each flipped surface's VRAM onto its pages (a read of the slot, so
+HUBP0 is not disturbed; held off while a write to it is in flight). A screenshot of a still desktop is current within
+about 350 ms. One taken during an animation can still read an older frame; that is not fixed (needs the CPU reader to
+tell us, or a copy per frame). Counted as `idle syncs` in the 3000-present line.

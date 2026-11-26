@@ -31,7 +31,9 @@ namespace phxc3 {
 // daemon writes it to debug.phxc3_image from the installed firmware file, and imageSeal() accepts it only when its SHA-256
 // and CRC-32 equal the values the build computed from the file it fetched (phx_c3_hash.inc). Until then image() is null and
 // every user of it refuses (the gates in PhxPipe2.h and PhxDpRun.h), as it did for a failed CRC before.
+// imageSeal()'s result. kImgLen is not returned by imageSeal(): the sysctl handler (phx_pipe2.cpp) uses it for a failed copy-in.
 enum ImageRc { kImgOk = 0, kImgLen = 1, kImgSha = 2, kImgCrc = 3 };
+static constexpr decltype(sizeof 0) kImageBytes = sizeof(uint16_t) * kPhxC3ImageWords;   // 0xA000: what debug.phxc3_image takes
 static uint16_t gImageWords[kPhxC3ImageWords];
 static unsigned gImageLoaded;
 inline const uint16_t *image() { return gImageLoaded ? gImageWords : nullptr; }
@@ -39,17 +41,16 @@ inline uint16_t *imageBuf() { gImageLoaded = 0; return gImageWords; }   // the c
 inline uint32_t imageCrc(const uint16_t *h, unsigned n);
 inline int imageSeal() {
     gImageLoaded = 0;
-    phxsha::Sha256 s;
-    uint8_t d[32];
-    phxsha::init(s);
-    phxsha::update(s, reinterpret_cast<const uint8_t *>(gImageWords), sizeof gImageWords);   // x86_64 / arm64: little-endian halfwords
-    phxsha::final(s, d);
-    for (unsigned i = 0; i < 32; i++) if (d[i] != kPhxC3HashSha256[i]) return kImgSha;
+    phxsha::Sha256 sha;
+    uint8_t digest[phxsha::kDigestLen];
+    phxsha::init(sha);
+    phxsha::update(sha, reinterpret_cast<const uint8_t *>(gImageWords), sizeof gImageWords);   // x86_64 / arm64: little-endian halfwords
+    phxsha::final(sha, digest);
+    for (unsigned i = 0; i < phxsha::kDigestLen; i++) if (digest[i] != kPhxC3HashSha256[i]) return kImgSha;
     if (imageCrc(gImageWords, kPhxC3ImageWords) != kPhxC3ImageCrc32) return kImgCrc;
     gImageLoaded = 1;
     return kImgOk;
 }
-inline void imageClear() { gImageLoaded = 0; }
 
 enum : uint32_t { kRmw = 1, kBurst = 3, kWait = 4 };
 static constexpr unsigned kMaxRmw = 5, kMaxBurst = 14;
@@ -205,7 +206,8 @@ inline bool cmdOk(const uint32_t *c, const Shape &s, const char **why) {
     return !w;
 }
 
-// CRC-32 (zlib polynomial 0xEDB88320) of the image as its little-endian bytes: compared with kPhxC3ImageCrc32 before mode 9 (and by imageSeal).
+// CRC-32 (zlib polynomial 0xEDB88320) of the image as its little-endian bytes: compared with kPhxC3ImageCrc32 before mode 9
+// (and by imageSeal).
 inline uint32_t imageCrc(const uint16_t *h, unsigned n) {
     uint32_t c = 0xffffffffu;
     for (unsigned i = 0; i < 2 * n; i++) {

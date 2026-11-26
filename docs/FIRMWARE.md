@@ -1,8 +1,9 @@
 # AMD firmware
 
 The bring-up (`tools/phxctl/bringup_navi31.sh`, `vcn_up.sh`) loads AMD microcode from linux-firmware `amdgpu/`
-through the PSP, and VermilionBoot's cold-boot PHY fix (`debug.phxc3`, `src/vermilion-boot/PhxC3Load.h`) streams one slice of
-`dcn_3_2_0_dmcub.bin` to the PHY (the kext holds none of it: the boot daemon hands it over at run time, step 2). These files are AMD's, under `LICENSE.amdgpu` ([`../LICENSES/LICENSE.amdgpu.txt`](../LICENSES/LICENSE.amdgpu.txt)):
+through the PSP, and VermilionBoot's cold-boot PHY fix (`debug.phxc3`, `src/vermilion-boot/PhxC3Load.h`) streams one
+slice of `dcn_3_2_0_dmcub.bin` to the PHY (the kext holds none of it: the boot daemon hands it over at run time, step 2).
+These files are AMD's, under `LICENSE.amdgpu` ([`../LICENSES/LICENSE.amdgpu.txt`](../LICENSES/LICENSE.amdgpu.txt)):
 redistribution in binary form only, no reverse engineering, decompilation or disassembly.
 
 **This repository ships no firmware and no excerpt of it**, following nullarc (its `.gitignore` keeps `*.bin` out of
@@ -18,8 +19,8 @@ the tree and `tools/fetch_test_firmware.sh` downloads the blobs from linux-firmw
    they are unchanged up to tag `20251111`, and later releases replace most of them: GC, PSP, SMU and VCN, then SDMA
    and DCN). It tries the GitLab mirror first, then git.kernel.org. `LINUX_FIRMWARE_REF=<commit>` picks another
    commit, `LINUX_FIRMWARE_URL` another mirror.
-2. `tools/firmware/c3_image.py [--fw <dcn_3_2_0_dmcub.bin>]` generates `src/vermilion-boot/phx_c3_hash.inc` from your copy:
-   the length, CRC-32 and SHA-256 of the C3 slice (offset 0xE200, 0xA000 bytes), no firmware bytes (it checks the slice's
-   sha256 prefix first). `scripts/build/kext.sh` runs it on every build; `.gitignore` keeps the header out. At run time
+2. `tools/firmware/c3_image.py [--fw <dcn_3_2_0_dmcub.bin>]` generates `src/vermilion-boot/phx_c3_hash.inc` from your
+   copy: the length, CRC-32 and SHA-256 of the C3 slice (offset 0xE200, 0xA000 bytes), no firmware bytes (it checks the
+   slice's sha256 prefix first). `scripts/build/kext.sh` runs it on every build; `.gitignore` keeps the header out. At run time
    `m7_boot.sh` runs `phxctl c3image <installed dcn_3_2_0_dmcub.bin>`, which writes the slice to `debug.phxc3_image`;
    the kext keeps it only if its SHA-256 and CRC-32 match, otherwise `debug.phxc3=9` and `debug.phxdplink` refuse.

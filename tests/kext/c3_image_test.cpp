@@ -47,11 +47,11 @@ int main(int argc, char **argv) {
     uint8_t tmp[4096];
     for (size_t n; (n = fread(tmp, 1, sizeof tmp, f)) > 0;) fw.insert(fw.end(), tmp, tmp + n);
     fclose(f);
-    const size_t kOff = 0xE200, kLen = 0xA000;
+    constexpr size_t kOff = 0xE200, kLen = 0xA000;   // the C3 slice of the file (tools/firmware/c3_image.py OFF, LEN)
     CHECK(fw.size() >= kOff + kLen);
 
 #ifndef PHX_OLD_INLINE
-    static_assert(sizeof(uint16_t) * kPhxC3ImageWords == 0xA000, "the slice length");
+    static_assert(phxc3::kImageBytes == kLen, "the slice length");
     // not installed: no image, the burst commands are refused, the prologue and the end command do not need it
     CHECK(phxc3::image() == nullptr);
     uint32_t c[phxdmub::kCmdDw];

@@ -6,6 +6,7 @@
 
 namespace phxsha {
 
+static constexpr unsigned kDigestLen = 32;   // bytes of a SHA-256 digest
 struct Sha256 { uint32_t h[8]; uint8_t buf[64]; uint32_t used; uint64_t total; };
 
 inline uint32_t rotr(uint32_t x, unsigned n) { return (x >> n) | (x << (32 - n)); }
@@ -51,14 +52,14 @@ inline void update(Sha256 &s, const uint8_t *p, uint64_t n) {
         if (s.used == 64) { block(s.h, s.buf); s.used = 0; }
     }
 }
-inline void final(Sha256 &s, uint8_t out[32]) {
+inline void final(Sha256 &s, uint8_t out[kDigestLen]) {
     const uint64_t bits = s.total * 8;
     static const uint8_t pad = 0x80, zero = 0;
     update(s, &pad, 1);
     while (s.used != 56) update(s, &zero, 1);
-    uint8_t l[8];
-    for (unsigned i = 0; i < 8; i++) l[i] = static_cast<uint8_t>(bits >> (56 - 8 * i));
-    update(s, l, 8);
+    uint8_t len[8];   // the message length in bits, big-endian
+    for (unsigned i = 0; i < 8; i++) len[i] = static_cast<uint8_t>(bits >> (56 - 8 * i));
+    update(s, len, 8);
     for (unsigned i = 0; i < 8; i++) for (unsigned j = 0; j < 4; j++) out[4 * i + j] = static_cast<uint8_t>(s.h[i] >> (24 - 8 * j));
 }
 

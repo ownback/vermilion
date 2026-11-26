@@ -10,11 +10,14 @@
 #     (18 / 36 / 43 / 72 MHz at 60 / 120 / 144 / 240 Hz), NumOfDisplays 1: what Linux sends after every mode set on
 #     this card (its 2026-11-20 mode-set traces)
 # Watchdog, every $IDPM_POLL s: OPTC0 (0x4F8A bit 10) and HUBP0 (0x3AB3 bits 30:28). A hit while the display is settled =
-# UCLK pinned 456 again, SetFclkSwitchAllow 0, exit: pinned for the rest of the boot. A mode switch (the state line
-# changes) clears the stickies once it settles and is not counted (an underflow inside a switch's blank is not seen).
-# Measured live 2026-11-23 on the XTX machine at 1440p240 HDR (steps 2-3 by hand): socket 51 -> 20-24 W at idle, board
-# 64 -> 28-33 W, UCLK 456 -> 96, FCLK 2301 -> 1000, no underflow in 10 min (findings 2026-11-23-perf-power.md).
-# Rollback: rm ~/gpu/phxboot-idledpm (next boot = pinned); live: `sudo sh ~/gpu/uclk.sh pin 456` + kill this.
+# UCLK pinned again (U1: `uclk.sh pin`, the top level through the DAL mailbox, as Linux holds it when the mode can't take
+# a UCLK switch), SetFclkSwitchAllow 0, exit: pinned for the rest of the boot. `uclk.sh unpin` is the DAL hard minimum at
+# level 0, what Linux sends after every mode set on this card (finding 2026-11-26-u1-uclk-dal.md). A mode switch (the
+# state line changes) clears the stickies once it settles and is not counted (an underflow inside a switch's blank is not
+# seen). Measured live 2026-11-23 on the XTX machine at 1440p240 HDR (steps 2-3 by hand, the driver-mailbox pin of then):
+# socket 51 -> 20-24 W at idle, board 64 -> 28-33 W, UCLK 456 -> 96, FCLK 2301 -> 1000, no underflow in 10 min
+# (findings 2026-11-23-perf-power.md).
+# Rollback: rm ~/gpu/phxboot-idledpm (next boot = pinned); live: `sudo sh ~/gpu/uclk.sh pin` + kill this.
 # Exit codes: 1 nothing freed (a helper missing, no settled desktop, dalwm.sh failed) or the unpin / FCLK switch was
 # refused and UCLK pinned again; 2 an underflow in the baseline, nothing sent; 3 the watchdog pinned UCLK again.
 G=${PHXBOOT_G:-$HOME/gpu}; P=${PHXCTL:-$G/phxctl.bin}; export PHXCTL=$P
@@ -26,7 +29,7 @@ st() { x=$(sysctl -n debug.phxp0odm_stat 2>/dev/null | sed -n 's/^state: //p'); 
 clr() { w 0x4F8A 0x1000; h=$(r 0x3AB3); w 0x3AB3 $(printf 0x%X $(( (h & 0x0FFFFFFF) | 0x80000000 ))); w 0x3AB3 $(printf 0x%X $(( h & 0x0FFFFFFF ))); }
 hit() { v=$(r 0x4F8A); h=$(r 0x3AB3); k=""
   [ $(( v & 0x400 )) -ne 0 ] && k=optc0; [ $(( (h >> 28) & 7 )) -ne 0 ] && k="${k:+$k+}hubp0"; [ -n "$k" ]; }
-pin() { say "$1: $(sh "$G/uclk.sh" pin 456 2>&1 | tail -1 | cut -c1-90); $(sh "$G/dal.sh" SetFclkSwitchAllow 0 2>&1 | tail -1 | cut -c1-90)"; }
+pin() { say "$1: $(sh "$G/uclk.sh" pin 2>&1 | tail -1 | cut -c1-90); $(sh "$G/dal.sh" SetFclkSwitchAllow 0 2>&1 | tail -1 | cut -c1-90)"; }
 dal() { out=$(sh "$G/dal.sh" "$@" 2>&1); echo "$out" | grep -q '(OK)' || { say "dal $*: $(echo "$out" | tail -1 | cut -c1-100)"; return 1; }; }
 dsleep() { case "${1##*@}" in 60\ *) echo 0x12;; 120\ *) echo 0x24;; 144\ *) echo 0x2B;; 240\ *) echo 0x48;; *) echo "";; esac; }
 dcf() { [ -e "$G/phxboot-idledpm-dcf" ] || return 0; m=$(echo "$1" | sed -n 's/.*now=\([^ ]*\).*/\1/p'); d=$(dsleep "$m ")

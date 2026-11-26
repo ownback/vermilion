@@ -41,11 +41,12 @@ check() {   # check <name> <ok-condition...>
   local name=$1; shift
   if "$@"; then PASSN=$((PASSN + 1)); echo "PASS  $name"; else FAILN=$((FAILN + 1)); echo "FAIL  $name (rc $RC)"; sed 's/^/        /' "$W/out" "$W/sent.log"; fi; }
 has() { grep -q -- "$1" "$W/$2"; }
+exact() { grep -qx -- "$1" "$W/$2"; }   # U1: `uclk.sh pin` takes no MHz (the top level, through the DAL mailbox)
 order() { awk -v a="$1" -v b="$2" 'index($0,a)&&!x{x=NR} index($0,b)&&!y{y=NR} END{exit !(x&&y&&x<y)}' "$W/sent.log"; }
 
 # a steady-state underflow after the unpin: re-pinned, FCLK switch withdrawn, exit 3
 setup steady; UF_AT=20 run
-check steady_repin eval '[ $RC = 3 ] && has "dalwm" sent.log && has "uclk unpin" sent.log && has "dal SetFclkSwitchAllow 1" sent.log && has "uclk pin 456" sent.log && has "dal SetFclkSwitchAllow 0" sent.log && order "uclk unpin" "uclk pin 456" && order "dalwm" "uclk unpin" && has "optc0 underflow" out && ! has "SetHardMinByFreq" sent.log'
+check steady_repin eval '[ $RC = 3 ] && has "dalwm" sent.log && has "uclk unpin" sent.log && has "dal SetFclkSwitchAllow 1" sent.log && exact "uclk pin" sent.log && has "dal SetFclkSwitchAllow 0" sent.log && order "uclk unpin" "uclk pin" && order "dalwm" "uclk unpin" && has "optc0 underflow" out && ! has "SetHardMinByFreq" sent.log'
 # an underflow while UCLK is still pinned (baseline): nothing sent at all, exit 2
 setup base; UF_AT=4 run
 check baseline_stop eval '[ $RC = 2 ] && ! has "uclk" sent.log && ! has "dal" sent.log && has "baseline" out'
@@ -57,7 +58,7 @@ setup switch; touch "$W/gpu/phxboot-idledpm-dcf"; SWITCH_AT=16 UF_AT=40 run
 check switch_settles eval 'has "mode switch settled: .*@60" out && has "dal SetMinDeepSleepDcfclk 0x12" sent.log && order "SetMinDeepSleepDcfclk 0x48" "SetMinDeepSleepDcfclk 0x12"'
 # a refused unpin: pinned again, exit 1, no FCLK switch
 setup refused; UF_AT=999; printf '#!/bin/sh\necho "uclk $*" >>"%s/sent.log"; [ "$1" = unpin ] && { echo "msg (FAIL)"; exit 0; }; echo "msg (OK)"\n' "$W" >"$W/gpu/uclk.sh"; run
-check unpin_refused eval '[ $RC = 1 ] && has "uclk pin 456" sent.log && ! has "SetFclkSwitchAllow 1" sent.log'
+check unpin_refused eval '[ $RC = 1 ] && exact "uclk pin" sent.log && ! has "SetFclkSwitchAllow 1" sent.log'
 # no console user: never leaves the pinned state
 setup nouser; printf '#!/bin/sh\nexit 0\n' >"$W/bin/who"; run
 check no_user eval '[ $RC = 1 ] && ! has "uclk" sent.log && has "no settled desktop" out'

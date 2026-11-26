@@ -234,7 +234,6 @@ struct Env {
     int enable;        // debug.phxpipe0_enable (the kill switch)
     int p2Switching;   // the pipe-1 engine is between the undo and the end of a mode switch
     uint64_t (*nowUs)(void *c);   // monotonic clock for the verify window (IOSleep overshoots); null = the window is nominal
-    uint32_t (*smu)(void *c, uint32_t msg, uint32_t arg);   // b101 macSet: one driver-mailbox SMU message, returns RESP (1 = OK, 0 = timeout); null = none
     uint32_t otg1NextH, otg1NextV;   // b103: the OTG1 totals the pipe-1 switch sets next (0 = none): a plan for them passes the pair check
     int solo;          // p0solo (debug.phxpipe0_solo, 0 default): with OTG1 dark, the 1080p144 plan is accepted (the AOC alone)
     int live;          // b123 (debug.phxpipe0_live, 0 default): a pair re-plan of double-buffered frame / HUBP registers runs live (liveShell)
@@ -810,8 +809,11 @@ inline int run(const Env &e, State &st, const Plan *const *pl, unsigned np, cons
 //     the target is a pair plan some register differs from = a pair re-plan, the same shell at the same timing)
 //   3 stutter forced off when allowed: DCHUBBUB_ARB_DRAM_STATE_CNTL (v & ~3) | 2, the pipe-1 switch's own write (b92), 1 ms
 //   4 the target's survey (reads only: the Acer-at-144 pair, DENTIST, DET0, stickies, link ...)
-//   5 for a target above the current rate, the UCLK hard minimum (SMU SetHardMinByFreq PPCLK_UCLK = uclk.sh pin <MHz>;
-//     uclkMhz 0 = not sent)
+//   5 for a target above the current rate, the UCLK hard minimum uclkMhz (uclkMhz 0 = not sent, the glue's default since
+//     b167). b167: DALSMC SetHardMinByFreq PPCLK_UCLK through the DAL mailbox (Env.dal), the path of Linux's display code
+//     (dcn32_update_clocks); until b166 the driver-mailbox 0x1B, which Linux never sends on SMU 13.0.0 (finding
+//     2026-11-26-u1-uclk-dal.md). Linux sends no UCLK raise for the 60 / 120 / 144 Hz switches on the XTX machine (its
+//     2026-11-20 traces), so the glue sends none either; the boot daemon's pin (uclk.sh) holds UCLK until the desktop.
 //   6 the round trip at the current mode when none passed in this boot (a mode change needs one)
 //   7 the set
 // Afterwards stutter is written back only when this call forced it and pipe 0 ends at 60 Hz (or at an unknown mode with
@@ -819,7 +821,7 @@ inline int run(const Env &e, State &st, const Plan *const *pl, unsigned np, cons
 // after the pipe-1 switch. UCLK is never lowered here (b15_boot.sh aoc60 / a later UCLK test decides). out->rebase: a shell
 // ended done or fell back, so the caller re-baselines the pipe-1 engine's pipe-0 fingerprint (phxp2::rebasePipe0) with
 // st.pubHTotal / st.pubVTotal before it releases the display lock.
-static constexpr uint32_t kSmuSetHardMinByFreq = 0x1b, kPpclkUclk = 2;
+static constexpr uint32_t kPpclkUclk = 2;
 // b128 (1440p plans): DET for one display, as Linux runs it on the XTX machine at 60/120/144 Hz (DET0 4, DET1-3 0; the GOP
 // leaves 3/3/3/3). Pipes 1-3 must be off (OTG1 dark, HUBP1-3 clocks off). Shrinks DET1-3 first, then grows DET0, each
 // waiting for SIZE_CURRENT (upstream's pipe-1 DET step, phxp2::detTwoPipe, the same writes; CRB budget 20 segments with
@@ -907,12 +909,13 @@ inline int macSet(const Env &e, State &st, const Plan *const *pl, unsigned np, c
     if (r == kDone) r = run(e, st, pl, np, tg, kCmdSurvey);
     if (r == kDone && cur && tg.info.hz > cur->info.hz && uclkMhz) {
         char d[96];
-        if (!e.smu) { r = refuse(st, "UCLK pin", "no SMU callback"); }
+        if (!e.dal || !e.pmfwIdle) { r = refuse(st, "UCLK pin", "no DAL callback"); }
+        else if (!e.pmfwIdle(e.io.c)) { r = refuse(st, "UCLK pin", "a PMFW message is in flight"); }
         else {
             st.uclkPins++;
-            const uint32_t s = e.smu(e.io.c, kSmuSetHardMinByFreq, (kPpclkUclk << 16) | (uclkMhz & 0xffffu));
+            const uint32_t s = e.dal(e.io.c, kDalSetHardMinByFreqP0, (kPpclkUclk << 16) | (uclkMhz & 0xffffu));
             if (s == 1) o->flags |= kMacUclkPin;
-            else { snprintf(d, sizeof d, "SetHardMinByFreq UCLK %u MHz answered 0x%x", uclkMhz, s); r = refuse(st, "UCLK pin", d); }
+            else { snprintf(d, sizeof d, "DAL SetHardMinByFreq UCLK %u MHz answered 0x%x", uclkMhz, s); r = refuse(st, "UCLK pin", d); }
         }
     }
     if (r == kDone && !st.rtOk) {

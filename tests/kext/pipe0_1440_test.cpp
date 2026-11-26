@@ -40,8 +40,8 @@ struct Hw {
     double frac = 0;
     uint32_t frames = 0x1000;
     std::vector<std::pair<uint32_t, uint32_t>> writes;
-    std::vector<uint32_t> dal;
-    uint32_t dalAnswer = 1, reads = 0;
+    std::vector<uint32_t> dal, dalIds;   // every DAL message's argument and DALSMC id, in order
+    uint32_t dalAnswer = 1, uclkAnswer = 1, reads = 0;
     double linkScale = 1.0;       // DP_VID_M x this (1.0 = the GOP's HBR2 link)
     uint32_t underflowAtVt = 0;   // HUBP0 underflow whenever OTG0 runs this V_TOTAL (0 = never)
     bool otgOn() { return r[0x05001] & 1; }
@@ -78,6 +78,8 @@ struct Hw {
     }
     uint32_t dalMsg(uint32_t msg, uint32_t arg) {
         dal.push_back(arg);
+        dalIds.push_back(msg);
+        if (msg == 9 && (arg >> 16) == 2) return uclkAnswer;   // UCLK: no DENTIST change
         if (msg != 9 || dalAnswer != 1) return dalAnswer;
         const uint32_t clk = arg >> 16, mhz = arg & 0xffff, did = mhz >= 614 ? 0x1c : mhz >= 505 ? 0x22 : 0x40;
         uint32_t &d = r[0x00124];
@@ -94,8 +96,7 @@ static phxp0::Env env(Hw &h, int enable = 1) {
             [](void *, uint64_t) { return 0u; }, [](void *, uint64_t, uint32_t) {}, [](void *c, uint32_t us) { static_cast<Hw *>(c)->advance(us); }};
     e.enable = enable;
     e.nowUs = [](void *c) { return static_cast<Hw *>(c)->t; };
-    e.smu = [](void *, uint32_t, uint32_t) { return 1u; };
-    e.dal = [](void *c, uint32_t m, uint32_t a) { return static_cast<Hw *>(c)->dalMsg(m, a); };
+    e.dal =[](void *c, uint32_t m, uint32_t a) { return static_cast<Hw *>(c)->dalMsg(m, a); };
     e.pmfwIdle = [](void *) { return 1; };
     e.live = 1;
     return e;
@@ -127,9 +128,10 @@ static bool planEquals(Hw &h, const phxp0::Plan &p) {
     for (unsigned i = 0; i < p.n; i++) if ((h.r[p.s[i].reg] ^ p.s[i].val) & p.s[i].mask) { std::printf("  0x%05X = 0x%08x, plan %s 0x%08x\n", p.s[i].reg, h.r[p.s[i].reg], p.info.name, p.s[i].val); return false; }
     return true;
 }
-static int mac(Hw &h, phxp0::State &st, const phxp0::Plan &tg, phxp0::MacOut *o) {
+// b167: the glue's debug.phxpipe0_uclk default, 0 = no UCLK hard minimum (Linux sends none at these switches)
+static int mac(Hw &h, phxp0::State &st, const phxp0::Plan &tg, phxp0::MacOut *o, uint32_t uclkMhz = 0) {
     const phxp0::Env e = env(h);
-    const int r = phxp0::macSet(e, st, kFam, N(kFam), tg, 456, o);
+    const int r = phxp0::macSet(e, st, kFam, N(kFam), tg, uclkMhz, o);
     if (r != phxp0::kDone) std::printf("  macSet %s: %s\n", tg.info.name, st.why);
     return r;
 }
@@ -180,6 +182,33 @@ int main() {
         bool noForbidden = true;
         for (const auto &x : h.writes) if (x.first == 0x00124 || x.first == 0x056C8 || x.first == 0x056CB || x.first == 0x0397A || (x.first >= 0x039BE && x.first <= 0x039E5)) noForbidden = false;
         CHECK(noForbidden);   // DENTIST, the link, COMPBUF and the watermarks are never written
+    }
+    {   // b167 (U1): the default sends no UCLK message; a root-set debug.phxpipe0_uclk goes through the DAL mailbox only
+        Hw h; gop(h); phxp0::State st{}; phxp0::MacOut o{};
+        CHECK(mac(h, st, P120, &o) == phxp0::kDone && !(o.flags & phxp0::kMacUclkPin) && st.uclkPins == 0);
+        bool uclk = false;
+        for (size_t i = 0; i < h.dal.size(); i++) if (h.dalIds[i] == 9 && (h.dal[i] >> 16) == 2) uclk = true;
+        CHECK(!uclk && h.dal.size() == 2);
+        const size_t n0 = h.dal.size();   // 120 -> 144 with 456 MHz asked: DISPCLK, DPPCLK, then DAL SetHardMinByFreq UCLK 456
+        CHECK(mac(h, st, P144, &o, 456) == phxp0::kDone && (o.flags & phxp0::kMacUclkPin) && st.uclkPins == 1);
+        CHECK(h.dal.size() == n0 + 3 && h.dalIds[n0 + 2] == 9 && h.dal[n0 + 2] == 0x000201c8);
+        const size_t n1 = h.dal.size();   // 144 -> 60, a lower rate: no UCLK message
+        CHECK(mac(h, st, P60, &o, 456) == phxp0::kDone && h.dal.size() == n1 && st.uclkPins == 1);
+    }
+    {   // the PMFW refuses the UCLK hard minimum: refused before the round trip and the set, nothing of the plan written
+        Hw h; gop(h); h.uclkAnswer = 0xFF; phxp0::State st{}; phxp0::MacOut o{};
+        CHECK(mac(h, st, P120, &o, 456) == phxp0::kRefused && std::strstr(st.why, "UCLK") && h.r[0x04FEF] == 0x5c8);
+        CHECK(h.dal.size() == 3 && h.dalIds[2] == 9 && h.dal[2] == 0x000201c8 && st.uclkPins == 1);
+        bool planWritten = false;
+        for (const auto &x : h.writes) for (unsigned i = 0; i < P120.n; i++) if (x.first == P120.s[i].reg) planWritten = true;
+        CHECK(!planWritten);
+    }
+    {   // no DAL path: a UCLK hard minimum asked is refused, the set not run (there is no driver-mailbox fallback)
+        Hw h; gop(h); phxp0::State st{}; phxp0::MacOut o{};
+        phxp0::Env e = env(h);
+        e.pmfwIdle = nullptr;
+        CHECK(phxp0::macSet(e, st, kFam, N(kFam), P60, 456, &o) == phxp0::kSame);   // same mode: nothing asked
+        CHECK(h.dal.empty() && st.uclkPins == 0);
     }
     {   // the PMFW refuses a hard minimum: refused before any plan register is written
         Hw h; gop(h); h.dalAnswer = 0; phxp0::State st{}; phxp0::MacOut o{};

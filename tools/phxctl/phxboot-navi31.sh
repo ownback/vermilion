@@ -732,12 +732,14 @@ cg_boot(){
   [ -e "$G/phxboot-cg" ] || return 0
   [ -e "$G/gfx_cg.sh" ] || { echo "cg: $G/gfx_cg.sh missing"; return 0; }
   echo "cg: $(PHXCTL=$G/phxctl.bin sh "$G/gfx_cg.sh" on 2>&1 | tail -1 | cut -c1-120)"; }
-# Memory clock hard minimum (MHz in $G/phxboot-uclk, e.g. 456): without the DAL hand-off a UCLK switch under GPU load
-# underflows the display (glitches under video decode); needs kext >= b71
+# Memory clock hard minimum (flag $G/phxboot-uclk): without the DAL hand-off a UCLK switch under GPU load underflows the
+# display (glitches under video decode). U1 (finding 2026-11-26-u1-uclk-dal.md): `uclk.sh pin` = the DAL hard minimum at
+# the top UCLK level, what Linux's DC holds while the mode can't take a UCLK switch; the flag's content (456 on older
+# installs) is no longer read. Needs kext >= b75 (the DAL selector); idle_dpm.sh lets it go at the settled desktop.
 uclk_boot(){
   [ -e "$G/phxboot-uclk" ] || return 0
   [ -e "$G/uclk.sh" ] || { echo "uclk: $G/uclk.sh missing"; return 0; }
-  echo "uclk: $(PHXCTL=$G/phxctl.bin sh "$G/uclk.sh" pin "$(cat "$G/phxboot-uclk")" 2>&1 | tail -1 | cut -c1-120)"; }
+  echo "uclk: $(PHXCTL=$G/phxctl.bin sh "$G/uclk.sh" pin 2>&1 | tail -1 | cut -c1-120)"; }
 # Idle power root cause: the RLC grants CGCG only once both SDMA engines report idle; never-started engines stay "busy" and
 # the card idles at ~150 W with PMFW activity 100 %. Start their queue 0 idle, before cg_boot.
 sdma_boot(){

@@ -135,7 +135,8 @@ static inline void nvmtl_sd_fail(unsigned *fails, uint64_t nowNs, uint64_t *unti
    the switch-on does not: a move to direct would release the plane (the console shows for a gap, VRR drops and resumes),
    and the bind drains the queue, which during an animation is the normal state, so it is left to the next WindowServer
    start, where the direct choice is made anyway. The plugin says so once. wantedAtStart: the switch at the time this
-   GPU present start chose; wantedNow: now; *said: set by the first call that returns 1. 1 = log the line. */
+   GPU present start chose; wantedNow: now; *said: set by the first call that returns 1. 1 = log the line.
+   Host-tested only (tests/plugin/test_scan_direct.c); not run on hardware (unverified). */
 static inline int nvmtl_sd_appeared_note(int wantedAtStart, int wantedNow, int *said)
 {
     if (wantedAtStart || !wantedNow || *said) return 0;
@@ -150,7 +151,8 @@ static inline int nvmtl_sd_appeared_note(int wantedAtStart, int wantedNow, int *
    running, a copy of its VRAM to its pages is started (read only on the VRAM side, so HUBP0 is not disturbed). It does
    not hold the scan-out lock while it runs: the write gate holds writes to the surface until the copy's fence has
    signalled (nvmtl_sd_sync_blocks_write), and whoever next takes the lock reaps it. The surface is clean only if the copy
-   succeeded and the token is still the one it started with (a write that finished meanwhile keeps it dirty). */
+   succeeded and the token is still the one it started with (a write that finished meanwhile keeps it dirty).
+   Host-tested only; not run on hardware (unverified). */
 #define NVMTL_SD_SYNC_IDLE_NS 100000000ull        /* 100 ms without a present: the desktop is still */
 typedef struct {
     uint32_t synced;     /* the token the pages were last brought up to date at */
@@ -163,5 +165,5 @@ static inline int nvmtl_sd_sync_due(const nvmtl_sd_sync *s, uint32_t tok, int wr
 }
 static inline void nvmtl_sd_sync_begin(nvmtl_sd_sync *s, uint32_t tok) { s->inflight = 1; s->startTok = tok; }
 static inline void nvmtl_sd_sync_end(nvmtl_sd_sync *s, int ok) { s->inflight = 0; if (ok) s->synced = s->startTok; }
-/* a write to the surface waits while its pages are being written */
+/* A write to the surface waits while its pages are being written. */
 static inline int nvmtl_sd_sync_blocks_write(const nvmtl_sd_sync *s) { return s->inflight; }

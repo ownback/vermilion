@@ -385,13 +385,49 @@ page sync (`nvmtl_scan_sync_*`, `nvmtl_sd_sync` in `nvmtl_scan_direct.h`):
   whose present was held still counts.
 - The scan-out lock is not held across the fence wait. The copy runs on its own command buffer and fence: the tick
   submits it (a bounded step) and marks the surface; the write gate holds writes to a marked surface (as for a flip to
-  latch, no bounce) and reaps a finished copy on each poll; the keepalive tick and the ways out (drain, teardown) reap
-  too. A present never waits for the copy.
+  latch, no bounce) and reaps a finished copy on each poll; the keepalive tick and the ways out (copy-back, teardown)
+  reap too. A direct present (the flip) does not wait for the copy's fence; a way out does (open point 1 below).
 - The pages are written under `IOSurfaceLock` (write), held from the submit to the reap, so the surface's seed moves
-  when the copy is done and a reader that locks sees the old frame or the new one.
+  when the copy is done. The intent is that a reader that locks sees the old frame or the new one; whether a reader
+  in another process waits for this lock is (unverified).
 - The surface is clean only after a successful copy, and only at the token the copy started with: a write that
   finished meanwhile keeps it dirty. A failed copy is retried at the next tick (the log line is limited to four).
 - The keepalive ticks four times a second only while direct is bound, once a second otherwise (as before).
-- A screenshot of a still desktop is current within about 350 ms. One taken during an animation can still read an
-  older frame (not fixed). Counted as `idle syncs` in the 3000-present line. Whether holding the IOSurface lock in
-  WindowServer's own process across the copy upsets anything is (unverified).
+- From the timings in the code, the first surface's copy starts within about 350 ms of the last present (100 ms idle
+  plus a tick) and the second one a tick later (about 600 ms); not measured (unverified). A screenshot taken during an
+  animation can still read an older frame (not fixed). Counted as `idle syncs` in the 3000-present line. Whether
+  holding the IOSurface lock in WindowServer's own process across the copy upsets anything is (unverified).
+
+**Open points seen in the clean-up pass of 2026-11-26** (read from the code, none tested on hardware (unverified);
+not changed: each would be a behaviour change, in its own commit):
+1. A way out waits for a running copy: `nvmtl_scan_sync_reap_locked(1)` in the copy-back and in the teardown, up to
+   1 s, after the drain's own 1 s. The ways out run under `g_scan_lock`, some of them inside a present (the switch
+   removed, a surface outside the pair, a lost plane) or inside the write gate.
+2. If that wait times out, the surface is unlocked and marked dirty while the copy may still be writing its pages,
+   and the teardown then destroys the sync fence and the command pool with the copy possibly pending.
+3. The tick holds `g_scan_lock` across `IOSurfaceLock`, the command-buffer allocation and the submit (the submit
+   lock). A present or a gate poll that arrives then waits for all three. A plain `IOSurfaceLock` can wait for GPU
+   work on the surface (the comment in `NVMTLEventSync.m` before the commit-time VRAM mark; the kernel bounds it at
+   100 ms); whether that applies to a bound display surface is (unverified).
+4. The IOSurface lock is released at the reap, which is the next taker of `g_scan_lock`: on a still desktop the next
+   tick, so it is held for up to 250 ms (plus the timer's 25 ms leeway), not for the copy's few ms. The keepalive
+   runs at utility QoS, so under CPU load it can be later. No lock cycle was found inside the plugin (the reap needs
+   `g_scan_lock` only, and the tick takes nothing before it). Whether CoreDisplay or `screencapture` block on the lock
+   while holding a lock of their own that WindowServer's commit path needs is (unverified); `NVMTLObjects.m` notes that
+   IOSurface locking does not serialise this process's own readers and writers.
+5. A write held by a running copy counts against the gate's 250 ms (`NVMTL_SD_GATE_MAX_US`). A copy that takes longer
+   (the GPU busy with other work) ends direct as a failure, logged as "the flip-complete wait timed out" (10 s on
+   the copy path; five failures: for the process). These waits are also counted in the gate-wait numbers of the
+   3000-present line.
+6. Cost: every pause of 100 ms after a change copies each changed surface (14.7 MB at 2560x1440, one surface per
+   tick). Content that changes a few times a second (a blinking caret, a clock) causes a copy per change. Not
+   measured.
+7. The copies go in slot order (surface 0 first), not front surface first.
+8. The unlock moves the surface's seed. The plugin's own texture then reads the surface's busy stamp once at its next
+   use (`nvmtlSurfaceIn`, the host-backed path). What CoreDisplay does when its display surface's seed moves is
+   (unverified).
+9. `g_scan.syncIdx` is not used. The "pages could not be brought up to date" line has two separate budgets of four
+   (the submit and the reap). A sync fence that cannot be created or an `IOSurfaceLock` that fails is tried again at
+   every tick with no log line.
+10. The log line says "at the next WindowServer start"; the choice is made at every start of GPU present, so a restart
+    after a lost plane or a size change also takes the file.

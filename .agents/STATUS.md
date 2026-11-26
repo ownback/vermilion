@@ -25,6 +25,10 @@ retries 5 s on EBUSY and exits 3, usage, index regenerates the hashes) and **#45
 **#46** merged (release-scan needs a valid EDID checksum: b163's 38 `edid-serial` findings were header-like bytes in
 code, none a real EDID; the scan moves on one byte after a rejected match; `.gitignore` again covers the old generated
 `phx_c3_image.inc`, AMD bytes, still present in six old thread worktrees on old branches).
+**#48** open: root `INSTALL.md` rewritten for 0.1.0-preview. Its author found a **release blocker**: the package
+set neither `~/gpu/phxboot-auto` nor `phxfb-squat`, so a stranger's first boot would stay on the firmware display;
+the fix (postinstall arms both, read-back, a plain message when NVRAM writes are off) is in progress on the same
+branch, with the post-install text order and stale "section 3" comments. Agent on A2+A3 (`ownback/plugin-release`).
 **#47** open: the B1 design (K1-K14, T1, U1; 18-20 boots; hw-safety review folded in; Fable pass running).
 **U1, hard rule 1, live:** `uclk.sh pin` sends the driver-mailbox SMU message 0x1B (SetHardMinByFreq, UCLK 456 MHz,
 `/var/log/phxboot.log`: `msg 0x1b arg 0x000201c8`) on every boot; #47's review says Linux sets UCLK on SMU 13.0.0

@@ -4675,68 +4675,6 @@ static VkPipeline nvmtl_compute_variant(nvk_pipeline *p, const uint32_t l[3])
     return found;
 }
 
-int nvmtl_vk_cmd_dispatch_sass(nvk_cmdbuf *c,
-                               const void *sass, uint32_t sass_len,
-                               uint32_t regs, uint32_t smem, uint32_t barriers, uint32_t nparams,
-                               const uint32_t threads[3], const uint32_t tg[3])
-{
-    static int (*hook)(void *, const void *, uint32_t, uint32_t, uint32_t, uint32_t,
-                       const uint64_t *, uint32_t, const uint32_t *, const uint32_t *);
-    static int looked;
-    uint64_t params[16];
-    uint32_t grid[3];
-
-    if (!c || !c->cb || !sass || !sass_len) return -1;
-    if (nvmtl_vk_vendor() != 0x10de) return -3;     /* NVIDIA machine code: the caller dispatches the SPIR-V instead */
-    if (nparams > 16) { nvlog("sass dispatch: %u parameters is more than 16 — REFUSED", nparams); return -2; }
-
-    if (!looked) {
-
-        const char *path = getenv("NVMTL_NVK_DYLIB");
-        void *h = dlopen(path && *path ? path : "/Library/GPUBundles/nvmtl/libvulkan_nouveau.dylib",
-                         RTLD_NOW | RTLD_LOCAL);
-        looked = 1;
-        if (!h) nvlog("sass dispatch: cannot open NVK: %s", dlerror());
-        else {
-            hook = (int (*)(void *, const void *, uint32_t, uint32_t, uint32_t, uint32_t,
-                            const uint64_t *, uint32_t, const uint32_t *, const uint32_t *))
-                       dlsym(h, "nvmtl_nvk_dispatch_sass_v1");
-            nvlog("sass dispatch: NVK hook %s", hook ? "found" : "MISSING — this NVK predates it");
-        }
-    }
-    if (!hook) return -3;
-
-    for (int d = 0; d < 3; d++) {
-        if (!tg[d] || !threads[d]) return -4;
-        if (threads[d] % tg[d]) {
-            nvlog("sass dispatch: %u threads is not a whole number of %u-wide groups on axis %d — "
-                  "REFUSED, the SPIR-V path owns the partial tail", threads[d], tg[d], d);
-            return -5;
-        }
-        grid[d] = threads[d] / tg[d];
-    }
-
-    if (!c->table) { nvlog("sass dispatch: no bind table"); return -6; }
-    nvmtl_bindtable *t = (nvmtl_bindtable *)c->table;
-    for (uint32_t i = 0; i < nparams; i++) {
-        nvmtl_slot *s = &t->s[0][i];
-        if (s->kind != NVMTL_SLOT_BUF || !s->address) {
-            nvlog("sass dispatch: parameter %u wants a buffer at [[buffer(%u)]] and slot kind is %u "
-                  "— REFUSED", i, i, s->kind);
-            return -7;
-        }
-        params[i] = s->address + (uint64_t)s->off;
-    }
-
-    int rc = hook(c->cb, sass, sass_len, regs, smem, barriers, params, nparams, tg, grid);
-    if (rc) { nvlog("sass dispatch: NVK refused it, rc=%d", rc); return -8; }
-    if (nvmtl_trace_on())
-        nvtrace("SASS DISPATCH %u B, regs %u, %u param(s) | tg %ux%ux%u grid %ux%ux%u | p0 0x%llx",
-                sass_len, regs, nparams, tg[0], tg[1], tg[2], grid[0], grid[1], grid[2],
-                nparams ? (unsigned long long)params[0] : 0ull);
-    return 0;
-}
-
 void nvmtl_vk_cmd_dispatch_threads(nvk_cmdbuf *c, nvk_pipeline *p, const uint32_t threads[3], const uint32_t tgIn[3])
 {
     uint32_t tg[3], groups[3];

@@ -195,19 +195,7 @@ static void nvmtl_alloc_failed(const char *what) {
 @interface NVMTLDevice : MTLIOAccelDevice <MTLDevice, MTLDeviceSPI>
 @end
 #import "NVMTLObjects.h"
-void nvmtl_vendor_compile_airs(NSDictionary<NSString *, NSString *> *airs,
-                               NSDictionary<NSString *, NSString *> *stages);
-void nvmtl_vendor_attach_sass(id device, id pipelineState, id function);
-int  nvmtl_vendor_dispatch_sass(id pipelineState, nvk_cmdbuf *c,
-                                const uint32_t threads[3], const uint32_t tg[3]);
-id   nvmtl_vendor_apple_pipeline(id device, id function);
-id   nvmtl_sass_kernel_for_function(id function);
-id   nvmtl_sass_kernel_for_linked(id function, NSDictionary *mods, NSDictionary *fc);
-BOOL nvmtl_sass_tables_wanted(void);
-int  nvmtl_sass_dispatch(id encoder, MTLSize grid, MTLSize group, uint32_t kind, BOOL hasFallback);
 NSDictionary<NSString *, NSData *> *nvmtl_translate_metallib(NSData *lib, NSDictionary **stages, NSDictionary **airs);
-void nvmtl_vendor_compile_airs(NSDictionary<NSString *, NSString *> *airs,
-                               NSDictionary<NSString *, NSString *> *stages);
 #include <sys/stat.h>
 NSDictionary<NSString *, NSData *> *nvmtl_translate_metallib_k(NSData *lib, NSData *knownKey, NSDictionary **stages, NSDictionary **airs);
 NSData *nvmtl_lib_sha256(NSData *lib);
@@ -1601,8 +1589,6 @@ static void nvmtl_stitch_dump(const char *what, NSString *dag, NSArray *fns, id 
     if (!fns) return nvmtl_fail(err, @"newLibraryWithData: translation produced nothing");
     NVMTLLibrary *lib = [NVMTLLibrary new]; lib->_fns = fns; lib->_stages = stages; lib->_airs = airs; lib->_externs = nvmtl_externs_of_airs(airs);
     lib->_raw = bytes;
-    nvmtl_vendor_compile_airs((NSDictionary<NSString *, NSString *> *)airs,
-                              (NSDictionary<NSString *, NSString *> *)stages);
     return lib; }
 - (id<MTLLibrary>)nvmtlBridgeAppleLibrary:(id)apple what:(const char *)what error:(NSError **)err {
     if (!apple) return nil;
@@ -2225,16 +2211,6 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
             @"newComputePipelineState: REFUSED - this function is not ours: %s", object_getClassName(fn)]);
     NVMTLFunction *f = (NVMTLFunction *)fn;
     if (f && f->_needsLink) { NSError *le = nil; id<MTLFunction> lk = nvmtl_link_stage(fn, nil, nil, &le); if (!lk) { if (err) *err = le; return nil; } f = (NVMTLFunction *)lk; fn = lk; }
-    // Machine code compiled ahead of time (NVMTLSass.m), from the linker or looked up for this function, runs
-    // instead of a Vulkan pipeline, which is then never built for it.
-    id sass = f ? (f->_sassKernel ?: nvmtl_sass_kernel_for_function(f)) : nil;
-    if (sass && f.functionType == MTLFunctionTypeKernel) {
-        NVMTLComputePipelineState *ps = [NVMTLComputePipelineState new];
-        ps->_function = f; ps->_attrT = nvmtl_air_max_tg(f); ps->_sassKernel = sass; ps->_sassOnly = YES;
-        nvlog("newComputePipelineStateWithFunction: %s -> %p from compiled machine code",
-              f->_fname.UTF8String, (__bridge void *)ps);
-        return ps;
-    }
     if (!f || !f->_spirv) return nvmtl_fail(err, @"newComputePipelineState: function has no SPIR-V");
     if (f.functionType != MTLFunctionTypeKernel) {
         nvlog("newComputePipelineState: \"%s\" is a %s, not a kernel — REFUSED",
@@ -2250,8 +2226,6 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
         return nvmtl_fail(err, @"newComputePipelineState: vkCreateComputePipelines FAILED"); }
     nvlog("newComputePipelineStateWithFunction: %s -> %p (%lu B of SPIR-V)",
           f->_fname.UTF8String, (__bridge void *)ps, (unsigned long)f->_spirv.length);
-    nvmtl_vendor_attach_sass(self, ps, f);
-    { id apple = nvmtl_vendor_apple_pipeline(self, f); if (apple) return apple; }
     return ps; }
 
 - (BOOL)supportsRaytracing { return nvmtl_vk_rt_available() != 0; }
@@ -2537,6 +2511,4 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
 #import "NVMTLGL.m"
 #import "NVMTLGLVBlank.m"
 #import "NVMTLEmbedded.m"
-#import "NVMTLVendorCompiler.m"
 #include "nvmtl_vk.c"
-#import "NVMTLSass.m"

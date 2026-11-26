@@ -4919,10 +4919,6 @@ static void nvmtl_zprobe_drain(void) {
 }
 - (void)setTexture:(id<MTLTexture>)t atIndex:(NSUInteger)i {
     NVMTLTexture *nt = (NVMTLTexture *)t;
-    if (nvmtl_sass_tables_wanted()) {
-        if (!_sassTextures) _sassTextures = [NSMutableDictionary new];
-        if (nt) _sassTextures[@(i)] = nt; else [_sassTextures removeObjectForKey:@(i)];
-    }
     if (!nt) { nvlog("compute setTexture: nil at %lu", (unsigned long)i); return; }
     if (nt->_parent && nt->_baseLevel) nt->_parent->_mipsWritten = YES;
     nvmtl_zprobe_record(nt, _ps && _ps->_function ? _ps->_function->_fname.UTF8String : NULL, (unsigned)i, nt->_stex ? 1u : 0u);
@@ -4963,10 +4959,6 @@ static void nvmtl_zprobe_drain(void) {
 }
 - (void)dispatchThreadgroups:(MTLSize)grid threadsPerThreadgroup:(MTLSize)tg {
     if (nvmtl_stagein_on() && [self nvmtlStageInDispatch:grid tg:tg threads:NO]) return;
-    if (_ps && _ps->_sassKernel) {
-        int ran = nvmtl_sass_dispatch(self, grid, tg, 0, !_ps->_sassOnly);
-        if (ran) { if (ran > 0 && _cb->_stTwins.count) nvmtl_storage_twins_out(_cb); return; }
-    }
     if (!_nvcIn && nvmtl_nvconv_try(self, grid, tg)) return;
     NVMTLComputePipelineState *selected = [self nvmtlSamplerPipeline];
     if (!selected) { nvlog("dispatch with no valid compute sampler pipeline"); return; }
@@ -4978,15 +4970,11 @@ static void nvmtl_zprobe_drain(void) {
         nvtrace("DISPATCH %s | threads %ux%ux%u tg %ux%ux%u", (_ps && _ps->_function ? _ps->_function->_fname.UTF8String : NULL) ?: "-", t[0], t[1], t[2], l[0], l[1], l[2]);
         nvtrace("  BUFS%s", bufs_); }
     [self nvmtlE78Barrier:NO];
-    if (nvmtl_vendor_dispatch_sass(selected, &_cb->_c, t, l) != 0) nvmtl_vk_cmd_dispatch_threads(&_cb->_c, &selected->_p, t, l);
+    nvmtl_vk_cmd_dispatch_threads(&_cb->_c, &selected->_p, t, l);
     if (_cb->_stTwins.count) nvmtl_storage_twins_out(_cb);
 }
 - (void)dispatchThreads:(MTLSize)threads threadsPerThreadgroup:(MTLSize)tg {
     if (nvmtl_stagein_on() && [self nvmtlStageInDispatch:threads tg:tg threads:YES]) return;
-    if (_ps && _ps->_sassKernel) {
-        int ran = nvmtl_sass_dispatch(self, threads, tg, 1, !_ps->_sassOnly);
-        if (ran) { if (ran > 0 && _cb->_stTwins.count) nvmtl_storage_twins_out(_cb); return; }
-    }
     NVMTLComputePipelineState *selected = [self nvmtlSamplerPipeline];
     if (!selected) { nvlog("dispatch with no valid compute sampler pipeline"); return; }
     uint32_t l[3] = { (uint32_t)tg.width, (uint32_t)tg.height, (uint32_t)tg.depth };
@@ -4997,7 +4985,7 @@ static void nvmtl_zprobe_drain(void) {
         nvtrace("DISPATCH %s | threads %ux%ux%u tg %ux%ux%u", (_ps && _ps->_function ? _ps->_function->_fname.UTF8String : NULL) ?: "-", t[0], t[1], t[2], l[0], l[1], l[2]);
         nvtrace("  BUFS%s", bufs_); }
     [self nvmtlE78Barrier:NO];
-    if (nvmtl_vendor_dispatch_sass(selected, &_cb->_c, t, l) != 0) nvmtl_vk_cmd_dispatch_threads(&_cb->_c, &selected->_p, t, l);
+    nvmtl_vk_cmd_dispatch_threads(&_cb->_c, &selected->_p, t, l);
     if (_cb->_stTwins.count) nvmtl_storage_twins_out(_cb);
 }
 - (void)setBufferOffset:(NSUInteger)off atIndex:(NSUInteger)i {
@@ -5029,10 +5017,6 @@ static void nvmtl_zprobe_drain(void) {
 }
 - (void)setSamplerState:(id<MTLSamplerState>)ss atIndex:(NSUInteger)i {
     NVMTLSamplerState *ns = (NVMTLSamplerState *)ss;
-    if (nvmtl_sass_tables_wanted()) {
-        if (!_sassSamplers) _sassSamplers = [NSMutableDictionary new];
-        if (ns) _sassSamplers[@(i)] = ns; else [_sassSamplers removeObjectForKey:@(i)];
-    }
     if (!_samplers) _samplers = [NSMutableDictionary new];
     NSString *key = [NSString stringWithFormat:@"%lu", (unsigned long)i];
     id was = _samplers[key], now = ns ? ns->_pixelState : nil;
@@ -5061,12 +5045,6 @@ static void nvmtl_zprobe_drain(void) {
     NVMTLBuffer *nb = (NVMTLBuffer *)buf;
     if (!nb) { nvlog("dispatchThreadgroupsWithIndirectBuffer: nil"); return; }
     nvmtl_retain_resource(_cb, nb);
-    // a pipeline with only compiled machine code has no Vulkan pipeline to run an indirect dispatch on
-    if (_ps && _ps->_sassOnly) {
-        [_cb nvmtlRecordEncodingError:[NSError errorWithDomain:MTLCommandBufferErrorDomain code:MTLCommandBufferErrorInternal
-            userInfo:@{ NSLocalizedDescriptionKey: @"Indirect dispatch is not available for this kernel" }]];
-        return;
-    }
     NVMTLComputePipelineState *selected = [self nvmtlSamplerPipeline];
     if (!selected) { nvlog("indirect dispatch with no valid compute sampler pipeline"); return; }
     uint32_t l[3] = { (uint32_t)tg.width, (uint32_t)tg.height, (uint32_t)tg.depth };

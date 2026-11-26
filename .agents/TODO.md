@@ -307,7 +307,38 @@ PROJECT_KNOWLEDGE.
   listed again; the match key is only on the attached controller; a second `on` says "already attached", `off` exits 2,
   `sysctl -w debug.phxaudio_match=0` gives "Resource busy".
 
+- [ ] **U1: deploy the UCLK hard minimum through the DAL mailbox** (branch `ownback/uclk-dal`, after the merge;
+  [finding](findings/2026-11-26-u1-uclk-dal.md) sections 5 and 6). One boot, under the machine lock: VermilionBoot
+  b167 on the EFI and `uclk.sh`, `idle_dpm.sh`, `phxboot-navi31.sh` into `~/gpu` together (b167 refuses the old
+  scripts' driver-mailbox 0x1B; on b162 the new scripts' DAL messages pass its allow-list, but b162's own
+  0x1B 456 in `macSet` stays). b167 carries b163 (C3 image at run time, not
+  booted yet): b163's check is part of this boot.
+  - Rollback copies: the replaced kext to `EFI/OC.prev` (EFI rule); `mkdir -p ~/vermilion-rollback/u1 && cp -p
+    ~/gpu/uclk.sh ~/gpu/idle_dpm.sh ~/gpu/phxboot-navi31.sh ~/vermilion-rollback/u1/`.
+  - Install: `sh scripts/dev/preflight.sh build/VermilionBoot.kext --opencore`, the kext to `EFI/OC/Kexts/`;
+    `install -m 755 tools/phxctl/uclk.sh tools/phxctl/idle_dpm.sh ~/gpu/`; the daemon by rename. Restart
+    (`boot-cycle` skill).
+  - Check (read-only, no owner): `phx-build` 167; two `uclk: DAL hard min UCLK 1249 MHz (top; levels 96 456 772
+    1249): (OK), status 0x24 done` lines and no `msg 0x1b` in `/var/log/phxboot.log`; `idledpm: ... on: UCLK
+    unpinned`; `debug.phxpipe0_stat` `uclk_pins=0`; `debug.phxdal_stat` `timeouts 0 dead 0`; SMU metrics UCLK 1249
+    before the release, 96 after; idle board power at 1440p240 HDR back to 28-33 W after the release.
+  - Check with GPU load (**owner's OK first**): at 1440p240 HDR after the release, `vkbench bandwidth 5 256` with VRAM
+    BOs and a 2-minute HEVC video; UCLK follows the load, no `idledpm: ... underflow` line, the owner sees no glitch.
+  - Rollback: `EFI/OC.prev`'s kext back, the three scripts from `~/vermilion-rollback/u1` (the daemon by rename),
+    shut down fully, boot. Live, no restart: `sudo sh ~/gpu/uclk.sh pin` holds UCLK at the top level.
+
 ## 01 GPU stability
+
+- [ ] **UCLK at 240 Hz without FAMS** ([finding](findings/2026-11-26-u1-uclk-dal.md) section 7 item 1, hw-safety
+  review of U1): Linux's 96 MHz floor at 240 Hz goes with FAMS, which macOS doesn't do, so `idle_dpm.sh`'s release at
+  240 Hz departs from Linux (carried over from before U1, not blocking). Two answers: keep UCLK at the top level at
+  240 Hz until FAMS exists on macOS (K11 or later, own review; costs idle power at the owner's main mode), or the
+  owner records an exception in decisions.md. U1's load check at 240 Hz is the evidence. Also: the power cost of the
+  pinned window at 1249 MHz (not measured), and `phxboot-idledpm` (+ `-dcf`) in the release first-boot flag set,
+  without which UCLK stays at 1249 all boot (owner's call).
+- [ ] **`idle_dpm.sh`: `SetFclkSwitchAllow 1` before the UCLK release** (S, own hw-safety review; U1 finding section 7
+  item 6): Linux's optimize pass sends the FCLK message first (`dcn32_clk_mgr.c` v6.8 :633-641 before :710-720);
+  `idle_dpm.sh` sends it after `uclk.sh unpin`, and only when the unpin passed.
 
 - [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
       DPCD access through drm_dp_dpcd_access (32 tries; at once after a timeout, 500 us after a NACK / DEFER); the

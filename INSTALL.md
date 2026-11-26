@@ -320,10 +320,16 @@ OS or from Recovery's Terminal with `nvram` where it can write *(unverified)*.
 
 Needed only if the package said it could not set the variable. From a Terminal in macOS, as an admin, try
 `sudo nvram phxfb-squat=1`, then `nvram phxfb-squat` (it must print the value). If macOS cannot write NVRAM
-(OpenCore's `DisableVariableWrite`, as on the reference machine), set it from another OS, such as Linux
-(`efivarfs` or your distribution's tool for the variable in the Apple NVRAM GUID `7C436110-AB2A-4BBB-A880-FE41995C9F82`) and
-power off fully before the next macOS boot *(unverified: the exact command depends on the OS)*. Make sure
-`~/gpu/phxboot-auto` exists (`touch ~/gpu/phxboot-auto`) so the daemon re-arms it after each good boot.
+(OpenCore's `DisableVariableWrite`, as on the reference machine), set it from Linux, as on the reference machine.
+VermilionBoot only checks that the variable exists; this writes the attributes (non-volatile, boot and run-time
+access) and the value `1`, in Apple's NVRAM GUID:
+
+```sh
+printf '\007\000\000\000\061' | sudo tee /sys/firmware/efi/efivars/phxfb-squat-7c436110-ab2a-4bbb-a880-fe41995c9f82 >/dev/null
+```
+
+Then power off fully (not a restart) and boot macOS. Make sure `~/gpu/phxboot-auto` exists
+(`touch ~/gpu/phxboot-auto`) so the daemon re-arms the variable after each good boot.
 
 ### Linux or Windows to macOS: power off fully
 

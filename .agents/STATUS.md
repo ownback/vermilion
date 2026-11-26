@@ -40,6 +40,11 @@ the daemon's two; NVIDIA paths removed) and Metal feature answers (A3: Mac Catal
 `2026-11-26-metal-feature-answers.md`). Release cdhash `b1900d21`; a VermilionTrust + EFI change when deployed.
 **#48** merged (INSTALL.md; the package no longer writes `phxfb-squat`; the daemon's GOP-boot re-arm (after a
 bring-up that needs the firmware and VermilionAccel) arms the desktop; HDR off by flag; notices for Allow and restart.
+**#50** open: T1 by static analysis (REA on 25G241's SkyLight, Metal, CoreDisplay, GPUWrangler). SkyLight has no
+device-added observer; `WSSystemCanCompositeWithMetal` decides once per process after `IOKitWaitQuiet` (at most 60 s)
+and `CoreDisplay::GPU::UpdateAcceleratorForMetal` once per GPU object, so skipping the restart alone probably fails
+(~70 %). Metal itself appends a late device. Follow-up if the one-boot T1 test fails: keep the registry busy until
+NMXAccel registers (under 60 s), which needs the bring-up in the kernel (B1 K8). Fable pass running.
 Agent on U1 (`ownback/uclk-dal`: Linux's DAL-mailbox UCLK floor instead of the driver-mailbox 0x1B, hw-safety review).
 **U1, hard rule 1, live:** `uclk.sh pin` sends the driver-mailbox SMU message 0x1B (SetHardMinByFreq, UCLK 456 MHz,
 `/var/log/phxboot.log`: `msg 0x1b arg 0x000201c8`) on every boot; #47's review says Linux sets UCLK on SMU 13.0.0

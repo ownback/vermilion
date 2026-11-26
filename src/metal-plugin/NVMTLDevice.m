@@ -2019,8 +2019,12 @@ static void nvmtl_log_compute_descriptor(MTLComputePipelineDescriptor *d) {
 - (MTLArgumentBuffersTier)argumentBuffersSupport { return MTLArgumentBuffersTier2; }
 - (BOOL)supportsFamily:(MTLGPUFamily)f {
     switch ((NSInteger)f) {
+        // The families Apple's own driver answers YES to on an RDNA 2 Mac (2026-11-26-metal-feature-answers.md): Common1-3,
+        // Mac1 (2001, deprecated) and Mac2 (2002), Mac Catalyst 1 and 2 (4001, 4002: a Catalyst app asks for these on
+        // every Mac that has the Mac families), Metal 3 (5001). Apple and Metal 4 families stay NO.
         case MTLGPUFamilyMac2: case MTLGPUFamilyCommon1: case MTLGPUFamilyCommon2: case MTLGPUFamilyCommon3: return YES;
         case 2001 : return YES;
+        case 4001: case 4002: return YES;
         case 5001 : return YES;
         default: return NO;
     }

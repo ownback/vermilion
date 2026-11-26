@@ -96,7 +96,7 @@ static phxp0::Env env(Hw &h, int enable = 1) {
             [](void *, uint64_t) { return 0u; }, [](void *, uint64_t, uint32_t) {}, [](void *c, uint32_t us) { static_cast<Hw *>(c)->advance(us); }};
     e.enable = enable;
     e.nowUs = [](void *c) { return static_cast<Hw *>(c)->t; };
-    e.dal =[](void *c, uint32_t m, uint32_t a) { return static_cast<Hw *>(c)->dalMsg(m, a); };
+    e.dal = [](void *c, uint32_t m, uint32_t a) { return static_cast<Hw *>(c)->dalMsg(m, a); };
     e.pmfwIdle = [](void *) { return 1; };
     e.live = 1;
     return e;
@@ -203,7 +203,7 @@ int main() {
         for (const auto &x : h.writes) for (unsigned i = 0; i < P120.n; i++) if (x.first == P120.s[i].reg) planWritten = true;
         CHECK(!planWritten);
     }
-    {   // no DAL path: a UCLK hard minimum asked is refused, the set not run (there is no driver-mailbox fallback)
+    {   // no pmfwIdle callback and a UCLK MHz, but the same mode: kSame, no DAL message (the UCLK step isn't reached)
         Hw h; gop(h); phxp0::State st{}; phxp0::MacOut o{};
         phxp0::Env e = env(h);
         e.pmfwIdle = nullptr;

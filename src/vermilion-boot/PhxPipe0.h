@@ -811,9 +811,10 @@ inline int run(const Env &e, State &st, const Plan *const *pl, unsigned np, cons
 //   4 the target's survey (reads only: the Acer-at-144 pair, DENTIST, DET0, stickies, link ...)
 //   5 for a target above the current rate, the UCLK hard minimum uclkMhz (uclkMhz 0 = not sent, the glue's default since
 //     b167). b167: DALSMC SetHardMinByFreq PPCLK_UCLK through the DAL mailbox (Env.dal), the path of Linux's display code
-//     (dcn32_update_clocks); until b166 the driver-mailbox 0x1B, which Linux never sends on SMU 13.0.0 (finding
-//     2026-11-26-u1-uclk-dal.md). Linux sends no UCLK raise for the 60 / 120 / 144 Hz switches on the XTX machine (its
-//     2026-11-20 traces), so the glue sends none either; the boot daemon's pin (uclk.sh) holds UCLK until the desktop.
+//     (dcn32_update_clocks, dcn32_clk_mgr.c v6.8 :589); before b167 the driver-mailbox 0x1B, which Linux never sends on
+//     SMU 13.0.0 (finding 2026-11-26-u1-uclk-dal.md). Linux sends no UCLK raise for the 60 / 120 / 144 Hz switches on the
+//     XTX machine (its 2026-11-20 traces), so the glue sends none either; the boot daemon's pin (uclk.sh) holds UCLK
+//     until the desktop. (unverified: b167 is built and host-tested only)
 //   6 the round trip at the current mode when none passed in this boot (a mode change needs one)
 //   7 the set
 // Afterwards stutter is written back only when this call forced it and pipe 0 ends at 60 Hz (or at an unknown mode with
@@ -821,7 +822,7 @@ inline int run(const Env &e, State &st, const Plan *const *pl, unsigned np, cons
 // after the pipe-1 switch. UCLK is never lowered here (b15_boot.sh aoc60 / a later UCLK test decides). out->rebase: a shell
 // ended done or fell back, so the caller re-baselines the pipe-1 engine's pipe-0 fingerprint (phxp2::rebasePipe0) with
 // st.pubHTotal / st.pubVTotal before it releases the display lock.
-static constexpr uint32_t kPpclkUclk = 2;
+static constexpr uint32_t kPpclkUclk = 2;   // PPCLK_UCLK: the clock field (bits 31:16) of a SetHardMinByFreq argument
 // b128 (1440p plans): DET for one display, as Linux runs it on the XTX machine at 60/120/144 Hz (DET0 4, DET1-3 0; the GOP
 // leaves 3/3/3/3). Pipes 1-3 must be off (OTG1 dark, HUBP1-3 clocks off). Shrinks DET1-3 first, then grows DET0, each
 // waiting for SIZE_CURRENT (upstream's pipe-1 DET step, phxp2::detTwoPipe, the same writes; CRB budget 20 segments with

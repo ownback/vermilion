@@ -310,9 +310,8 @@ PROJECT_KNOWLEDGE.
 - [ ] **U1: deploy the UCLK hard minimum through the DAL mailbox** (branch `ownback/uclk-dal`, after the merge;
   [finding](findings/2026-11-26-u1-uclk-dal.md) sections 5 and 6). One boot, under the machine lock: VermilionBoot
   b167 on the EFI and `uclk.sh`, `idle_dpm.sh`, `phxboot-navi31.sh` into `~/gpu` together (b167 refuses the old
-  scripts' driver-mailbox 0x1B; on b162 the new scripts' DAL messages pass its allow-list, but b162's own
-  0x1B 456 in `macSet` stays). b167 carries b163 (C3 image at run time, not
-  booted yet): b163's check is part of this boot.
+  scripts' driver-mailbox 0x1B; on b162 the new scripts' DAL messages pass its allow-list, but b162's own 0x1B 456 in
+  `macSet` stays). b167 carries b163 (C3 image at run time, not booted yet): b163's check is part of this boot.
   - Rollback copies: the replaced kext to `EFI/OC.prev` (EFI rule); `mkdir -p ~/vermilion-rollback/u1 && cp -p
     ~/gpu/uclk.sh ~/gpu/idle_dpm.sh ~/gpu/phxboot-navi31.sh ~/vermilion-rollback/u1/`.
   - Install: `sh scripts/dev/preflight.sh build/VermilionBoot.kext --opencore`, the kext to `EFI/OC/Kexts/`;
@@ -339,6 +338,19 @@ PROJECT_KNOWLEDGE.
 - [ ] **`idle_dpm.sh`: `SetFclkSwitchAllow 1` before the UCLK release** (S, own hw-safety review; U1 finding section 7
   item 6): Linux's optimize pass sends the FCLK message first (`dcn32_clk_mgr.c` v6.8 :633-641 before :710-720);
   `idle_dpm.sh` sends it after `uclk.sh unpin`, and only when the unpin passed.
+- [ ] **U1 leftovers from the clean-up pass** (S; each one changes shipped text or a test count, so none was done in
+  the no-behaviour-change pass):
+  - `uclk.sh`: names for the DALSMC ids (2, 0xB, 9, 0x15), the status bits 0x24, the PMFW gate 0x4E6A00 and the
+    10 ms step; `tests/mock/uclk_mut.sh` matches the script's text, so its sed patterns change with it.
+  - `uclk.sh`'s status text "not confirmed in ~2 s": the bound is 200 reads 10 ms apart plus each read's own time
+    (a `sudo phxctl` process per read), so it can be several seconds. `idle_dpm.sh` cuts the line at 90 characters,
+    which truncates the "not confirmed" and "read not answered" endings in its log.
+  - `tests/kext/pipe0_1440_test.cpp`: no check reaches `macSet`'s "no DAL callback" and "a PMFW message is in
+    flight" refusals (the block with `pmfwIdle` null asks for the current mode and ends at `kSame`).
+  - `b15_boot.sh` (upstream's XT recipe) still calls `uclk.sh pin 456` and logs "UCLK pinned 456 for this boot";
+    the pin is now the top level.
+  - The installers still write `phxboot-uclk=456` (`scripts/release/pkg/postinstall`, `recovery_install.sh`), and
+    INSTALL.md, docs/RELEASE.md and docs/XTX.md name that value; the content is no longer read.
 
 - [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
       DPCD access through drm_dp_dpcd_access (32 tries; at once after a timeout, 500 us after a NACK / DEFER); the

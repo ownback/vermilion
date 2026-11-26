@@ -13,11 +13,11 @@
 //   debug.phxpipe0_dead    the dark latch (RO)
 // b101: the macOS path. PhxAMDFB head 0's setDisplayMode calls the platform
 // function "phxPipe0SetMode" (PhxSwitchABI.h; property phx-pipe0-mode-fn), which runs phxp0::macSet: stutter forced off,
-// the UCLK hard minimum (debug.phxpipe0_uclk MHz; b167: DAL mailbox, default 0 = none) before a set above 60, the round trip at the current mode
-// when none passed in this boot, then the set; debug.phxpipe0=4 runs the same sequence for debug.phxpipe0_mode from a
-// shell (no PhxAccel). debug.phxpipe0_modes=1 (root) publishes phx-pipe0-modes = true on this service: PhxAMDFB head 0
-// then lists the AOC's 60 and 144 Hz modes when it starts (the boot daemon sets it before the claim). The kill switch
-// debug.phxpipe0_enable still gates every register access of every path.
+// the UCLK hard minimum (debug.phxpipe0_uclk MHz; b167: DAL mailbox, default 0 = none) before a set above 60, the round
+// trip at the current mode when none passed in this boot, then the set; debug.phxpipe0=4 runs the same sequence for
+// debug.phxpipe0_mode from a shell (no PhxAccel). debug.phxpipe0_modes=1 (root) publishes phx-pipe0-modes = true on this
+// service: PhxAMDFB head 0 then lists the AOC's 60 and 144 Hz modes when it starts (the boot daemon sets it before the
+// claim). The kill switch debug.phxpipe0_enable still gates every register access of every path.
 // b103: a third plan, phx_p0_plan_1080p144a60.inc = the AOC at 144 next to the
 // Acer at 60 (from Linux); every path picks the plan for its rate by OTG1's totals (phxp0::pick), and the pipe-1 switch
 // (p2SwitchTo, phx_pipe2.cpp) runs the switch through p0PairSwitch so that pipe 0 at 144 follows the Acer's mode in the safe order.
@@ -54,7 +54,7 @@ static int gP0Mode = 60;       // debug.phxpipe0_mode
 static int gP0Modes;           // b101 debug.phxpipe0_modes (property phx-pipe0-modes for PhxAMDFB head 0's mode list)
 // b101 debug.phxpipe0_uclk: the UCLK hard minimum macSet sends before a set above 60 (0 = none). b167 (U1): through the DAL
 // mailbox, 0 and only 0: Linux raises UCLK at none of the 60 / 120 / 144 Hz switches on the XTX machine (finding
-// 2026-11-26-u1-uclk-dal.md); until b166 456 MHz through the driver mailbox (0x1B), which Linux never sends on SMU 13.0.0.
+// 2026-11-26-u1-uclk-dal.md); before b167 456 MHz through the driver mailbox (0x1B), which Linux never sends on SMU 13.0.0.
 static int gP0UclkMhz = 0;
 static int gP0Solo;            // p0solo debug.phxpipe0_solo: 1 = the AOC alone (OTG1 dark) may take the 1080p144 plan (PhxPipe0.h pairFits)
 static int gP0Live = 1;        // b123 debug.phxpipe0_live (b124: default 1, passed on the box): 1 = a pair re-plan of double-buffered frame / HUBP registers runs live (PhxPipe0.h liveShell)

@@ -7,10 +7,13 @@ static constexpr uint64_t kPpsmcPowerUpVcn = 0x2Au, kPpsmcPowerDownVcn = 0x2Bu;
 // b71: memory/fabric clock DPM limits (smu_v13_0_0_ppsmc.h SetSoftMinByFreq 0x19 .. GetDpmFreqByIndex 0x1F; argument =
 // PPCLK << 16 | MHz or level index), limited to PPCLK_UCLK 2 and PPCLK_FCLK 3 (UCLK switches underflow the display).
 // b167 (U1, finding 2026-11-26-u1-uclk-dal.md): SetHardMinByFreq 0x1B and SetHardMaxByFreq 0x1C refused. On SMU 13.0.0
-// Linux sends neither through this mailbox (smu_v13_0_0_ppt.c wires no set_hard_freq_limited_range or
-// display_clock_voltage_request, v6.8 and master); its display code sets the UCLK hard minimum through the DAL mailbox
-// (dcn32_update_clocks), which the DAL branch below allows (SetHardMinByFreq 9 with PPCLK_UCLK, uclk.sh pin / unpin).
-// 0x19 / 0x1A (set_soft_freq_limited_range), 0x1D / 0x1E (queries) and 0x1F (Linux's DPM table read) stay.
+// Linux sends neither through this mailbox (smu_v13_0_0_ppt.c pptable_funcs, v6.8 :3005 / master :3279, wires no
+// set_hard_freq_limited_range or display_clock_voltage_request); its display code sets the UCLK hard minimum through
+// the DAL mailbox (dcn32_update_clocks, dcn32_clk_mgr.c v6.8 :589), which the DAL branch below allows (SetHardMinByFreq
+// 9 with PPCLK_UCLK, uclk.sh pin / unpin). The soft limits (Linux's set_soft_freq_limited_range), the two range queries
+// and Linux's DPM table read stay:
+static constexpr uint64_t kPpsmcSetSoftMinByFreq = 0x19u, kPpsmcSetSoftMaxByFreq = 0x1Au, kPpsmcGetMinDpmFreq = 0x1Du,
+                          kPpsmcGetMaxDpmFreq = 0x1Eu, kPpsmcGetDpmFreqByIndex = 0x1Fu;
 
 IOReturn IOAccelPhxNativeClient::doDbgSmu(IOExternalMethodArguments *a) {
     if (!owner->debugEnabled())
@@ -68,7 +71,8 @@ IOReturn IOAccelPhxNativeClient::doDbgSmu(IOExternalMethodArguments *a) {
     case PHX_PPSMC_TransferTableSmu2Dram:
     case PHX_PPSMC_RunDcBtc:
         break;
-    case 0x19u: case 0x1Au: case 0x1Du: case 0x1Eu: case 0x1Fu: {   // b71 clock limits; b167: 0x1B / 0x1C refused (above)
+    case kPpsmcSetSoftMinByFreq: case kPpsmcSetSoftMaxByFreq:   // b71 clock limits; b167: 0x1B / 0x1C refused (above)
+    case kPpsmcGetMinDpmFreq: case kPpsmcGetMaxDpmFreq: case kPpsmcGetDpmFreqByIndex: {
         const uint64_t clk = a->scalarInput[1] >> 16;
         if (clk != 2 && clk != 3)
             return kIOReturnNotPermitted;

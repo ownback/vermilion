@@ -1,12 +1,12 @@
 #!/bin/sh
 # SPDX-License-Identifier: MIT
-# idle_dpm.sh (boot daemon `idledpm_boot`, root, after `done`; flag ~/gpu/phxboot-idledpm): memory and fabric clocks free
+# idle_dpm.sh (boot daemon `idledpm_boot`, root, after `done`; off: ~/gpu/phxboot-idledpm-off): memory and fabric clocks free
 # to drop at idle on a one-display desktop, the messages Linux amdgpu sends the PMFW for it, under an underflow watchdog
 # that lives for the whole boot. The one-display counterpart of b15_boot.sh step 6 (upstream's XT, two 1080p displays).
 #   1 wait for a logged-in user and a settled display (the replay engine's state line and OTG0's H_TOTAL unchanged for $IDPM_SETTLE s)
 #   2 underflow stickies cleared, then $IDPM_BASE s with UCLK still pinned: any underflow there = stop, stay pinned
 #   3 dalwm.sh (the DAL watermark table), uclk.sh unpin, SetFclkSwitchAllow 1 (b15 step 6; Linux dcn32_update_clocks)
-#   4 with ~/gpu/phxboot-idledpm-dcf only: SetHardMinByFreq DCFCLK 199 MHz, SetMinDeepSleepDcfclk for the refresh rate
+#   4 unless ~/gpu/phxboot-idledpm-dcf-off: SetHardMinByFreq DCFCLK 199 MHz, SetMinDeepSleepDcfclk for the refresh rate
 #     (18 / 36 / 43 / 72 MHz at 60 / 120 / 144 / 240 Hz), NumOfDisplays 1: what Linux sends after every mode set on
 #     this card (its 2026-11-20 mode-set traces)
 # Watchdog, every $IDPM_POLL s: OPTC0 (0x4F8A bit 10) and HUBP0 (0x3AB3 bits 30:28). A hit while the display is settled =
@@ -17,7 +17,7 @@
 # seen). Measured live 2026-11-23 on the XTX machine at 1440p240 HDR (steps 2-3 by hand, the driver-mailbox pin of then):
 # socket 51 -> 20-24 W at idle, board 64 -> 28-33 W, UCLK 456 -> 96, FCLK 2301 -> 1000, no underflow in 10 min
 # (findings 2026-11-23-perf-power.md).
-# Rollback: rm ~/gpu/phxboot-idledpm (next boot = pinned); live: `sudo sh ~/gpu/uclk.sh pin` + kill this.
+# Rollback: touch ~/gpu/phxboot-idledpm-off (next boot = pinned); live: `sudo sh ~/gpu/uclk.sh pin` + kill this.
 # Exit codes: 1 nothing freed (a helper missing, no settled desktop, dalwm.sh failed) or the unpin / FCLK switch was
 # refused and UCLK pinned again; 2 an underflow in the baseline, nothing sent; 3 the watchdog pinned UCLK again.
 G=${PHXBOOT_G:-$HOME/gpu}; P=${PHXCTL:-$G/phxctl.bin}; export PHXCTL=$P
@@ -32,7 +32,7 @@ hit() { v=$(r 0x4F8A); h=$(r 0x3AB3); k=""
 pin() { say "$1: $(sh "$G/uclk.sh" pin 2>&1 | tail -1 | cut -c1-90); $(sh "$G/dal.sh" SetFclkSwitchAllow 0 2>&1 | tail -1 | cut -c1-90)"; }
 dal() { out=$(sh "$G/dal.sh" "$@" 2>&1); echo "$out" | grep -q '(OK)' || { say "dal $*: $(echo "$out" | tail -1 | cut -c1-100)"; return 1; }; }
 dsleep() { case "${1##*@}" in 60\ *) echo 0x12;; 120\ *) echo 0x24;; 144\ *) echo 0x2B;; 240\ *) echo 0x48;; *) echo "";; esac; }
-dcf() { [ -e "$G/phxboot-idledpm-dcf" ] || return 0; m=$(echo "$1" | sed -n 's/.*now=\([^ ]*\).*/\1/p'); d=$(dsleep "$m ")
+dcf() { [ ! -e "$G/phxboot-idledpm-dcf-off" ] || return 0; m=$(echo "$1" | sed -n 's/.*now=\([^ ]*\).*/\1/p'); d=$(dsleep "$m ")
   [ -n "$d" ] || { say "dcf: no deep-sleep value for '$m': DCFCLK messages skipped"; return 0; }
   dal SetHardMinByFreq $(( (11 << 16) | 199 )) && dal SetMinDeepSleepDcfclk $d && dal NumOfDisplays 1 && say "dcf: DCFCLK hard min 199, deep sleep $(( d )) MHz ($m), 1 display"; }
 for f in uclk.sh dal.sh dalwm.sh; do [ -e "$G/$f" ] || { say "$G/$f missing: UCLK stays pinned"; exit 1; }; done

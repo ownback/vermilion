@@ -14,6 +14,24 @@ Rules:
   them once the change is verified and PROJECT_KNOWLEDGE's known-good section says what is booted.
 - Something that works on a real Mac and not here goes in as a bug under the thread that owns it (ROADMAP, "Known limits").
 
+## Flag defaults (`ownback/flag-defaults`, 2026-11-26)
+
+- [ ] **Run the defaults on the XTX machine without its old flag files** (owner, one boot): move `~/gpu/phxboot-{sdma,cg,
+  uclk,vcn,gl,audio,irqwait,p0modes,idledpm,idledpm-dcf,wscdcopy,auto,nohdr,waitstep,vrrmin}` away, boot, check
+  that `/var/log/phxboot.log` shows every feature as before and no `note:` line. Keep `phxboot-bovram`: its list is no
+  longer the default (without the file the log says `bovram: no process list`). Until then the defaults are
+  host-tested only.
+- [ ] Ship the VCN helpers in the package (`vcnup/`; `vcn_up.sh` needs data captured on the reference machine): `vcn`
+  is on by default but skips with a `missing` line on a stranger's install. (`phxaudio` and `audio_match.sh` ship.)
+- [ ] `bovram` names no process by default (the XTX machine's list is its two game processes, in its own file); decide
+  a general rule (all but WindowServer?) after a measurement on another app.
+- [x] Fixed before #55's merge (seen in its clean-up pass): `irqwait` and `waitstep` no longer run on the safe
+  desktop (no `wscdcopy` line there either), the `phxboot-nohdr` note says HDR is off by default, and
+  `recovery_install.sh` (with `esp_stage.sh`) installs `phxaudio` and `audio_match.sh` like the package.
+- [ ] Left from #55's clean-up pass: `idle_dpm.sh`'s watchdog pins UCLK under `phxboot-uclk-off` (and `b15_boot.sh`
+  pins regardless); `phxboot-novrr` is not in the `-off` scheme; stale `phxboot-nohdr` / `phxboot-wscdcopy` comments
+  in `src/vermilion-accel/accel/phxfb.cpp` and `src/metal-plugin/nvmtl_scanout.c` (next kext / plugin change).
+
 ## Staged now
 
 State after thread 03's changes (verified, recorded in PROJECT_KNOWLEDGE, known-good): `EFI/OC` = change 23
@@ -243,14 +261,16 @@ PROJECT_KNOWLEDGE.
 - [x] **03: VermilionAccel with `debug.phxgl`** (not an EFI change): installed 23:05, booted 23:18 (UUID `2B25514A`),
   OpenGL over Metal verified 23:25 (finding section 8). Rollback:
   `~/vermilion-rollback/VermilionAccel.kext.pre-phxgl-20261123`, `kmutil load -p`, Allow, restart; or just
-  `rm ~/gpu/phxboot-gl` (GL off from the next boot) / `sysctl -w debug.phxgl=0`.
+  `touch ~/gpu/phxboot-gl-off` (GL off from the next boot; before the flag defaults: `rm ~/gpu/phxboot-gl`) /
+  `sysctl -w debug.phxgl=0`.
 
 - [ ] **Boots that stop without a macOS log** (watch item, counter in [OWNER-TESTS](OWNER-TESTS.md) 01): #1 05:09
   cold (b155), #2 15:45 warm (b159; OpenCore stopped with "Missing compatible GOP"). A third one on b159 or later
   means reverting to EFI change 19 (`~/vermilion-rollback/EFI-OC.change19-20261123`, with the plugin it trusts)
   before going on. Every thread that restarts asks the owner to glance at the screen.
 
-- [ ] **HDR off as a workaround since 2026-11-24 01:00** (`~/gpu/phxboot-nohdr`; remove it to get HDR back once fixed).
+- [ ] **HDR off as a workaround since 2026-11-24 01:00** (`~/gpu/phxboot-nohdr`; since the flag defaults HDR is off
+  without it too, and `~/gpu/phxboot-hdr` turns it on: make HDR the default again once fixed).
   After the HDMI / DP replug at 00:08 WindowServer composites in BGRA while the scan-out is 10-bit HDR, the plugin's
   CPU widen path presents stale frames: the picture freezes a few minutes after login (input works).
   [Finding](findings/2026-11-24-hdr-freeze-after-replug.md). Fix: the widen path in the plugin (a trust + EFI change)
@@ -379,8 +399,8 @@ PROJECT_KNOWLEDGE.
   240 Hz departs from Linux (carried over from before U1, not blocking). Two answers: keep UCLK at the top level at
   240 Hz until FAMS exists on macOS (K11 or later, own review; costs idle power at the owner's main mode), or the
   owner records an exception in decisions.md. U1's load check at 240 Hz is the evidence. Also: the power cost of the
-  pinned window at 1249 MHz (not measured), and `phxboot-idledpm` (+ `-dcf`) in the release first-boot flag set,
-  without which UCLK stays at 1249 all boot (owner's call).
+  pinned window at 1249 MHz (not measured). (`idledpm` and `idledpm-dcf` are on by default since
+  `ownback/flag-defaults`, so a release install no longer stays at 1249 all boot.)
 - [ ] **`idle_dpm.sh`: `SetFclkSwitchAllow 1` before the UCLK release** (S, own hw-safety review; U1 finding section 7
   item 6): Linux's optimize pass sends the FCLK message first (`dcn32_clk_mgr.c` v6.8 :633-641 before :710-720);
   `idle_dpm.sh` sends it after `uclk.sh unpin`, and only when the unpin passed.
@@ -393,10 +413,8 @@ PROJECT_KNOWLEDGE.
     which truncates the "not confirmed" and "read not answered" endings in its log.
   - `tests/kext/pipe0_1440_test.cpp`: no check reaches `macSet`'s "no DAL callback" and "a PMFW message is in
     flight" refusals (the block with `pmfwIdle` null asks for the current mode and ends at `kSame`).
-  - `b15_boot.sh` (upstream's XT recipe) still calls `uclk.sh pin 456` and logs "UCLK pinned 456 for this boot";
-    the pin is now the top level.
-  - The installers still write `phxboot-uclk=456` (`scripts/release/pkg/postinstall`, `recovery_install.sh`), and
-    INSTALL.md, docs/RELEASE.md and docs/XTX.md name that value; the content is no longer read.
+  - `b15_boot.sh` (upstream's XT recipe) still calls `uclk.sh pin 456` (the argument is ignored; the log text is
+    fixed, `ownback/flag-defaults`).
 
 - [~] The sink does not answer AUX at the first access after D3 (b153 03:51 and 04:15, b154 04:36). Linux's DC sends every
       DPCD access through drm_dp_dpcd_access (32 tries; at once after a timeout, 500 us after a NACK / DEFER); the

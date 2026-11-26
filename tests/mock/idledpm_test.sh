@@ -45,16 +45,19 @@ exact() { grep -qx -- "$1" "$W/$2"; }   # U1: `uclk.sh pin` takes no MHz (the to
 order() { awk -v a="$1" -v b="$2" 'index($0,a)&&!x{x=NR} index($0,b)&&!y{y=NR} END{exit !(x&&y&&x<y)}' "$W/sent.log"; }
 
 # a steady-state underflow after the unpin: re-pinned, FCLK switch withdrawn, exit 3
-setup steady; UF_AT=20 run
+setup steady; touch "$W/gpu/phxboot-idledpm-dcf-off"; UF_AT=20 run   # the steady-state sequence without the DCFCLK messages
 check steady_repin eval '[ $RC = 3 ] && has "dalwm" sent.log && has "uclk unpin" sent.log && has "dal SetFclkSwitchAllow 1" sent.log && exact "uclk pin" sent.log && has "dal SetFclkSwitchAllow 0" sent.log && order "uclk unpin" "uclk pin" && order "dalwm" "uclk unpin" && has "optc0 underflow" out && ! has "SetHardMinByFreq" sent.log'
 # an underflow while UCLK is still pinned (baseline): nothing sent at all, exit 2
 setup base; UF_AT=4 run
 check baseline_stop eval '[ $RC = 2 ] && ! has "uclk" sent.log && ! has "dal" sent.log && has "baseline" out'
-# the dcf flag: DCFCLK hard min 199 (11 << 16 | 199 = 721095), deep sleep 0x48 at 240 Hz, one display, after the FCLK switch
-setup dcf; touch "$W/gpu/phxboot-idledpm-dcf"; UF_AT=20 run
+# dcf is on by default (off: phxboot-idledpm-dcf-off): DCFCLK hard min 199 (11 << 16 | 199 = 721095), deep sleep 0x48 at 240 Hz, one display, after the FCLK switch
+setup dcf; UF_AT=20 run
 check dcf_messages eval 'has "dal SetHardMinByFreq 721095" sent.log && has "dal SetMinDeepSleepDcfclk 0x48" sent.log && has "dal NumOfDisplays 1" sent.log && order "SetFclkSwitchAllow 1" "SetHardMinByFreq"'
+# phxboot-idledpm-dcf-off: UCLK and FCLK as before, none of the DCFCLK messages; an old phxboot-idledpm-dcf file changes nothing
+setup dcfoff; touch "$W/gpu/phxboot-idledpm-dcf-off" "$W/gpu/phxboot-idledpm-dcf"; UF_AT=20 run
+check dcf_off eval 'has "dal SetFclkSwitchAllow 1" sent.log && ! has "SetHardMinByFreq" sent.log && ! has "SetMinDeepSleepDcfclk" sent.log && ! has "NumOfDisplays" sent.log'
 # a mode switch to 60 Hz: the stickies cleared once it settles, the deep sleep re-sent for 60 Hz (0x12), no re-pin
-setup switch; touch "$W/gpu/phxboot-idledpm-dcf"; SWITCH_AT=16 UF_AT=40 run
+setup switch; SWITCH_AT=16 UF_AT=40 run
 check switch_settles eval 'has "mode switch settled: .*@60" out && has "dal SetMinDeepSleepDcfclk 0x12" sent.log && order "SetMinDeepSleepDcfclk 0x48" "SetMinDeepSleepDcfclk 0x12"'
 # a refused unpin: pinned again, exit 1, no FCLK switch
 setup refused; UF_AT=999; printf '#!/bin/sh\necho "uclk $*" >>"%s/sent.log"; [ "$1" = unpin ] && { echo "msg (FAIL)"; exit 0; }; echo "msg (OK)"\n' "$W" >"$W/gpu/uclk.sh"; run

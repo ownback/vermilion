@@ -4,7 +4,7 @@
     <title>Vermilion @VERSION@</title>
     <welcome file="welcome.html" mime-type="text/html"/>
     <conclusion file="conclusion.html" mime-type="text/html"/>
-    <options customize="never" require-scripts="false" hostArchitectures="x86_64"/>
+    <options customize="never" require-scripts="false" allow-external-scripts="yes" hostArchitectures="x86_64"/>
     <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
     <!-- The Installer's own check (install-check.sh, in the package's resources): the macOS build and the GPU, before
          the install is offered. The preinstall script checks the same again, as root. -->

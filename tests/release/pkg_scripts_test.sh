@@ -223,7 +223,7 @@ check "install-check: 3 for the RX 7900 XT" '[ "$(cat "$T/ic.rc")" = 3 ]'
 reset_world; SIM_PCI="1002:744c:c8 1002:744c:ce" ic
 check "install-check: 3 for an XTX next to a GRE" '[ "$(cat "$T/ic.rc")" = 3 ]'
 DX=$SR/pkg/distribution.xml.in
-check "distribution.xml.in is well-formed and has an installation-check that runs install-check.sh" 'python3 -I -c "import sys, xml.dom.minidom as m; m.parse(sys.argv[1])" "$DX" && grep -q "<installation-check script=\"installCheck()\"/>" "$DX" && grep -q "system.run(.install-check.sh.)" "$DX"'
+check "distribution.xml.in is well-formed, allows system.run and has an installation-check that runs install-check.sh" 'python3 -I -c "import sys, xml.dom.minidom as m; m.parse(sys.argv[1])" "$DX" && grep -q "<installation-check script=\"installCheck()\"/>" "$DX" && grep -q "system.run(.install-check.sh.)" "$DX" && grep -q "allow-external-scripts=\"yes\"" "$DX"'
 check "distribution.xml.in words each exit code and gives a Fatal result" 'for c in 1 2 3; do grep -q "rc == $c" "$DX" || exit 1; done; grep -q "my.result.type = .Fatal." "$DX" && grep -q "0xC8" "$DX"'
 check "preinstall keeps its own GPU and macOS checks" 'grep -q "^check_gpu" "$SR/pkg/preinstall" && grep -q "EXPECT_BUILD" "$SR/pkg/preinstall"'
 

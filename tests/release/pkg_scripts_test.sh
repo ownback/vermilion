@@ -78,14 +78,14 @@ payload() {
   echo "driver $tag" >"$P/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/NVMTLDriver"
   echo "vk $tag" >"$P/Library/GPUBundles/nvmtl/libvulkan_radeon.dylib"; echo '*' >"$P/Library/GPUBundles/nvmtl-allow.txt"
   echo "accel $tag" >"$P/Library/Extensions/VermilionAccel.kext/Contents/Info.plist"
-  for f in phxctl mesboot spirv-val; do echo "$f $tag" >"$P/usr/local/sbin/$f"; done
+  for f in phxctl mesboot; do echo "$f $tag" >"$P/usr/local/sbin/$f"; done; echo "spirv-val $tag" >"$P/usr/local/bin/spirv-val"   # spirv-val is in bin, as make-pkg.sh lays it out
   cp "$SR/pkg/vermilion-uninstall" "$P/usr/local/sbin/"; cp "$SR/pkg/vermilion-firmware" "$P/usr/local/sbin/"
   echo "daemon $tag" >"$LX/gpu/phxboot-navi31.sh"; echo "up $tag" >"$LX/gpu/phxctl/navi31_up.sh"; echo "bin $tag" >"$LX/gpu/phxctl.bin"
   cp "$R/tools/phxctl/local.phxboot.plist.in" "$LX/"; cp "$SR/pkg/lib.sh" "$LX/lib.sh"; echo "0.1.0-$tag" >"$LX/VERSION"
   cp "$R/tools/phxctl/air_runtime_install.sh" "$LX/tools/"; echo "fetch" >"$LX/firmware/fetch_firmware.sh"
   echo "llvm $tag" >"$LX/air-runtime-src/libLLVM.dylib"; echo "zstd $tag" >"$LX/air-runtime-src/libzstd.1.dylib"
   # the receipt of a real package lists files the payload held; the AIR reader's source folder is in it too
-  { cd "$P" && find Library/GPUBundles Library/Extensions usr | sort | while read -r p; do [ -d "$p" ] && echo "$p/" || echo "$p"; done; } >"$SIM_RECEIPT"
+  ( cd "$P" && find Library/GPUBundles Library/Extensions usr | sort | while read -r p; do [ -d "$p" ] && echo "$p/" || echo "$p"; done ) >"$SIM_RECEIPT"
 }
 pre() { sh "$T/scripts/preinstall" /x/p.pkg / / / >"$T/pre.out" 2>&1; echo $? >"$T/pre.rc"; }
 post() { VERMILION_FETCH="${FETCH:-$T/fetch-ok}" sh "$T/scripts/postinstall" /x/p.pkg / / / >"$T/post.out" 2>&1; echo $? >"$T/post.rc"; }
@@ -164,6 +164,8 @@ un
 check "uninstall exits 0" '[ "$(cat "$T/un.rc")" = 0 ]' "$T/un.out"
 check "the file that existed before the first install is back, not the first release's" '[ "$(cat "$T/root/usr/local/sbin/phxctl")" = "OLD phxctl" ]' "$T/un.out"
 check "Vermilion's files are gone" '[ ! -e "$T/root/usr/local/sbin/mesboot" ] && [ ! -e "$T/root/usr/local/sbin/vermilion-uninstall" ] && [ ! -e "$T/root/Library/Extensions/VermilionAccel.kext" ] && [ ! -e "$T/root/Library/GPUBundles/NVMTLDriver.bundle" ] && [ ! -e "$T/root/Library/GPUBundles/nvmtl-allow.txt" ] && [ ! -e "$T/root/usr/local/libexec/vermilion" ] && [ ! -e "$T/root/Library/LaunchDaemons/local.phxboot.plist" ] && [ ! -e "$T/root/Users/alice/gpu/phxboot-navi31.sh" ] && [ ! -e "$T/root/Users/alice/gpu/phxboot-sdma" ]' "$T/un.out"
+check "spirv-val (bin) and the AIR reader are gone" '[ ! -e "$T/root/usr/local/bin/spirv-val" ] && [ ! -e "$T/root/Library/GPUBundles/NVMTLDriver.bundle/Contents/MacOS/air-runtime" ]'
+check "the empty ~/gpu/phxctl is gone; ~/gpu/fw stays while the firmware does" '[ ! -e "$T/root/Users/alice/gpu/phxctl" ] && [ -d "$T/root/Users/alice/gpu/fw/navi31" ]'
 check "the firmware stays without --purge" '[ -f "$T/root/Users/alice/gpu/fw/navi31/smu_13_0_0.bin" ] && grep -q "fw/navi31" "$T/un.out"'
 check "the receipt is forgotten and the marker is gone" '[ ! -f "$SIM_RECEIPT" ] && [ ! -f "$T/root/Library/Application Support/Vermilion/installed" ]'
 check "the rollback folders are kept" '[ "$(ls "$T/root/Library/Application Support/Vermilion/rollback" | wc -l | tr -d " ")" = 2 ]'
@@ -176,6 +178,84 @@ reset_world; pre; payload v1; post; un --bogus
 check "unknown option is refused" '[ "$(cat "$T/un.rc")" = 1 ]'
 rm -f "$SIM_RECEIPT"; un --purge
 check "--purge removes the firmware; no receipt: the manifests still decide" '[ "$(cat "$T/un.rc")" = 0 ] && [ ! -e "$T/root/Users/alice/gpu/fw/navi31" ] && [ ! -e "$T/root/usr/local/sbin/mesboot" ]' "$T/un.out"
+
+check "--purge leaves no empty ~/gpu, ~/gpu/phxctl, ~/gpu/fw" '[ ! -e "$T/root/Users/alice/gpu" ]' "$T/un.out"
+
+# ---- ~/gpu keeps a file that is not Vermilion's, and its folder
+reset_world; pre; payload v1; post; echo mine >"$T/root/Users/alice/gpu/notes.txt"; un --purge
+check "a user's file in ~/gpu stays, with its folder; phxctl and fw are gone" '[ "$(cat "$T/root/Users/alice/gpu/notes.txt")" = mine ] && [ ! -e "$T/root/Users/alice/gpu/phxctl" ] && [ ! -e "$T/root/Users/alice/gpu/fw" ]' "$T/un.out"
+
+# ---- the AIR reader goes even when no rollback line names the bundle (it is not in the receipt)
+reset_world; pre; payload v1; post
+RB=$(cat "$T/root/Library/Application Support/Vermilion/.rollback-current")
+grep -v "NVMTLDriver.bundle" "$RB/MANIFEST" >"$RB/MANIFEST.new"; mv "$RB/MANIFEST.new" "$RB/MANIFEST"
+AIRD=$T/root/Library/GPUBundles/NVMTLDriver.bundle/Contents
+check "(setup) the AIR reader is installed, and in no receipt line" '[ -f "$AIRD/MacOS/air-runtime/libLLVM.dylib" ] && ! grep -q "MacOS/air-runtime" "$SIM_RECEIPT"'
+un
+check "uninstall removes the AIR reader without a MANIFEST line for the bundle" '[ "$(cat "$T/un.rc")" = 0 ] && [ ! -e "$AIRD/MacOS/air-runtime" ] && [ ! -e "$AIRD/Resources/air-runtime" ]' "$T/un.out"
+
+# ---- a /usr/local/libexec/vermilion that existed before the first install is put back, not deleted
+reset_world; mkdir -p "$T/root/usr/local/libexec/vermilion"; echo "OLD libexec file" >"$T/root/usr/local/libexec/vermilion/keep.txt"
+pre; payload v1; post; un
+check "the libexec folder of before the install is restored; Vermilion's files in it are gone" '[ "$(cat "$T/root/usr/local/libexec/vermilion/keep.txt")" = "OLD libexec file" ] && [ ! -e "$T/root/usr/local/libexec/vermilion/lib.sh" ] && [ ! -e "$T/root/usr/local/libexec/vermilion/VERSION" ]' "$T/un.out"
+reset_world; pre; payload v1; post; un
+check "with none before, the libexec folder is gone" '[ ! -e "$T/root/usr/local/libexec/vermilion" ]'
+
+# ---- an uninstall without lib.sh still puts the login-window value back
+reset_world; pre; payload v1; post
+echo absent >"$T/root/Users/alice/gpu/phxboot-b21guard.orig"; : >"$SIM_LOG"
+rm -f "$T/root/usr/local/libexec/vermilion/lib.sh"
+un
+check "no lib.sh: the uninstall works and restores the login-window value" '[ "$(cat "$T/un.rc")" = 0 ] && grep -q "defaults delete /Library/Preferences/com.apple.loginwindow SHOWFULLNAME" "$SIM_LOG" && grep -q "login-window value put back" "$T/un.out" && [ ! -e "$T/root/Users/alice/gpu/phxboot-b21guard.orig" ]' "$T/un.out"
+
+# ---- the Installer's own check (install-check.sh, run by distribution.xml)
+ic() { cp "$SR/pkg/install-check.sh" "$SR/pkg/lib.sh" "$T/scripts/"; sh "$T/scripts/install-check.sh" >"$T/ic.out" 2>&1; echo $? >"$T/ic.rc"; }
+reset_world; ic
+check "install-check: 0 on macOS 25G241 with an RX 7900 XTX, and it prints nothing" '[ "$(cat "$T/ic.rc")" = 0 ] && [ ! -s "$T/ic.out" ]' "$T/ic.out"
+reset_world; SIM_BUILD=25G222 ic
+check "install-check: 1 on another macOS build" '[ "$(cat "$T/ic.rc")" = 1 ]'
+reset_world; SIM_PCI="1002:73bf:c1" ic
+check "install-check: 2 with no RX 7900 XTX" '[ "$(cat "$T/ic.rc")" = 2 ]'
+reset_world; SIM_PCI="" ic
+check "install-check: 2 with no PCI device at all" '[ "$(cat "$T/ic.rc")" = 2 ]'
+reset_world; SIM_PCI="1002:744c:cc" ic
+check "install-check: 3 for the RX 7900 XT" '[ "$(cat "$T/ic.rc")" = 3 ]'
+reset_world; SIM_PCI="1002:744c:c8 1002:744c:ce" ic
+check "install-check: 3 for an XTX next to a GRE" '[ "$(cat "$T/ic.rc")" = 3 ]'
+DX=$SR/pkg/distribution.xml.in
+check "distribution.xml.in is well-formed and has an installation-check that runs install-check.sh" 'python3 -I -c "import sys, xml.dom.minidom as m; m.parse(sys.argv[1])" "$DX" && grep -q "<installation-check script=\"installCheck()\"/>" "$DX" && grep -q "system.run(.install-check.sh.)" "$DX"'
+check "distribution.xml.in words each exit code and gives a Fatal result" 'for c in 1 2 3; do grep -q "rc == $c" "$DX" || exit 1; done; grep -q "my.result.type = .Fatal." "$DX" && grep -q "0xC8" "$DX"'
+check "preinstall keeps its own GPU and macOS checks" 'grep -q "^check_gpu" "$SR/pkg/preinstall" && grep -q "EXPECT_BUILD" "$SR/pkg/preinstall"'
+
+# ---- the shipped copies carry no test hooks (strip-hooks.sh), and the hooks do not steer them
+SH=$SR/strip-hooks.sh; mkdir -p "$T/shipped"
+for f in "$SR/pkg/preinstall" "$SR/pkg/postinstall" "$SR/pkg/lib.sh" "$SR/pkg/install-check.sh" "$SR/pkg/vermilion-uninstall" "$SR/pkg/vermilion-firmware" "$R/tools/phxctl/air_runtime_install.sh"; do
+  b=$(basename "$f")
+  check "strip-hooks: $b has no hook left and is valid shell" 'sh "$SH" "$f" "$T/shipped/$b" 2>"$T/strip.err" && ! grep -q "VERMILION_\(TEST\|ROOT\|NOCHOWN\|USER\|UHOME\|FETCH\)" "$T/shipped/$b" && sh -n "$T/shipped/$b"' "$T/strip.err"
+done
+check "strip-hooks: the source scripts keep their hooks (the tests use them)" 'grep -q VERMILION_ROOT "$SR/pkg/lib.sh" && grep -q VERMILION_NOCHOWN "$SR/pkg/postinstall"'
+printf 'x=${VERMILION_ROOT:-}\ny=$VERMILION_NOCHOWN\n' >"$T/new-hook.sh"
+check "strip-hooks: a hook it has no rule for fails the build" '! sh "$SH" "$T/new-hook.sh" "$T/new-hook.out" 2>/dev/null && [ ! -e "$T/new-hook.out" ]'
+# the shipped lib.sh ignores the caller's environment
+env VERMILION_TEST=1 VERMILION_ROOT=/elsewhere VERMILION_USER=mallory VERMILION_UHOME=/tmp/mallory PATH=/nonexistent:/usr/bin:/bin \
+    sh -c '. "$1"; echo "R=$R|$LIBEXEC|$(console_user)|$PATH"' _ "$T/shipped/lib.sh" >"$T/env.out" 2>&1
+check "shipped lib.sh: VERMILION_ROOT, _TEST (PATH) and _USER are not honoured" 'grep -q "^R=|/usr/local/libexec/vermilion|" "$T/env.out" && ! grep -q "mallory\|elsewhere\|nonexistent" "$T/env.out"' "$T/env.out"
+check "shipped scripts: no chown switch, no fetch command from the environment" '! grep -q "NOCHOWN" "$T/shipped/postinstall" "$T/shipped/preinstall" "$T/shipped/vermilion-uninstall" "$T/shipped/vermilion-firmware" "$T/shipped/air_runtime_install.sh" && grep -q "^FETCH=\"sh " "$T/shipped/postinstall"'
+
+# ---- fetch_firmware.sh --from: a SHA-256 mismatch is reported with the expected SHA-256
+FW=$T/fw; mkdir -p "$FW/src" "$FW/dst"; cp "$R/tools/firmware/fetch_firmware.sh" "$FW/"
+printf 'right' >"$FW/right.bin"; printf 'wrong' >"$FW/src/a.bin"
+md=$( (md5 -q "$FW/right.bin" 2>/dev/null) || md5sum "$FW/right.bin" | cut -d' ' -f1 )
+sha=$( (shasum -a 256 "$FW/right.bin" 2>/dev/null) || sha256sum "$FW/right.bin" ); sha=${sha%% *}
+printf '# linux-firmware-commit: %s\na.bin %s 5 %s\n' 0123456789012345678901234567890123456789 "$md" "$sha" >"$FW/fw.lock"
+sh "$FW/fetch_firmware.sh" --from "$FW/src" "$FW/dst" >"$T/fw.out" 2>&1; echo $? >"$T/fw.rc"
+check "fetch_firmware --from: a mismatch fails and names the expected SHA-256" '[ "$(cat "$T/fw.rc")" = 1 ] && grep -q "SHA-256 $sha" "$T/fw.out" && [ ! -e "$FW/dst/a.bin" ]' "$T/fw.out"
+cp "$FW/right.bin" "$FW/src/a.bin"; sh "$FW/fetch_firmware.sh" --from "$FW/src" "$FW/dst" >"$T/fw.out" 2>&1
+check "fetch_firmware --from: the right file is copied" '[ "$(cat "$FW/dst/a.bin")" = right ]' "$T/fw.out"
+
+# ---- help text, layout
+check "the --rebuild-kc text names vermilion-uninstall" '! grep -n "[^-]uninstall --rebuild-kc" "$SR/pkg/vermilion-uninstall" && grep -q "vermilion-uninstall --rebuild-kc runs it" "$SR/pkg/vermilion-uninstall"'
+check "make-pkg.sh lays spirv-val out in usr/local/bin, as this test's payload does" 'grep -q "\"\$BUILD/spirv-val\" \"\$P/usr/local/bin/\"" "$SR/make-pkg.sh" && grep -qx "/usr/local/bin/spirv-val" "$T/scripts/units-payload.txt"'
 
 echo "pkg_scripts_test: $PASS passed, $FAIL failed"
 [ $FAIL = 0 ]

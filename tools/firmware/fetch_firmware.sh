@@ -34,7 +34,7 @@ grep -v '^#' "$HERE/fw.lock" | while read -r f sum size sha; do
         cp "$c" "$DEST/$f.tmp" && mv "$DEST/$f.tmp" "$DEST/$f"; echo "copied  $f"; got=1; break
       fi
     done
-    [ $got = 1 ] || { echo "FAILED  $f: not in $FROM with md5 $sum" >&2; exit 1; }
+    [ $got = 1 ] || { echo "FAILED  $f: not in $FROM with SHA-256 ${sha:-(fw.lock has none: md5 $sum)}" >&2; exit 1; }
     continue
   fi
   for b in $BASES; do

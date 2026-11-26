@@ -114,6 +114,17 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
 What it never does: write the system volume, NVRAM, or the EFI partition (the OpenCore part is the user's, or
 ryzentosh's).
 
+Two checks refuse a wrong Mac, with the same rules (`lib.sh`: macOS build `EXPECT_BUILD`, an RX 7900 XTX and no other
+1002:744c board): `installCheck()` in `distribution.xml` runs `install-check.sh` from the archive's Resources when the
+package is opened and shows a plain message (exit code 1 build, 2 no XTX, 3 another 744c board); the preinstall
+script checks again as root, which also covers `installer -pkg` from a terminal. **(unverified):** that the Installer
+runs `system.run` scripts from an unsigned package and shows the message; `install-check.sh` itself ran on the XTX
+machine and exited 0.
+
+The test hooks of `lib.sh` and the scripts (`VERMILION_TEST`, `_ROOT`, `_NOCHOWN`, `_USER`, `_UHOME`, `_FETCH`) are
+cut out of every shipped copy by `scripts/release/strip-hooks.sh` (make-pkg.sh fails if one is left), so the caller's
+environment cannot steer a script that runs as root. The tests keep using the source scripts.
+
 Tested without a Mac install: `tests/release/pkg_scripts_test.sh` runs the three scripts against a fake root with a
 fake `ioreg`, `sw_vers` and `pkgutil` (refusals, first install over older files, an update, the uninstall back to the
 state before the first install, `--purge`); `pkg_build_test.sh` builds a package from dummy files, expands it and checks
@@ -140,10 +151,14 @@ result on the files.
 1. `launchctl bootout` the daemon, remove `/var/db/phxboot.pending` and `/var/db/phxboot.fails`, delete the NVRAM
    variables `phxfb-squat` and `phxfb-boot` where macOS can.
 2. Put back the login-window value (`phxboot-b21guard.orig`) and remove the display overrides that carry `phx-override`.
-3. Remove every file `pkgutil --files org.vermilion.pkg` lists (and the emptied folders with Vermilion's names).
+3. Remove every file `pkgutil --files org.vermilion.pkg` lists (and the emptied folders with Vermilion's names), the
+   AIR reader (the post-install script put it in the bundle, so no receipt lists it) and
+   `/usr/local/libexec/vermilion`; all before step 4, so that step 4 can put back what stood there before.
 4. For every path a rollback `MANIFEST` names, oldest folder first, the first line decides: `E` puts the saved copy
    back, `N` leaves the path removed. So an update never turns a Vermilion file into "the user's own", and a file
-   the user had before the first install comes back. The firmware folder is skipped unless `--purge`.
+   the user had before the first install comes back. The firmware folder is skipped unless `--purge`. Then the
+   folders the install made in `~/gpu` (`phxctl`, `fw`, `~/gpu` itself) are removed when they are empty.
+   The uninstaller also works when `lib.sh` is already gone.
 5. `pkgutil --forget`; print what's left for the user: the AuxKC rebuild (`kmutil install --update-all` and
    `kmutil clear-staging`, printed, run only with `--rebuild-kc`; **unverified** on 26.7.1), the OpenCore entries and
    kexts, NVRAM variables macOS couldn't delete, the firmware (kept unless `--purge`), the rollback folders.

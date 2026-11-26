@@ -2,9 +2,11 @@
 # lib.sh: shared by the package's preinstall and postinstall scripts and by vermilion-uninstall (sourced; POSIX sh).
 # make-pkg.sh puts one copy next to the scripts and one in /usr/local/libexec/vermilion (docs/RELEASE.md).
 #
+#@test-hooks-begin (strip-hooks.sh drops these lines, and every hook below, from the copies make-pkg.sh ships)
 # Test hooks (tests/release/pkg_scripts_test.sh): VERMILION_TEST=1 keeps the caller's PATH, so a test can put fake
 # `sw_vers`, `ioreg`, `dscl` and `pkgutil` first; VERMILION_ROOT=<dir> prefixes every system path; VERMILION_NOCHOWN=1
 # skips chown; VERMILION_USER / VERMILION_UHOME name the desktop user and the home folder without `dscl`.
+#@test-hooks-end
 
 [ "${VERMILION_TEST:-0}" = 1 ] || PATH=/usr/bin:/bin:/usr/sbin:/sbin
 export PATH
@@ -51,7 +53,8 @@ gpu_list() {
     /"revision-id" = </ { match($0, /<[0-9a-fA-F]+>/); r = tolower(substr($0, RSTART + 1, 2)); emit() }'
 }
 
-# check_gpu: refuse unless an RX 7900 XTX is present and no other 1002:744c board is.
+# check_gpu: refuse unless an RX 7900 XTX is present and no other 1002:744c board is. GPU_FAIL (other | none) tells a
+# refuse() that wants a code which case it is (resources/install-check.sh).
 check_gpu() {
   found=0 other=""
   list=$(gpu_list)
@@ -61,11 +64,11 @@ check_gpu() {
   done <<EOF
 $list
 EOF
-  [ -z "$other" ] || refuse "found${other}. Vermilion starts only on the AMD Radeon RX 7900 XTX (PCI $GPU_VENDOR:$GPU_DEVICE, revision 0x$GPU_REV), and it must be the only 7900-series card."
-  [ $found = 1 ] || refuse "no AMD Radeon RX 7900 XTX (PCI $GPU_VENDOR:$GPU_DEVICE, revision 0x$GPU_REV) was found in the I/O registry. Vermilion supports no other card. If you have one, the revision could not be read: report it (SUPPORT.md)."
+  [ -z "$other" ] || { GPU_FAIL=other; refuse "found${other}. Vermilion starts only on the AMD Radeon RX 7900 XTX (PCI $GPU_VENDOR:$GPU_DEVICE, revision 0x$GPU_REV), and it must be the only 7900-series card."; }
+  [ $found = 1 ] || { GPU_FAIL=none; refuse "no AMD Radeon RX 7900 XTX (PCI $GPU_VENDOR:$GPU_DEVICE, revision 0x$GPU_REV) was found in the I/O registry. Vermilion supports no other card. If you have one, the revision could not be read: report it (SUPPORT.md)."; }
 }
 
-# console_user: the desktop user to install for: VERMILION_USER, else the user at the console, else the only account
+# console_user: the desktop user to install for: the test user, else the user at the console, else the only account
 # with a user id of 501 or more.
 console_user() {
   u=${VERMILION_USER:-}

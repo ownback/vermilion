@@ -71,16 +71,16 @@ new plugin listed with `first=WindowServer`, daemon `SUCCESS` at 00:44:44, 240 H
 nothing: the plugin chooses direct scan-out only when GPU present starts (TODO). After a plain restart with the file
 present (00:51): both CoreDisplay surfaces drawn in VRAM slots 0 and 1 and "scanned out with no copy", 6000 presents
 in the first 90 s, flip 8 us average, 28 bounces, about 16 % of display writes waited for a flip (1.7 ms average),
-refused 0, daemon `SUCCESS` at 00:53:25. Owner's Maps test: pending. Old plugin in
+refused 0, daemon `SUCCESS` at 00:53:25. Owner's Maps test: as choppy as before. Old plugin in
 `~/vermilion-rollback/NVMTLDriver.pre-scanout-20261126`; `EFI/OC.prev` is change 38.
 
-## Last boot (2026-11-25 23:35, XTX machine): EFI change 38 passed
+## Earlier boot (2026-11-25 23:35, XTX machine): EFI change 38 passed
 
 VermilionBoot b162 (XTX-only gate + direct VRAM scan-out, off until the switch file), VermilionAudio 1.7.3,
 VermilionAccel 0.1.1 (AuxKC), VermilionTrust 1.0.4. Seen: `phx-build` 162, no board-refusal line, daemon `SUCCESS` at
 23:38:11 (2 min 20 s after boot), 2560x1440 at 240 Hz, `debug.phxaudio_stat` patched, `debug.phxscan_layout`
 `allowed 1, BAR0 1024 MiB`, refused 0. A shutdown-stall report from the restart (known, plan B5). `EFI/OC.prev` is
-change 37. Next: boot B (NVMTLDriver 1c15df79 with #40 + #34, VermilionTrust), then the `ws-direct` switch.
+change 37.
 
 ## Phase 2 order: stabilise
 

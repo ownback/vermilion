@@ -327,16 +327,6 @@ PROJECT_KNOWLEDGE.
   listed again; the match key is only on the attached controller; a second `on` says "already attached", `off` exits 2,
   `sysctl -w debug.phxaudio_match=0` gives "Resource busy".
 
-## Direct scan-out (#40) follow-ups (2026-11-26)
-
-- [x] Switching `ws-direct` on live: #51 logs it once ("takes effect at the next WindowServer start"); a live move was
-      built and dropped (it could end GPU present for the process). With #53 direct scan-out is on by default
-- [x] The 16 % flip waits: inherent to two display surfaces (#51); its counter confirms the cause on hardware
-- [ ] Stale screenshots while bound: a known issue (#51, the idle copy was dropped: it could stall presents); design
-      note in finding `2026-11-25-windowserver-composite-cost.md` section 9
-- [ ] #53's scan-query back-off (3 refusals, then off for the process) must reset when `debug.phxscan` becomes 1
-      before T1 or B1 K10 keep the first WindowServer (today the daemon restarts WindowServer after allowing it)
-
 - [ ] **U1: deploy the UCLK hard minimum through the DAL mailbox** (branch `ownback/uclk-dal`, after the merge;
   [finding](findings/2026-11-26-u1-uclk-dal.md) sections 5 and 6). One boot, under the machine lock: VermilionBoot
   b167 on the EFI and `uclk.sh`, `idle_dpm.sh`, `phxboot-navi31.sh` into `~/gpu` together (b167 refuses the old
@@ -401,6 +391,16 @@ PROJECT_KNOWLEDGE.
     before the `> 32` check on a malformed table (bounds are safe either way);
   - `phx_gpu_stats` and `phxn_devinfo` are matched on exact version and size: a later version needs both sides updated
     together, or the keys / the kext's record silently fall away (RADV logs it).
+
+## Direct scan-out (#40) follow-ups (2026-11-26)
+
+- [x] Switching `ws-direct` on live: #51 logs it once ("takes effect at the next WindowServer start"); a live move was
+      built and dropped (it could end GPU present for the process). With #53 direct scan-out is on by default
+- [x] The 16 % flip waits: inherent to two display surfaces (#51); its counter confirms the cause on hardware
+- [ ] Stale screenshots while bound: a known issue (#51, the idle copy was dropped: it could stall presents); design
+      note in finding `2026-11-25-windowserver-composite-cost.md` section 9
+- [ ] #53's scan-query back-off (3 refusals, then off for the process) must reset when `debug.phxscan` becomes 1
+      before T1 or B1 K10 keep the first WindowServer (today the daemon restarts WindowServer after allowing it)
 
 ## 01 GPU stability
 
@@ -632,12 +632,11 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
       #41 (AIR reader workflow) and #42 (`release.yml`, pkg, OpenCore zip, uninstaller) are merged; neither has run
       on a runner yet. F1 (#43) is merged, so `release.yml` no longer stops at release-scan on the C3 slice
       (unverified on a runner)
-- [x] Package fixes from #42's clean-up review: #45, merged 2026-11-26
 - [x] `INSTALL.md` (the root user guide; `docs/INSTALL.md` stays the expert reference) rewritten for `0.1.0-preview`,
       2026-11-26 (#48; unverified on a clean machine); recovery and troubleshooting: black screen
       after a failed switch, the squat loop, booting `OC.prev`
 
-- [x] Release package fixes from #42's clean-up review (`ownback/pkg-fixes`): the uninstaller removes the AIR reader,
+- [x] Release package fixes from #42's clean-up review (#45): the uninstaller removes the AIR reader,
       removes the empty `~/gpu`, `~/gpu/phxctl`, `~/gpu/fw`, no longer deletes a restored
       `/usr/local/libexec/vermilion`, and restores the login-window value without `lib.sh`; the test hooks are
       stripped from the shipped scripts; `distribution.xml` has its own installation check; `fetch_firmware.sh --from`

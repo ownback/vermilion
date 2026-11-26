@@ -85,8 +85,9 @@ through GPUWrangler events handled in CoreDisplay.
   `isRemovable` on the device and `GPUWranglerGPUIsRemovable` are separate.
 - [I] Consequence: a process that called `MTLCopyAllDevices` early and got `[]` sees the device on a later call, as
   long as the accelerator's `IOServicePublish` happens after (or before) the context exists. Metal does not cache an
-  empty list. [R] The 2026-10-24 note in `phxfb.cpp` (metaltest returned 0 devices while the `PhxFB` busy hold was on,
-  1 after) fits this (the device depends on the publish, not on the age of the process) and is not contradicted.
+  empty list. [R] The repo's 2026-10-24 record (`src/vermilion-accel/accel/phxfb.cpp:1418-1419`: a gate inside
+  `PhxAMDFB::start()` held the IOKit matching thread, a deadlock, then "Metal device never came up") fits this: the
+  device depends on the publish, not on the age of the process.
 - [I] The daemon comment at `tools/phxctl/phxboot-navi31.sh:869-870` ("Metal caches an empty device list per process
   ... WindowServer ... never sees our device until it restarts fresh") is therefore the wrong explanation of a real
   observation. The real causes are in 3 and 4 below. The comment should be corrected when the daemon is next changed.
@@ -123,7 +124,9 @@ through GPUWrangler events handled in CoreDisplay.
   `IOKitWaitQuiet: %s`.
 - [I] So gate 1 is delayed until the IORegistry is quiet or 60 s pass, whichever comes first. That is the only existing
   hook that could hold the first WindowServer until `NMXAccel` exists: a registry that stays busy until the Metal
-  device is published (the existing `PhxFB` busy hold does this, bounded below 60 s).
+  device is published. The `PhxFB` busy hold in `phxagdc.cpp:238-290` (`debug.phxfb_hold`, a timer release) is such a
+  hold; it is off by default (only with the boot-arg `-phxfbhold`, `phxfb.cpp:1586`) and not used on the XTX
+  machine's boots (`debug.phxfb_hold` reads 0, 2026-11-26).
 - [U] When gate 1 first runs (display setup of the first WindowServer, near +2.7 s) and whether the registry is quiet
   then are not measured. The AuxKC arrives at +3.2 s and `VermilionAccel` at +6.8 s, but `NMXAccel` only matches after
   the daemon's claim (+10 s), so a quiet registry between +4 and +10 s would let gate 1 run with no device.
@@ -194,16 +197,19 @@ What the code reads, and what Vermilion publishes today (`src/vermilion-accel/In
 | `MTLDevice.isHeadless` NO, `isRemovable` NO, `isLowPower` YES for the display GPU | gate 1; `FindAcceleratorWithMTLDevice` [O] | `isHeadless` NO only when `debug.nmxaccel_headless == 0`; `isRemovable` NO; `isLowPower` **NO** | `isLowPower` NO sends `FindAcceleratorWithMTLDevice` to its second pass (first non-removable): fine with one GPU; unverified with two |
 | `MTLDevice.acceleratorPort` == the display's accelerator | `new_compositor` [O] | inherited from `MTLIOAccelDevice` | none expected |
 | `registryID` allowed by `ALLOWED_GPU_IDS` | `MTLAddDevice` [O] | not set | none |
-| `AppleGPUWrangler` publishes the GPU after the accelerator; AGDC per-framebuffer accel index | CoreDisplay gate 2 [O/R] | `PhxAGDC` (`debug.phxagdc`) arms from the daemon; the 2026-10-20 busy-hold design did this and was dropped on 2026-10-24 because the hold also blocked the Metal device [R] | the open one: see section 6 |
+| `AppleGPUWrangler` publishes the GPU after the accelerator; AGDC per-framebuffer accel index | CoreDisplay gate 2 [O/R] | `PhxAGDC` (`debug.phxagdc`) arms from the daemon; the 2026-10-20 busy hold (`debug.phxfb_hold`) did this; since 2026-10-24 it is opt-in (`-phxfbhold`), after a gate inside `start()` deadlocked the matching thread [R] | the open one: see section 6 |
 
 [U] Not compared in this pass: Apple's `AMDRadeonX6000` accelerator and `AMDFramebuffer` property dump for
 `IOAccelIndex`, `IOAccelRevision`, `IOAccelTypes`, `IOGPUIsRemovable`-like keys. [O] No `IOGPUIsRemovable` string was
 found in SkyLight, Metal or CoreDisplay; removability is `Removable`/`isRemovable`/the wrangler's own attribute.
 
-## 6. Why the 2026-10-24 hold failed is the open question
+## 6. Why the 2026-10-24 attempt failed is the open question
 
-- [R] The busy hold on `PhxFB` kept the PCI device busy so that `AppleGPUWrangler` would publish only after the GPU was
-  up. The repo records metaltest returning 0 devices while the hold was on. [U] Cause unknown. Candidates, none
+- [R] The busy hold on `PhxFB` (2026-10-20, `phxagdc.cpp:238`) kept the PCI device busy so that `AppleGPUWrangler`
+  would publish only after the GPU was up. On 2026-10-24 a gate inside `PhxAMDFB::start()` held the IOKit matching
+  thread and starved the accelerator ("Metal device never came up", `phxfb.cpp:1418-1419`); since then `PhxAMDFB`
+  matches only after the daemon's `phxfb-go`, and the hold is opt-in (`-phxfbhold`). [U] Whether the hold alone (a
+  busy count, not a blocked `start()`) also keeps the Metal device from coming up was not separated. Candidates, none
   tested: the wrangler's publish gates `IOAccelerator` matching on this stack; or the hold also blocks `NMXAccel`'s
   start/publish; or the trust check. `AppleGraphicsDeviceControl`/`AppleGPUWrangler` is in the System KC and was not
   decompiled here. Next REA step if T1 fails: `AppleGPUWrangler` publish conditions in AppleGraphicsControl.
@@ -225,7 +231,8 @@ Pre-conditions: machine lock, owner agrees to one boot; no user logged in at the
    of at most 20 s (`PHXBOOT_T1_WAIT`), polling every 1 s, read-only:
    - `ps -p $WS0` still alive (a crash starts a new one: record and fall back);
    - plugin log: a line `NVMTLDevice +load in pid $WS0` / `initWithAcceleratorPort ... in WindowServer` with `$WS0`
-     (the plugin's own `nvlog`; path as the plugin logs today);
+     (the plugin's `nvlog`, which goes to `os_log`). The release plugin (#49) logs errors only, so this check needs
+     the logging build (`PLUGIN_CONFIG=logging`) for the T1 boot, or is dropped in favour of the `vmmap` check;
    - `vmmap $WS0 | grep -c NVMTLDriver` (the plugin image is mapped only if Metal created the device in `WS0`);
    - `sysctl debug.nvaccel_iop_ok` increasing across two reads 2 s apart (presents counted on the GPU path);
    - a 1 s `sample $WS0 1 -mayDie` grep for `CompositorMetal` or the queue label `com.apple.SkyLight.mtl_submit`
@@ -266,11 +273,11 @@ flash from the restart, the login-window guard unchanged.
 **Interpretation and next step**
 
 - PASS: the restart can go (B1 K10). Then check the unchanged behaviours that the restart hides: VRR floor/HDR knobs
-  that WindowServer reads at start (`com.apple.windowserver`; the daemon's `disp_ovr`/`offer_open` run before the
-  restart today and would now run after `WS0` started) [U].
+  that WindowServer reads at start (`com.apple.windowserver`; the daemon's `disp_ovr`/`offer_open` run today before
+  the WindowServer that ends up accelerated starts, and would then run only after it) [U].
 - FAIL, `System has no accelerator` before `NMXAccel up` (gate 2) or no `mtl_submit` (gate 1): the restart stays until
   the kernel publishes in Apple's order. Follow-up T1b (needs a kext/EFI change, one boot): keep the registry busy
-  until `NMXAccel` registers, below 60 s (3b); if gate 2 still fails, re-do the 2026-10-24 hold on a root-cause basis
+  until `NMXAccel` registers, below 60 s (3b); if gate 2 still fails, re-do the 2026-10-20 busy hold on a root-cause basis
   (section 6) so `AppleGPUWrangler` publishes the GPU after the accelerator.
 - FAIL with `WS0` dead: launchd starts a new WindowServer, which is today's outcome.
 
@@ -285,4 +292,4 @@ flash from the restart, the login-window guard unchanged.
 - Quoted code was limited to function names, selectors and one-line paraphrases. REA evidence ids are in the session
   only; the images used are the 25G241 dyld cache copies, extraction recipe in
   [`reference/apple-amd/README.md`](../../reference/apple-amd/README.md)
-  (`ipsw dyld extract <cache> <image> --slide --stubs`).
+  (its recipe: `ipsw dyld extract <dyld_shared_cache_x86_64h> <image> -o dsc/`; this pass added `--slide --stubs`).

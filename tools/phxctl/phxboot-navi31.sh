@@ -1032,12 +1032,13 @@ idledpm_boot(){
 # (debug.phxbo_vram_selftest=1 must read 1), then debug.phxbo_vram_proc and debug.phxbo_vram=1, each read back. Names:
 # letters, digits, . _ - and space, at most 127 characters; WindowServer is refused (it stays on the proven path until
 # M3). Measured on the XTX machine: 42.9 -> 840.9 GB/s buffer bandwidth, new buffers zero (VRAM BO design note).
-BOVRAM_DEFAULT="horizon-client,java"   # the XTX machine's list; a file ~/gpu/phxboot-bovram holds another, -bovram-off none
+BOVRAM_DEFAULT=""   # no process by default (a general rule needs a measurement); ~/gpu/phxboot-bovram names them
 bovram_boot(){
   feat_on bovram || return 0
   [ $DESK = 1 ] || { echo "bovram: not a desktop boot: skip"; return 0; }
   local v st
   if [ -e "$G/phxboot-bovram" ]; then v=$(head -c 200 "$G/phxboot-bovram" 2>/dev/null | tr -d '\r\n' | sed 's/^ *//; s/ *$//'); else v=$BOVRAM_DEFAULT; fi
+  [ -e "$G/phxboot-bovram" ] || [ -n "$v" ] || { echo "bovram: no process list (~/gpu/phxboot-bovram): off"; return 0; }
   case "$v" in ''|*[!A-Za-z0-9._,\ -]*) echo "bovram: ~/gpu/phxboot-bovram holds '$(echo "$v" | cut -c1-40)': not a list of process names: off"; return 0;; esac
   [ ${#v} -le 127 ] || { echo "bovram: the name list is over 127 characters: off"; return 0; }
   case ",$v," in *,WindowServer,*) echo "bovram: WindowServer stays on system memory (M3): off"; return 0;; esac

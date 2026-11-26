@@ -733,7 +733,7 @@ not the threat this guard answers: the machine lock and the review of every chan
 - Same rule as the three display switches above: a real Mac has no switches, so what the XTX machine runs at every boot
   is the default and a stranger's install (no flag files) gets it. A feature is turned off with an empty
   `~/gpu/phxboot-<name>-off`. On by default: `auto`, `sdma`, `cg`, `uclk`, `p0modes`, `irqwait`, `waitstep` (200 us),
-  `wscdcopy`, `vcn`, `idledpm`, `idledpm-dcf`, `bovram` (`horizon-client,java`), `gl`, `audio`. The release package writes
+  `wscdcopy`, `vcn`, `idledpm`, `idledpm-dcf`, `bovram` (on, but names no process by default: the reference machine's own list is its two games, not a rule), `gl`, `audio`. The release package writes
   no flag file any more (it wrote `sdma`, `cg`, `uclk=456`, `auto`, `nohdr`); `phxboot-uclk=456` is gone everywhere.
 - **Same programming, nothing added:** each of these runs on the XTX machine today, so the default adds no SMU, PSP or
   DAL message and no register write beyond what it already does (hard rule 1). `phxboot-b15*`, `m7*`, `aoc-rate`,

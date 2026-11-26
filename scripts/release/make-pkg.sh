@@ -31,7 +31,7 @@ while [ $# -gt 0 ]; do
 done
 [ -n "$VERSION" ] && [ -n "$BUILD" ] && [ -n "$AIR" ] && [ -n "$OUT" ] || usage
 check_version make-pkg "$VERSION"
-for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib VermilionAccel.kext phxctl mesboot metaltest spirv-val; do
+for f in NVMTLDriver libnvmtl_translate.dylib libvulkan_radeon.dylib VermilionAccel.kext phxctl mesboot metaltest spirv-val phxaudio; do
   [ -e "$BUILD/$f" ] || { echo "make-pkg: $BUILD/$f missing (docs/BUILD.md)" >&2; exit 1; }
 done
 for f in libLLVM.dylib libzstd.1.dylib; do
@@ -68,10 +68,12 @@ ship "$HERE/pkg/vermilion-firmware" "$P/usr/local/sbin/vermilion-firmware"
 # /usr/local/libexec/vermilion: what the post-install script copies into ~/gpu, the firmware fetcher, the AIR reader
 T=$ROOT/tools/phxctl
 for f in phxboot-navi31.sh gfx_cg.sh sdma_idle.sh uclk.sh smumetrics.py ptwalk.sh m7_boot.sh m7_phase.sh dispovr.sh \
-         b15_boot.sh wm144.sh det.sh dalwm.sh dal.sh hubp_dlg.sh p0prefetch.sh idle_dpm.sh; do cp "$T/$f" "$LX/gpu/$f"; done
+         b15_boot.sh wm144.sh det.sh dalwm.sh dal.sh hubp_dlg.sh p0prefetch.sh idle_dpm.sh audio_match.sh; do
+  cp "$T/$f" "$LX/gpu/$f"; done
 cp "$T/navi31_up.sh" "$T/bringup_navi31.sh" "$LX/gpu/phxctl/"
 cp "$BUILD/phxctl" "$LX/gpu/phxctl.bin"
 cp "$BUILD/metaltest" "$LX/gpu/metaltest"
+cp "$BUILD/phxaudio" "$LX/gpu/phxaudio"   # DP audio (on by default): the display engine's audio blocks from the EDID
 cp "$T/local.phxboot.plist.in" "$LX/"
 cp "$ROOT/tools/firmware/fetch_firmware.sh" "$ROOT/tools/firmware/fw.lock" "$LX/firmware/"
 ship "$T/air_runtime_install.sh" "$LX/tools/air_runtime_install.sh"

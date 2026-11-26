@@ -128,7 +128,7 @@ static bool planEquals(Hw &h, const phxp0::Plan &p) {
     for (unsigned i = 0; i < p.n; i++) if ((h.r[p.s[i].reg] ^ p.s[i].val) & p.s[i].mask) { std::printf("  0x%05X = 0x%08x, plan %s 0x%08x\n", p.s[i].reg, h.r[p.s[i].reg], p.info.name, p.s[i].val); return false; }
     return true;
 }
-// b167: the glue's debug.phxpipe0_uclk default, 0 = no UCLK hard minimum (Linux sends none at these switches)
+// b167: the glue's debug.phxpipe0_uclk, 0 = no UCLK hard minimum (Linux sends none at these switches; the knob takes only 0)
 static int mac(Hw &h, phxp0::State &st, const phxp0::Plan &tg, phxp0::MacOut *o, uint32_t uclkMhz = 0) {
     const phxp0::Env e = env(h);
     const int r = phxp0::macSet(e, st, kFam, N(kFam), tg, uclkMhz, o);
@@ -183,7 +183,7 @@ int main() {
         for (const auto &x : h.writes) if (x.first == 0x00124 || x.first == 0x056C8 || x.first == 0x056CB || x.first == 0x0397A || (x.first >= 0x039BE && x.first <= 0x039E5)) noForbidden = false;
         CHECK(noForbidden);   // DENTIST, the link, COMPBUF and the watermarks are never written
     }
-    {   // b167 (U1): the default sends no UCLK message; a root-set debug.phxpipe0_uclk goes through the DAL mailbox only
+    {   // b167 (U1): the glue's 0 sends no UCLK message; macSet given a UCLK MHz sends it through the DAL mailbox only
         Hw h; gop(h); phxp0::State st{}; phxp0::MacOut o{};
         CHECK(mac(h, st, P120, &o) == phxp0::kDone && !(o.flags & phxp0::kMacUclkPin) && st.uclkPins == 0);
         bool uclk = false;

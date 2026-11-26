@@ -53,7 +53,7 @@ static int gP0Enable;          // debug.phxpipe0_enable
 static int gP0Mode = 60;       // debug.phxpipe0_mode
 static int gP0Modes;           // b101 debug.phxpipe0_modes (property phx-pipe0-modes for PhxAMDFB head 0's mode list)
 // b101 debug.phxpipe0_uclk: the UCLK hard minimum macSet sends before a set above 60 (0 = none). b167 (U1): through the DAL
-// mailbox, default 0: Linux raises UCLK at none of the 60 / 120 / 144 Hz switches on the XTX machine (finding
+// mailbox, 0 and only 0: Linux raises UCLK at none of the 60 / 120 / 144 Hz switches on the XTX machine (finding
 // 2026-11-26-u1-uclk-dal.md); until b166 456 MHz through the driver mailbox (0x1B), which Linux never sends on SMU 13.0.0.
 static int gP0UclkMhz = 0;
 static int gP0Solo;            // p0solo debug.phxpipe0_solo: 1 = the AOC alone (OTG1 dark) may take the 1080p144 plan (PhxPipe0.h pairFits)
@@ -266,12 +266,14 @@ static int phxPipe0UclkSysctl SYSCTL_HANDLER_ARGS {
     if (err || !req->newptr)
         return err;
     if (proc_suser(req->p)) return EPERM;
-    if (v != 0 && (v < 96 || v > 2500)) return EINVAL;
+    // b167: 0 only. Any other MHz would replace the boot daemon's DAL hard minimum (the last one sent wins) and could
+    // lower it; Linux sends only a DPM level, and the kernel has no DPM table until K11 (hw-safety review of U1).
+    if (v != 0) return EINVAL;
     gP0UclkMhz = v;
     return 0;
 }
 SYSCTL_PROC(_debug, OID_AUTO, phxpipe0_uclk, CTLTYPE_INT | CTLFLAG_RW | CTLFLAG_LOCKED, nullptr, 0, phxPipe0UclkSysctl, "I",
-            "b101 (root): UCLK hard minimum in MHz the macOS path sends before a pipe-0 set above 60 Hz (b167: DAL mailbox; default 0 = none)");
+            "b101 (root): UCLK hard minimum in MHz the macOS path sends before a pipe-0 set above 60 Hz (b167: DAL mailbox; 0 = none, the only value accepted)");
 
 // p0solo: the boot daemon's b15_boot.sh aocboot1 / the one-display
 // branch write 1 when only the AOC is lit; 0 (default) = the pair rule as before (no 144 with OTG1 dark).

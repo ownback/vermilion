@@ -9,7 +9,7 @@ static constexpr uint64_t kPpsmcPowerUpVcn = 0x2Au, kPpsmcPowerDownVcn = 0x2Bu;
 // b167 (U1, finding 2026-11-26-u1-uclk-dal.md): SetHardMinByFreq 0x1B and SetHardMaxByFreq 0x1C refused. On SMU 13.0.0
 // Linux sends neither through this mailbox (smu_v13_0_0_ppt.c wires no set_hard_freq_limited_range or
 // display_clock_voltage_request, v6.8 and master); its display code sets the UCLK hard minimum through the DAL mailbox
-// (dcn32_update_clocks), which the DAL branch above allows (SetHardMinByFreq 9 with PPCLK_UCLK, uclk.sh pin / unpin).
+// (dcn32_update_clocks), which the DAL branch below allows (SetHardMinByFreq 9 with PPCLK_UCLK, uclk.sh pin / unpin).
 // 0x19 / 0x1A (set_soft_freq_limited_range), 0x1D / 0x1E (queries) and 0x1F (Linux's DPM table read) stay.
 
 IOReturn IOAccelPhxNativeClient::doDbgSmu(IOExternalMethodArguments *a) {

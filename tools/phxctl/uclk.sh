@@ -8,14 +8,15 @@
 #           switching, set UCLK min = max" (dcn32_clk_mgr.c, v6.8 :688). Takes no MHz: a value after `pin` is not used.
 #   unpin   hard min = level 0 (96 MHz on the XTX machine): what dcn32_update_clocks sends after every mode set on this
 #           card (dramclk_khz, v6.8 :720; the last UCLK hard min is 96 in all 72 of the 78 Linux mode-set traces of
-#           2026-11-20 / 21 that send one).
+#           2026-11-20 / 21 that send one), at 240 Hz together with FAMS, which macOS doesn't do (finding section 7).
 #   levels  the UCLK DPM table.   show  SMU metrics clocks (smumetrics.py, n samples).
 # Every message is a DAL message (the kext's selector, msg 0x10000 | DALSMC id), in Linux's order (dcn32 and dcn30
 # clk_mgr_smu_msg.c): GetSmuVersion (2); GetDpmFreqByIndex (0xB) for UCLK, index 0xFF (the level count; bit 31 =
 # fine-grained, 2 levels) then each index, as dcn32_init_single_clock reads it; SetHardMinByFreq (9), argument
 # (2 << 16) | MHz; then, on a PMFW of 0x4E6A00 (78.106.0) or later, ReturnHardMinStatus (0x15) until the answer has the
-# UCLK and DPREFCLK bits (0x24), ~2 s at most (dcn32_smu_wait_get_hard_min_status). The kext answering busy (another DAL
-# message in flight) = again in 10 ms, ~2 s at most (Linux waits for the mailbox before it writes). Never the driver
+# UCLK and DPREFCLK bits (0x24), ~2 s at most, and no further once a read isn't answered OK
+# (dcn32_smu_wait_get_hard_min_status). The kext answering busy (another DAL message in flight) = again in 10 ms,
+# ~2 s at most (Linux waits for the mailbox before it writes; the kext writes nothing while busy). Never the driver
 # mailbox: Linux sends no driver-mailbox SetHardMinByFreq (0x1B) on SMU 13.0.0, and kext b167 refuses it.
 # pin / unpin print one line, with "(OK)" in it only when the PMFW acknowledged the hard minimum (idle_dpm.sh and the
 # boot daemon read it). Exit 0 sent; 1 refused or not answered, or no DPM table (then no hard minimum is sent); 2 usage.
@@ -55,7 +56,9 @@ hardmin() {
   else
     k=0; st="not confirmed in ~2 s"
     while [ $k -lt "$STATUS_TRIES" ]; do
-      if dal 0x15 0 && [ $(( OUT & 0x24 )) = $((0x24)) ]; then st="$(printf 0x%X $((OUT))) done"; break; fi
+      # a read not answered OK ends the wait, as in Linux (it counts as the whole 2 s, dcn32_clk_mgr_smu_msg.c v6.8 :147)
+      dal 0x15 0 || { st="read not answered (stopped, as Linux)"; break; }
+      if [ $(( OUT & 0x24 )) = $((0x24)) ]; then st="$(printf 0x%X $((OUT))) done"; break; fi
       k=$((k + 1)); sleep 0.01
     done
   fi

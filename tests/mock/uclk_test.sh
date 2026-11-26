@@ -69,6 +69,9 @@ check status_polled '[ $RC = 0 ] && [ "$(grep -c "DAL 0x15" "$W/sent.log")" = 4 
 # never done: bounded (UCLK_STATUS_TRIES), reported, the hard minimum itself still acknowledged
 setup never; : >"$W/k/status_never"; UCLK_STATUS_TRIES=5 run pin
 check status_bounded '[ $RC = 0 ] && [ "$(grep -c "DAL 0x15" "$W/sent.log")" = 5 ] && has "not confirmed" out && has "(OK)" out'
+# a status read not answered OK: Linux stops there (the read counts as the whole 2 s); the hard minimum stays acknowledged
+setup statusfail; knob fail_id 0x15; run pin
+check status_read_fails '[ $RC = 0 ] && [ "$(grep -c "DAL 0x15" "$W/sent.log")" = 1 ] && [ ! -s "$W/sleep.log" ] && has "read not answered" out && has "(OK)" out'
 # the UCLK bit without DPREFCLK's is not done yet: Linux waits for both (CHECK_HARD_MIN_CLK_DPREFCLK | _UCLK)
 setup uclkbit; knob status_after 2; knob status_pending 0x20; run pin
 check status_both_bits '[ $RC = 0 ] && [ "$(grep -c "DAL 0x15" "$W/sent.log")" = 3 ] && has "status 0x24 done" out'

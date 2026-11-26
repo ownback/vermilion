@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 /* test_scan_direct.c - the decisions of direct scan-out (src/metal-plugin/nvmtl_scan_direct.h, used by nvmtl_scanout.c):
    the display-surface pair, the start, the write gate (Linux's flip-complete test, the bounce, the timeout), the
-   failure cooldown, the direct-became-wanted note and the idle page sync. Also a model of two display surfaces flipping at
+   failure cooldown and the direct-became-wanted note. Also a model of two display surfaces flipping at
    vblank, driven through the gate, that checks no write is ever let through to a surface HUBP0 may fetch and that the
    gate never stalls for good.
    cc -Wall -Wextra -Werror -I src/metal-plugin tests/plugin/test_scan_direct.c -o /tmp/test_scan_direct && /tmp/test_scan_direct */
@@ -159,48 +159,6 @@ int main(void)
         for (int f = 0; f < 3000; f++) { (void)nvmtl_sd_appeared_note(0, f >= 100, &said); }
         arm("appeared: over many frames the line comes once", said == 1);
     }
-    /* ---- the pages of a bound surface for CPU readers ---- */
-    {
-        const uint64_t I = NVMTL_SD_SYNC_IDLE_NS;
-        nvmtl_sd_sync sy; memset(&sy, 0, sizeof sy);
-        arm("sync: a clean surface is not copied", !nvmtl_sd_sync_due(&sy, 0, 0, 10 * I));
-        arm("sync: changed but presenting just now: not yet", !nvmtl_sd_sync_due(&sy, 1, 0, I - 1));
-        arm("sync: changed, idle for 100 ms: copy", nvmtl_sd_sync_due(&sy, 1, 0, I));
-        arm("sync: a write in flight: not now", !nvmtl_sd_sync_due(&sy, 1, 1, 10 * I));
-        /* a write that finished changes the token: dirty without a flip */
-        sy.synced = 5; arm("sync: a finished write (token moved), no flip: due", nvmtl_sd_sync_due(&sy, 6, 0, I));
-        arm("sync: same token: not due", !nvmtl_sd_sync_due(&sy, 5, 0, 10 * I));
-        /* the gate holds writes while the copy runs, not before or after */
-        arm("sync: no copy running: writes are not held", !nvmtl_sd_sync_blocks_write(&sy));
-        nvmtl_sd_sync_begin(&sy, 6);
-        arm("sync: copy running: writes are held", nvmtl_sd_sync_blocks_write(&sy));
-        arm("sync: a second copy is not started meanwhile", !nvmtl_sd_sync_due(&sy, 7, 0, 10 * I));
-        /* a failed copy leaves the surface dirty */
-        nvmtl_sd_sync_end(&sy, 0);
-        arm("sync: failed copy: still dirty, writes released", sy.synced == 5 && !nvmtl_sd_sync_blocks_write(&sy) && nvmtl_sd_sync_due(&sy, 6, 0, I));
-        /* success clears only what the copy saw: a write that finished meanwhile keeps it dirty */
-        nvmtl_sd_sync_begin(&sy, 6);
-        nvmtl_sd_sync_end(&sy, 1);
-        arm("sync: a copy that succeeded: clean at its token", sy.synced == 6 && !nvmtl_sd_sync_due(&sy, 6, 0, 10 * I));
-        nvmtl_sd_sync_begin(&sy, 6);
-        nvmtl_sd_sync_end(&sy, 1);
-        arm("sync: a write finished during the copy (token 7): dirty again", nvmtl_sd_sync_due(&sy, 7, 0, I));
-        /* a model, in 4 ms steps: a surface written every step for a second, then still; the copy comes after the last
-           write, never during one (the copy is begun and ended in one step: the gate holds writes until its fence) */
-        {
-            nvmtl_sd_sync m; memset(&m, 0, sizeof m);
-            uint32_t tok = 0; uint64_t t = 0, last = 0; int copies = 0, copyDuring = 0, writing = 0, tornCopies = 0;
-            for (int step = 0; step < 400; step++) {
-                t += 4000000ull;
-                if (step < 250) { writing = 1; tok++; last = t; }      /* a frame: write, finish, present */
-                else writing = 0;
-                if (nvmtl_sd_sync_due(&m, tok, writing, t - last)) { nvmtl_sd_sync_begin(&m, tok); copies++; if (writing) copyDuring++;
-                    nvmtl_sd_sync_end(&m, 1); if (m.synced != tok) tornCopies++; }
-            }
-            arm("sync model: one copy, after the animation ended", copies == 1 && copyDuring == 0 && tornCopies == 0 && m.synced == tok);
-        }
-    }
-
     /* ---- the cooldown ---- */
     unsigned nf = 0; uint64_t until = 0; int off = 0;
     nvmtl_sd_fail(&nf, 1000, &until, &off);

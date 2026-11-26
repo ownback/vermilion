@@ -649,14 +649,12 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   (one boot), then the switch file live; owner test and rollback in section 8.
   **Follow-ups, built 2026-11-26** (branch `ownback/scanout-live-on`, plugin only, finding section 9): a `ws-direct`
   created while WindowServer runs takes effect at the next start (a live move was built and dropped: acquire can end
-  GPU present for the process, VRR flap, frame loss at the move; the plugin logs it once); stale screenshots of a still
-  desktop fixed by an idle page sync (no lock across the fence, under IOSurfaceLock, 4 Hz keepalive only while direct);
-  the 16 % gate waits are the second surface's flip latching (inherent with two surfaces), now counted. Not installed;
-  all (unverified) on hardware. Open points from the clean-up pass (end of section 9; behaviour changes, own commits):
-  a way out waits up to 1 s for a running page copy, inside a present or the gate, and tears down after a timeout
-  with the copy possibly pending; the tick holds `g_scan_lock` across `IOSurfaceLock` and the submit; the IOSurface
-  lock is held until the next tick (up to 250 ms); a slow copy fails the write gate as a flip timeout; a copy per
-  change for content that updates a few times a second; `g_scan.syncIdx` unused.
+  GPU present for the process, VRR flap, frame loss at the move; the plugin logs it once); the 16 % gate waits are the
+  second surface's flip latching (inherent with two surfaces), now counted. Not installed; (unverified) on hardware.
+  **Known issue: screenshots are stale while direct scan-out is bound** (the pages are not drawn into). An idle page
+  copy was built and removed (it could stall presents); design note for a later fix in finding section 9: a copy that
+  never holds `g_scan_lock` across a GPU wait (own queue, try-lock, or the capture reading the VRAM slot), measured
+  on hardware before it ships.
   **On by default, built 2026-11-26** (branch `ownback/direct-default`: opt-outs `ws-gpu-present-off`,
   `ws-gpu-present-async-off`, `ws-direct-off`; decisions.md, INSTALL.md 8.6). Not installed, (unverified) on hardware.
   Open points from its clean-up pass (read from the code; behaviour changes, own commits):

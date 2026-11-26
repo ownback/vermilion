@@ -81,7 +81,8 @@ static struct {
     int (*bohandle)(VkDevice, VkDeviceMemory, uint32_t *);
     nvmtl_scan_dsurf dsurf[2];
     uint64_t dpresents, dbounces, dgates, dgateWaits, dgateUs, dgatePend, dsyncs;
-    VkCommandBuffer scb; VkFence sfence; int syncIdx;   /* the page sync's copy in flight (surface syncIdx), its own fence */
+    VkCommandBuffer scb; VkFence sfence;         /* the page sync's copy in flight (the surface with sync.inflight), its own fence */
+    int syncIdx;                                 /* not used */
 } g_scan;
 static pthread_mutex_t g_scan_lock = PTHREAD_MUTEX_INITIALIZER;
 static void nvmtl_scan_sync_reap_locked(int wait);
@@ -92,6 +93,8 @@ static void nvmtl_scan_sync_reap_locked(int wait);
 #define NVMTL_SCAN_KEEPALIVE_DIRECT_NS (NSEC_PER_SEC / 4)
 #define NVMTL_SCAN_KEEPALIVE_LEEWAY_NS(ns) ((ns) / 10)
 #define NVMTL_SCAN_STATUS_MIN_NS       900000000ull
+/* The longest wait for one of this file's fences (a copy, the drain, a page sync reaped on a way out). */
+#define NVMTL_SCAN_FENCE_MAX_NS        1000000000ull
 
 /* the plane did not match the display surface (a resolution change): retrying, not counted as a loss */
 static int g_scan_geom_wait;
@@ -182,7 +185,8 @@ static void nvmtl_sd_reap(void)
     pthread_mutex_unlock(&g_sd_lock);
     for (unsigned i = 0; i < n; i++) { CFRelease(d[i].owner); CFRelease(d[i].ref); }
 }
-/* One GPU buffer copy on the present command buffer, waited for (submitted under the submit lock, which is recursive). */
+/* One GPU buffer copy, submitted and not waited for (under the submit lock, which is recursive): a fresh command buffer
+   in *cb (the one there before is freed first), `fence` signals when it has finished. 0 = submitted. */
 static int nvmtl_scan_copy_submit_locked(VkCommandBuffer *cb, VkFence fence, VkBuffer src, VkBuffer dst, VkDeviceSize bytes)
 {
     if (*cb) pvkFreeCommandBuffers(g_dev, g_scan.pool, 1, cb);
@@ -205,13 +209,15 @@ static int nvmtl_scan_copy_submit_locked(VkCommandBuffer *cb, VkFence fence, VkB
     pthread_mutex_unlock(&nvmtl_submit_mutex);
     return sr == VK_SUCCESS ? 0 : -1;
 }
+/* The same copy on the present command buffer and fence, waited for (NVMTL_SCAN_FENCE_MAX_NS at most). */
 static int nvmtl_scan_copy_wait_locked(VkBuffer src, VkBuffer dst, VkDeviceSize bytes)
 {
     return nvmtl_scan_copy_submit_locked(&g_scan.cb, g_scan.fence, src, dst, bytes) ||
-           pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, 1000000000ull) != VK_SUCCESS ? -1 : 0;
+           pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, NVMTL_SCAN_FENCE_MAX_NS) != VK_SUCCESS ? -1 : 0;
 }
 /* Every submission this process made to its queue (the plugin's only one) has finished: an empty submit's fence, which
-   signals once all work submitted before it has completed. 1 s at most (not vkDeviceWaitIdle: no limit). */
+   signals once all work submitted before it has completed. NVMTL_SCAN_FENCE_MAX_NS at most (not vkDeviceWaitIdle: no
+   limit). */
 static int nvmtl_scan_drain_locked(void)
 {
     if (g_state != 1 || !g_scan.fence) return -1;
@@ -219,7 +225,7 @@ static int nvmtl_scan_drain_locked(void)
     pthread_mutex_lock(&nvmtl_submit_mutex);
     const VkResult r = pvkQueueSubmit(g_queue, 0, NULL, g_scan.fence);
     pthread_mutex_unlock(&nvmtl_submit_mutex);
-    return r == VK_SUCCESS && pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, 1000000000ull) == VK_SUCCESS ? 0 : -1;
+    return r == VK_SUCCESS && pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, NVMTL_SCAN_FENCE_MAX_NS) == VK_SUCCESS ? 0 : -1;
 }
 /* Before the release: the GPU idle (nothing in flight writes a bound surface) and each bound surface copied from its
    slot back onto its pages, so the CPU copy, every reader of the pages and the copy path see the last frame. Called with
@@ -227,7 +233,7 @@ static int nvmtl_scan_drain_locked(void)
 static void nvmtl_scan_direct_copyback_locked(void)
 {
     const int idle = !nvmtl_scan_drain_locked();
-    nvmtl_scan_sync_reap_locked(1);   /* a page sync still running: finished by the drain, its lock released */
+    nvmtl_scan_sync_reap_locked(1);   /* a page sync still running: the drain has waited for it; its IOSurface lock is released */
     int copied = 0;
     for (int i = 0; i < 2; i++) {
         nvmtl_scan_dsurf *d = &g_scan.dsurf[i];
@@ -320,10 +326,12 @@ static void nvmtl_scan_direct_out_locked(const char *why, int fail)
    finished, or it was flipped) has its VRAM copied onto its pages. The copy runs on its own command buffer and fence
    and is NOT waited for under g_scan_lock: begin submits it (a bounded step) and marks the surface, the write gate holds
    writes to a marked surface, and whoever takes the lock next reaps it (the gate's poll, the keepalive tick, the way out).
-   So a present never stalls behind the copy, and no write lands while the pages are being written. The pages are written
-   under IOSurfaceLock(write), held from the submit to the reap, so the surface's seed moves when the copy is done and a
-   reader that locks sees either the old frame or the new one, not a mix. The surface is clean only if the copy
-   succeeded (nvmtl_sd_sync_end). One copy at a time (one command buffer). */
+   So a direct present (the flip) does not wait for the copy's fence, and no gated write lands while the pages are being
+   written. The ways out do wait for it (nvmtl_scan_sync_reap_locked(1), NVMTL_SCAN_FENCE_MAX_NS at most), and a way out
+   can run inside a present. The pages are written under IOSurfaceLock(write), held from the submit to the reap, so the
+   surface's seed moves when the copy is done. The intent is that a reader that locks sees either the old frame or the
+   new one, not a mix; whether another process's IOSurfaceLock waits for this one is not tested (unverified). The
+   surface is clean only if the copy succeeded (nvmtl_sd_sync_end). One copy at a time (one command buffer). */
 static int nvmtl_scan_sync_busy_locked(void)
 {
     for (int i = 0; i < 2; i++) if (g_scan.dsurf[i].sync.inflight) return 1;
@@ -334,7 +342,7 @@ static void nvmtl_scan_sync_reap_locked(int wait)
     for (int i = 0; i < 2; i++) {
         nvmtl_scan_dsurf *d = &g_scan.dsurf[i];
         if (!d->sync.inflight) continue;
-        const VkResult r = pvkWaitForFences(g_dev, 1, &g_scan.sfence, VK_TRUE, wait ? 1000000000ull : 0);
+        const VkResult r = pvkWaitForFences(g_dev, 1, &g_scan.sfence, VK_TRUE, wait ? NVMTL_SCAN_FENCE_MAX_NS : 0);
         if (r == VK_TIMEOUT && !wait) return;   /* still running: the next lock holder looks again */
         const int ok = r == VK_SUCCESS;
         IOSurfaceUnlock((IOSurfaceRef)d->ref, 0, NULL);   /* the write lock: moves the surface's seed */
@@ -373,8 +381,8 @@ static void nvmtl_scan_sync_tick_locked(uint64_t now)
     }
 }
 /* The kernel restores the console after 5 s without a call: an idle desktop presents nothing, so Status keeps it (once a
-   second, NVMTL_SCAN_STATUS_MIN_NS; the timer ticks four times a second while direct is bound, for the page sync). lastStatus is kept across
-   restarts of GPU present. */
+   second, NVMTL_SCAN_STATUS_MIN_NS; the timer ticks four times a second while direct is bound, for the page sync).
+   lastStatus is kept across restarts of GPU present. */
 static void nvmtl_scan_keepalive(void *ctx)
 {
     (void)ctx;
@@ -798,7 +806,7 @@ int nvmtl_vk_scanout_present(const void *ref, uint32_t sid, void *base, uint32_t
     pthread_mutex_lock(&nvmtl_submit_mutex);
     VkResult sr = g_state == 1 ? pvkQueueSubmit(g_queue, 1, &si, g_scan.fence) : VK_ERROR_DEVICE_LOST;
     pthread_mutex_unlock(&nvmtl_submit_mutex);
-    if (sr != VK_SUCCESS || pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, 1000000000ull) != VK_SUCCESS) { nvmtl_scan_off_locked("the copy did not complete"); goto out; }
+    if (sr != VK_SUCCESS || pvkWaitForFences(g_dev, 1, &g_scan.fence, VK_TRUE, NVMTL_SCAN_FENCE_MAX_NS) != VK_SUCCESS) { nvmtl_scan_off_locked("the copy did not complete"); goto out; }
     uint64_t o[3];
     const uint64_t t1 = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
     if (timed) {   /* after t1: reading the queries and writing the line count as flicker-probe time (probeUs) */

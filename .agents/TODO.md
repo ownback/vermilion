@@ -652,7 +652,11 @@ Effort: S about a day, M days, L weeks. Ranked by the gap each closes:
   GPU present for the process, VRR flap, frame loss at the move; the plugin logs it once); stale screenshots of a still
   desktop fixed by an idle page sync (no lock across the fence, under IOSurfaceLock, 4 Hz keepalive only while direct);
   the 16 % gate waits are the second surface's flip latching (inherent with two surfaces), now counted. Not installed;
-  all (unverified) on hardware.
+  all (unverified) on hardware. Open points from the clean-up pass (end of section 9; behaviour changes, own commits):
+  a way out waits up to 1 s for a running page copy, inside a present or the gate, and tears down after a timeout
+  with the copy possibly pending; the tick holds `g_scan_lock` across `IOSurfaceLock` and the submit; the IOSurface
+  lock is held until the next tick (up to 250 ms); a slow copy fails the write gate as a flip timeout; a copy per
+  change for content that updates a few times a second; `g_scan.syncIdx` unused.
 - [ ] **1b. Narrow render-pass dependencies** (plugin, S-M): every pass has image-less ALL_COMMANDS / MEMORY_* entry
   and exit dependencies, likely an L2 flush per pass in RADV (unverified); ~0.4-0.5 ms of WindowServer's frame is
   the ~13 us per-pass floor. Measure RADV's flush bits per pass (or A/B `NVMTL_RP_K1=1`) before changing it.

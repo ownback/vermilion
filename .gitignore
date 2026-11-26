@@ -24,6 +24,8 @@ src/**/build/
 # Local build inputs that must never be committed: AMD firmware and the header of its hashes (no firmware bytes)
 *.bin
 src/vermilion-boot/phx_c3_hash.inc
+# the generated C3 image of builds before b163 (AMD firmware bytes); a checkout that built one still has it
+src/vermilion-boot/phx_c3_image.inc
 *.o
 *.bundle/
 *.dSYM/

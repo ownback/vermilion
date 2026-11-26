@@ -34,7 +34,7 @@ Built by CI from a tag, never on a developer's machine (build paths, host names 
 
 | File | Contents |
 |---|---|
-| `Vermilion-<ver>-OpenCore.zip` | `Kexts/VermilionBoot.kext`, `VermilionTrust.kext`, `VermilionAudio.kext` (until folded in), `config-snippet.plist` (the entries of [INSTALL.md](../INSTALL.md#3-the-opencore-snippet), as a plist fragment `ocvalidate` accepts after merging), `README.txt`, `LICENSES/`, `NOTICE` |
+| `Vermilion-<ver>-OpenCore.zip` | `Kexts/VermilionBoot.kext`, `VermilionTrust.kext`, `VermilionAudio.kext` (until folded in), `config-snippet.plist` (the entries of [INSTALL.md](../INSTALL.md#what-the-opencore-snippet-changes), as a plist fragment `ocvalidate` accepts after merging), `README.txt`, `LICENSES/`, `NOTICE` |
 | `Vermilion-<ver>.pkg` | the package below |
 | `Vermilion-<ver>-source.tar.gz` | `git archive` of the tag: the LGPL translator's and FFmpeg's corresponding source, and everything else |
 | `Vermilion-<ver>-air-runtime.tar.gz` | the AIR reader the package installs (`libLLVM.dylib`, `libzstd.1.dylib`, `MD5SUMS`, `LICENSES/`), built by `air-reader.yml` |
@@ -69,7 +69,7 @@ The bundle is not relocatable and not version-checked (an install over the same 
 | Metal driver bundle: `NVMTLDriver`, `libnvmtl_translate.dylib`, the bundle's `Info.plist`, licence files in `Contents/Resources` (the AIR reader is added by the post-install script) | `/Library/GPUBundles/NVMTLDriver.bundle` | always (user space) |
 | `libvulkan_radeon.dylib` (RADV), the allow list `*`, `spirv-val` | `/Library/GPUBundles/nvmtl`, `/Library/GPUBundles/nvmtl-allow.txt`, `/usr/local/bin/spirv-val` | always |
 | Decoder: `PhxVA.bundle` and its dylibs | `/Library/GPUBundles` | A6 lands; before that the decoder is not in the package (no system-volume writes from an installer) |
-| `VermilionAccel.kext` | `/Library/Extensions` (the package ends by asking for the Allow click, a known step: [INSTALL.md](../INSTALL.md#23-the-allow-click-a-known-step)) | always (owner decision) |
+| `VermilionAccel.kext` | `/Library/Extensions` (the package ends by asking for the Allow click, a known step: [INSTALL.md](../INSTALL.md#34-the-allow-click)) | always (owner decision) |
 | `phxctl`, `mesboot`, `vermilion-uninstall`, `vermilion-firmware` | `/usr/local/sbin` | always |
 | Boot daemon, bring-up scripts, `phxctl.bin`, `metaltest`: a pristine copy, `fetch_firmware.sh` + `fw.lock`, the LaunchDaemon template, `lib.sh`, the AIR reader's files (removed after use) | `/usr/local/libexec/vermilion` | always |
 | the same daemon and scripts, the first-boot flags `phxboot-sdma`, `phxboot-cg`, `phxboot-uclk=456` (only the ones that aren't there), the firmware | **the desktop user's `~/gpu`**, written by the post-install script | B1 |
@@ -96,8 +96,8 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    would do), the SIP bits, the VermilionTrust version match, the migration of a manual install (the preinstall
    notes it and the rollback folder keeps what the package replaces).
 2. **postinstall (built).** Installs `~/gpu` and the LaunchDaemon (each replaced file copied to the rollback folder
-   first), fetches the firmware, installs the AIR reader, creates the shader cache folders, writes the install
-   marker, prints the Allow-click step. It does not start the daemon.
+   first), fetches the firmware, installs the AIR reader, creates the shader cache folders and the first-boot flags,
+   writes the install marker, prints the Allow-click step. It does not start the daemon.
    The firmware step runs `tools/firmware/fetch_firmware.sh` into `~/gpu/fw/navi31`: the 20 files of `fw.lock`, from
    linux-firmware at the pinned commit (GitLab mirror, then git.kernel.org), md5 and SHA-256 checked, any mismatch
    refused; `--from <linux-firmware checkout>` works offline. **A failed fetch is a warning, not a failed install**:
@@ -111,7 +111,15 @@ Scripts (`scripts/release/pkg/`), each refusing with one sentence and changing n
    them, and the post-install text repeats it. (The design had Software Update's automatic install off, as
    `recovery_install.sh` does.)
 
-What it never does: write the system volume, NVRAM, or the EFI partition (the OpenCore part is the user's, or
+The first-boot flags include `~/gpu/phxboot-auto` and `~/gpu/phxboot-nohdr` (HDR is broken in this preview); both get
+an `N` line in the rollback `MANIFEST`, so the uninstaller removes them. **The package does not write NVRAM.** The
+daemon arms the accelerated desktop: on a GOP boot whose bring-up and claim finished, with `phxboot-auto` present, it sets
+`phxfb-squat` for the next boot (read back) and posts "Graphics acceleration is ready". That needs the firmware and
+VermilionAccel, so a missing firmware or Allow click never arms a dark squat boot; a GOP boot without VermilionAccel
+loaded starts no bring-up, counts no failure and posts "Graphics acceleration needs your approval". The uninstaller
+deletes `phxfb-squat` where macOS can. **(Unverified on a Mac; mock-tested.)**
+
+What it never does: write the system volume or the EFI partition (the OpenCore part is the user's, or
 ryzentosh's).
 
 Two checks refuse a wrong Mac, with the same rules (`lib.sh`: macOS build `EXPECT_BUILD`, an RX 7900 XTX and no other
@@ -140,14 +148,14 @@ result on the files.
 - The user-space Mach-O files are ad-hoc signed; VermilionTrust lists their cdhashes. A Developer ID signature would
   change the cdhash, so the list is generated after signing in either case.
 - The package is **unsigned** (owner decision): no Developer ID Installer certificate, no notarisation. Gatekeeper
-  blocks it the first time, and [INSTALL.md](../INSTALL.md#21-the-release-route-preview-unverified) says how to open
+  blocks it the first time, and [INSTALL.md](../INSTALL.md#33-open-the-package-gatekeeper) says how to open
   it (System Settings > Privacy & Security > Open Anyway, or `sudo installer -pkg ... -target /`; both **unverified**
   on 26.7.1: no package has been opened there). `SHA256SUMS` is what a user checks instead; its signature is open.
 
 ## Uninstaller (`vermilion-uninstall`) (built, unverified)
 
 `sudo vermilion-uninstall [--purge] [--rebuild-kc]`, installed by the package in `/usr/local/sbin`, in the order of
-[INSTALL.md](../INSTALL.md#6-uninstall):
+[INSTALL.md](../INSTALL.md#7-update-and-uninstall):
 
 1. `launchctl bootout` the daemon, remove `/var/db/phxboot.pending` and `/var/db/phxboot.fails`, delete the NVRAM
    variables `phxfb-squat` and `phxfb-boot` where macOS can.
@@ -182,9 +190,9 @@ bash tests/release/run.sh                                                       
 
 `make-oc-zip.sh` refuses a kext whose `CFBundleShortVersionString` isn't the release version (the numeric part is
 enough for a pre-release) and a snippet with a machine-identity key (`check-snippet.py`). `config-snippet.plist` holds
-the entries of INSTALL.md section 3 (Lilu's entry, the three kexts, the AGDP patch, `csr-active-config`, `boot-args`
-and their Delete entries, `SecureBootModel`, `ResizeAppleGpuBars`) and no SMBIOS; `tests/release/oc_zip_test.sh`
-checks both.
+the entries of INSTALL.md section 1, "What the OpenCore snippet changes" (Lilu's entry, the three kexts, the AGDP
+patch, `csr-active-config`, `boot-args` and their Delete entries, `SecureBootModel`, `ResizeAppleGpuBars`) and no
+SMBIOS; `tests/release/oc_zip_test.sh` checks both.
 
 `.github/workflows/release.yml` does it on a `v*` tag: a call of `air-reader.yml`, then one job on `macos-15-intel`
 that builds every component from pinned inputs, runs the hardware-free tests, builds VermilionTrust last, makes the

@@ -198,6 +198,23 @@ PROJECT_KNOWLEDGE.
   on every present with no end. (5) The present line is written between `t1` and `t2`, so it counts as
   flicker-probe time in the `ws gpu present split` averages. (6) `gpu_us` of a `widen-cpu` present is the barriers
   only.
+- [ ] **Plugin: NVIDIA leftovers after the removal, from the clean-up of #49** (plugin; each is a behaviour change
+  because it changes the binary; finding `2026-11-26-metal-feature-answers.md`, "NVIDIA code still there").
+  (1) `nvk_cmdbuf.direct_sass` (`nvmtl_vk.h`): nothing sets it since `NVMTLSass.m` went, `nvmtl_wit_record` still tests
+  it; remove the field, the test and the comment above it. (2) `-[NVMTLDevice name]`: the `"NVIDIA GPU"` fallback and
+  the `" (NVK "` cut never match on RADV (with A4's GPU name). (3) The sample-position error text "checked NVIDIA
+  runtime payload contract" and the `nvk-reason:` log prefix of the Vulkan driver's messages (check the tools that
+  parse the log before renaming). (4) `nvmtl_vk_accel_surface_wait` still looks up an `NVAccel` service that does
+  not exist here. (5) `-supportsFamily:` uses the numbers 2001, 4001, 4002, 5001 where the SDK has names. (6)
+  `-vendorName` tests the vendor twice (`0x1002 ? AMD : 0x8086 ? Intel : AMD`); the one-test form compiles differently.
+- [ ] **Plugin tests need the logging build since #49** (docs and steps, S). The default `sh scripts/build/plugin.sh`
+  is now the release driver, which forgets `NVMTL_TEST_BACKEND_DOWN` at load: `test_dead_cmdbuf.m`,
+  `test_texture_nil_log.m` and `test_feature_answers.m` run against a release binary would start the real backend
+  (unverified: not run that way). Their headers now say `PLUGIN_CONFIG=logging`; the deploy steps in this file that
+  say "`sh scripts/build/plugin.sh`, then the tests against `build/NVMTLDriver`" (crash fixes, private pool) still
+  describe one build for both. Decide: build twice (logging for the tests, release to install), or let a release
+  build keep that one test switch. Also: `PLUGIN_DEFS=-DNVMTL_DIAG` alone now gives a release build with the
+  measurement code; the measurement build is `PLUGIN_CONFIG=diag`.
 - [ ] **Phase 2 item 2: deploy the Maps CPU fixes** (branch `ownback/maps-gpu-saturation`; finding section 4): async
   `replaceRegion:` uploads, bounded, on by default outside WindowServer; cache-hit touches once a minute. A plugin
   install = trust + EFI change, one boot. Check: Maps' log has `vk: async texture upload ON` and `async texture upload
@@ -505,18 +522,12 @@ plugin (WebGL 1 / 2, WebGPU); Quick Look = `sips`; Vulkan window surface (patch 
       candidates found)
 - [ ] GitHub Releases and CI (mock tests on a Linux runner, a macOS runner building kexts, plugin, translator).
       #41 (AIR reader workflow) and #42 (`release.yml`, pkg, OpenCore zip, uninstaller) are merged; neither has run
-      on a runner yet, and `release.yml` stops at release-scan until F1 lands (the C3 slice in VermilionBoot)
-- [ ] Package fixes from #42's clean-up review (2026-11-26):
-  - the uninstaller misses the AIR reader (not in the receipt; only the rollback MANIFEST removes it), leaves empty
-    `~/gpu`, `~/gpu/phxctl`, `~/gpu/fw`, deletes a `/usr/local/libexec/vermilion` it had just restored, and skips the
-    login-window restore when `lib.sh` is missing (`user_home` undefined);
-  - the shipped scripts honour the test hooks `VERMILION_TEST`, `VERMILION_ROOT` and `VERMILION_NOCHOWN`: strip them
-    from the package build (whether Installer passes the caller's environment is unverified);
-  - `distribution.xml` has no check of its own: the GPU and macOS gate is `preinstall` only;
-  - `fetch_firmware.sh --from` reports only the md5 on a SHA-256 mismatch; the `--rebuild-kc` text says
-    `uninstall --rebuild-kc`; the test payload puts `spirv-val` in `sbin`, the real one in `bin`
-- [ ] `INSTALL.md` rewritten for the one-kext release (it is upstream's manual XT guide); recovery and troubleshooting:
-      black screen after a failed switch, the squat loop, booting `OC.prev`
+      on a runner yet. F1 (#43) is merged, so `release.yml` no longer stops at release-scan on the C3 slice
+      (unverified on a runner)
+- [x] Package fixes from #42's clean-up review: #45, merged 2026-11-26
+- [x] `INSTALL.md` (the root user guide; `docs/INSTALL.md` stays the expert reference) rewritten for `0.1.0-preview`,
+      2026-11-26 (#48; unverified on a clean machine); recovery and troubleshooting: black screen
+      after a failed switch, the squat loop, booting `OC.prev`
 
 - [x] Release package fixes from #42's clean-up review (`ownback/pkg-fixes`): the uninstaller removes the AIR reader,
       removes the empty `~/gpu`, `~/gpu/phxctl`, `~/gpu/fw`, no longer deletes a restored

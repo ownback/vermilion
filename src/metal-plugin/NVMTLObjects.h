@@ -194,7 +194,6 @@ extern id gNVMTLMainDevice;
   NSMutableDictionary *_tgLen;
   NSMutableDictionary *_bufAt;
   NSMutableSet *_resources;
-  NSMutableDictionary *_sassTextures, *_sassSamplers;   // by Metal index, for kernels run from machine code
 } @end
 @interface NVMTLBlitCommandEncoder : NSObject <MTLBlitCommandEncoder> { @public NVMTLCommandBuffer *_cb; __weak NVMTLCommandBuffer *_owner; } @end
 @interface NVMTLAccelerationStructure : NVMTLBuffer <MTLAccelerationStructure> { @public nvk_accel _as; nvk_buffer _uid; uint32_t _iftAdd; } @end
@@ -266,8 +265,6 @@ void nvmtl_texture_desc_swizzle(NVMTLTexture *t, MTLTextureDescriptor *d);
 - (NVMTLResSet *)nvmtlTakeAll;
 @end
 @interface NVMTLFunction () { @public NSString *_label; } @end
-// machine code compiled ahead of time for this function (NVMTLSass.m), nil otherwise
-@interface NVMTLFunction () { @public id _sassKernel; } @end
 @interface NVMTLLibrary () { @public NSString *_label; } @end
 @interface NVMTLCommandQueue () { @public NSString *_label; } @end
 @interface NVMTLCommandBuffer () { @public NSString *_label; uint64_t _rep; } @end
@@ -281,8 +278,6 @@ void nvmtl_texture_desc_swizzle(NVMTLTexture *t, MTLTextureDescriptor *d);
 @interface NVMTLSamplerState () { @public NSString *_label; } - (const nvk_sampler *)nvmtlClampedLo:(float)lo hi:(float)hi; @end
 @interface NVMTLComputePipelineState () { @public NSString *_label; } @end
 @interface NVMTLComputePipelineState () { @public uint64_t _resid; NSUInteger _attrT, _askT; } @end
-// _sassKernel: machine code that runs before the Vulkan pipeline; _sassOnly: there is no Vulkan pipeline
-@interface NVMTLComputePipelineState () { @public id _sassKernel; BOOL _sassOnly; } @end
 @interface NVMTLRenderPipelineState () { @public uint64_t _resid; } @end
 // macOS 26 required threadgroup sizes, as the pipeline descriptor gave them (0x0x0 = not set). Apps read them back from
 // the pipeline; without the getters the read is an unrecognized selector and the app stops.

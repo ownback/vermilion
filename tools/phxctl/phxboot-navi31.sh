@@ -455,6 +455,16 @@ ioreg -l | grep -q '"phx-build"' || { [ $DESK = 1 ] && m2_fail "PhxBringup not l
 [ $DESK = 1 ] && nvram phxfb-boot=1
 # PhxAccel lives in the AuxKC, which does not always load it at boot
 kmutil showloaded 2>/dev/null | grep -q org.vermilion.accel || kmutil load -p "$ACCEL" 2>&1 | tail -2
+# A GOP boot without VermilionAccel (the Allow click is still missing: the AuxKC loads the kext only after it) has no
+# NMXAccel and no PhxAMDFB, and a bring-up here would fail: so nothing touches the GPU, nothing counts as a failed
+# attempt, and the user is told what to click (the daemon never arms a squat boot until this passes: the re-arm below
+# needs a finished GOP bring-up and claim, which needs the kext and the firmware).
+if [ $SQUAT = 0 ] && ! kmutil showloaded 2>/dev/null | grep -q org.vermilion.accel; then
+  REC_L=skip; rec_save "VermilionAccel not loaded: no clean fallback boot"
+  echo "VermilionAccel not loaded (the Allow click is missing?): no bring-up this boot, the GPU is not touched"
+  notice "Graphics acceleration needs your approval: open System Settings > Privacy & Security, click Allow next to the Vermilion system software, then restart."
+  bye
+fi
 echo "== bring-up + claim =="
 # The in-progress mark from here on (before 2026-11-25 it was set only after the claim): a hang in the bring-up, the
 # claim or the desktop attempt leaves it, and the next boot counts it as an unfinished attempt. A clean shutdown or
@@ -922,7 +932,9 @@ else
   if [ -e "$AUTO" ]; then
     if [ "$REC_F" -gt 0 ] && [ $((REC_C + 1)) -lt "$(rec_need)" ]; then echo "phxfb-squat NOT re-armed: the last accelerated attempt failed ($FAILS: fails=$REC_F, this is clean fallback boot $((REC_C + 1)) of $(rec_need); it re-arms by itself $(rec_when))"
     else gopnote=""; [ "$REC_F" -gt 0 ] && gopnote=", clean fallback boot $((REC_C + 1)) of $(rec_need) after $REC_F failed attempt(s)"
-      rearm "GOP boot, phxboot-auto present$gopnote"; fi
+      if rearm "GOP boot, phxboot-auto present$gopnote" && nvram phxfb-squat >/dev/null 2>&1; then
+        # (the last boot's own notice, a failure it explains, is shown instead: notice_carry)
+        [ -n "$CARRY" ] || notice "Graphics acceleration is ready. Restart to turn on the accelerated desktop."; fi; fi
   fi
 fi
 echo "done $(date '+%T')"

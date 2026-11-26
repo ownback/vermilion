@@ -19,8 +19,17 @@ The `local.phxpassd` login agent is removed (copy in `~/vermilion-rollback/local
 Expected after the boot: `ioreg -c AppleSSE` one service, no passd AppleSSE retry lines, the usual checks
 (`phx-build` 162, `denied_unlisted=0`, `SUCCESS`, 240 Hz, direct scan-out). Then tag ryzentosh-sse `v0.1.0` and make
 the component a pinned download. The machine lock is held until the post-boot check.
-Agents: B1 design (resumed), Fable pass on #43 (F1), package fixes (`ownback/pkg-fixes`). The ryzentosh-sse checkout
-was re-cloned (the old one is `~/Projects/ryzentosh-sse.old-history-20261126`).
+Merged 2026-11-26 morning: **#43** (F1: VermilionBoot b163 holds no AMD firmware; review fixes: `phxctl c3image`
+retries 5 s on EBUSY and exits 3, usage, index regenerates the hashes) and **#45** (package fixes; review fixes:
+`allow-external-scripts` for the Installer check, a spent rollback folder no longer decides a later uninstall).
+Open: **#46** (release-scan needs a valid EDID checksum: b163's 38 `edid-serial` findings were header-like bytes in
+code, none a real EDID; Fable pass running). Next: `.gitignore` for the old generated `phx_c3_image.inc` (AMD bytes,
+no longer ignored since #43; deleted here, still in six old thread worktrees on old branches).
+b163 built from main `cddcdd9` in `~/vermilion-build/b163` (release-scan clean with #46). It is **EFI change 41**,
+after 40 passes: b163 + `phxctl` + `m7_boot.sh` from main into `~/gpu`. The C3 path runs only for a second monitor
+(`~/gpu/phxboot-m7`, not set here), so on this machine the check is `phx-build` 163, `debug.phxc3_image` reads 0,
+`SUCCESS`, 240 Hz. Agents: B1 design (resumed). The ryzentosh-sse checkout was re-cloned (the old one is
+`~/Projects/ryzentosh-sse.old-history-20261126`).
 
 Owner's Maps test with direct scan-out (change 39): the same as before. WindowServer no longer copies (presents mostly
 < 8 ms apart), so the choppiness is Maps' own rendering in the Metal driver: the next item is measuring Maps' GPU passes.

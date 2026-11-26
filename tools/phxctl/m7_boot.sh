@@ -107,8 +107,8 @@ resolve_rate() {
     *) RATE=144; echo "m7: boot rate last: no remembered Acer rate in $LASTF: 144 Hz" ;; esac; }
 # C3 image (kext b163+): VermilionBoot holds no AMD bytes; the slice of the installed dcn_3_2_0_dmcub.bin is handed to the kext
 # (`phxctl c3image`, debug.phxc3_image) before the load. phxctl exit 2 = a kext before b163 (the image is built in): go on.
-# Any other failure (file missing, wrong revision: the kext checks SHA-256 and CRC-32): log it and skip the load, as the kext's
-# own gate would refuse it.
+# Any other failure (1: file missing, wrong revision, the kext checks SHA-256 and CRC-32; 3: the display lock stayed busy for
+# the 5 s phxctl retries): log it and skip the load, as the kext's own gate would refuse it.
 C3FW=${M7_C3_FW:-$(dirname "$0")/fw/navi31/dcn_3_2_0_dmcub.bin}
 c3_image() {
   o=$($PHXCTL c3image "$C3FW" 2>&1); r=$?

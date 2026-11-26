@@ -181,6 +181,7 @@ mk; M7_C3=1 run light; check c3_old_kext_skip '[ $RC = 0 ] && grep -q "needs b11
 c3img() { c3mk; printf '#!/bin/sh\nif [ "$1" = c3image ]; then echo "PHX c3image $2" >> %s/writes; echo "c3image: fake rc %s"; exit %s; fi\necho "$*" >> %s/dal\necho "smu msg $1 arg $2 -> kr 0x0 resp 0x01 (OK)"\n' "$O" "$1" "$1" "$W" > $W/phx; chmod +x $W/phx; MPHX=$W/phx; }
 c3img 0; MRATE=144; M7_C3_FW=$W/fw/dcn_3_2_0_dmcub.bin run light; MRATE=; check c3_image_before_load '[ $RC = 0 ] && [ "$(sed -n 1p $O/writes)" = "PHX c3image $W/fw/dcn_3_2_0_dmcub.bin" ] && [ "$(sed -n 2p $O/writes)" = debug.phxc3=9 ] && grep -q "m7: C3 image: c3image: fake rc 0" $W/out && grep -q "C3: PHY D SRAM load done" $W/out'
 c3img 1; MRATE=144; run light; MRATE=; check c3_image_refused_skips_load '[ $RC = 0 ] && ! grep -q debug.phxc3=9 $O/writes && grep -q "C3 image not installed (rc 1: c3image: fake rc 1): C3 load skipped" $W/out && grep -q "stream passed" $W/out'
+c3img 3; MRATE=144; run light; MRATE=; check c3_image_busy_skips_load '[ $RC = 0 ] && ! grep -q debug.phxc3=9 $O/writes && grep -q "C3 image not installed (rc 3: c3image: fake rc 3): C3 load skipped" $W/out && grep -q "stream passed" $W/out'
 c3img 2; MRATE=144; run light; MRATE=; check c3_image_old_kext_goes_on '[ $RC = 0 ] && grep -q "m7: C3 image: c3image: fake rc 2" $W/out && grep -q debug.phxc3=9 $O/writes && grep -q "C3: PHY D SRAM load done" $W/out'
 c3mk; MRATE=144; dalok; M7_C3=0 run light; MRATE=; check c3_off_no_image '[ $RC = 0 ] && ! grep -q c3image $W/dal'
 echo "$PASSN passed, $FAILN failed"; [ $FAILN = 0 ]

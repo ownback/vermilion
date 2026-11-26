@@ -8,7 +8,8 @@
  *   phxctl smuinfo                        TestMessage, PMFW / driver-if versions, enabled features
  *   phxctl psp status|create <off>|destroy  PSP 13.0.4 KM ring in the UMA carve-out at byte offset <off> (root, phxdebug=1)
  *   phxctl c3image <dcn_3_2_0_dmcub.bin>  hand the C3 slice of the installed firmware to the kext (debug.phxc3_image, root); 0 installed,
- *                                         2 the kext has no such oid (before b163, image built in), 1 refused or unreadable
+ *                                         2 the kext has no such oid (before b163, image built in), 1 refused, unreadable or no
+ *                                         path, 3 the kext stayed busy (display lock held) for C3_BUSY_TRIES x C3_BUSY_WAIT_US
  *   phxctl serve                          read server for a watchdog (b15_boot.sh): one process, one connection, for the
  *                                         many reads a long-running script would otherwise make one process each (root)
  *
@@ -22,6 +23,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/sysctl.h>
+#include <unistd.h>
 
 #define UC_TYPE 0x4E34384Eu
 #define SEL_HELLO 0
@@ -196,6 +198,10 @@ static const struct named_reg gc_regs[] = {
 // SHA-256 and CRC-32 against the firmware revision it was built for (PhxC3Load.h imageSeal).
 #define C3_OFF 0xE200u
 #define C3_LEN 0xA000u
+// The oid takes the display lock (gP2Busy) that the hot-plug poll, the DP watcher and gamma also take for a short time:
+// EBUSY is a lost race, not a refusal. Retry for up to 5 s.
+#define C3_BUSY_TRIES 50
+#define C3_BUSY_WAIT_US 100000
 static int c3image(const char *path)
 {
    static uint8_t buf[C3_LEN];
@@ -207,11 +213,23 @@ static int c3image(const char *path)
       return 1;
    }
    fclose(f);
-   if (sysctlbyname("debug.phxc3_image", NULL, NULL, buf, C3_LEN)) {
-      int e = errno;
+   int rc, e = 0;
+   for (int i = 0; i < C3_BUSY_TRIES; i++) {
+      rc = sysctlbyname("debug.phxc3_image", NULL, NULL, buf, C3_LEN);
+      e = rc ? errno : 0;
+      if (e != EBUSY)
+         break;
+      usleep(C3_BUSY_WAIT_US);
+   }
+   if (rc) {
       if (e == ENOENT) {
          fprintf(stderr, "c3image: no debug.phxc3_image (kext before b163: the image is built in)\n");
          return 2;
+      }
+      if (e == EBUSY) {
+         fprintf(stderr, "c3image: the kext stayed busy (display lock held) for %d s\n",
+                 C3_BUSY_TRIES * (C3_BUSY_WAIT_US / 1000) / 1000);
+         return 3;
       }
       fprintf(stderr, "c3image: the kext refused the slice of %s: %s (wrong firmware revision or length)\n", path, strerror(e));
       return 1;
@@ -224,11 +242,16 @@ int main(int argc, char **argv)
 {
    if (argc < 2) {
       fprintf(stderr, "usage: phxctl regs <dword>... | gc | smu <msg> [arg] | smuinfo | "
-                      "psp status|create <off>|destroy | vram <off> [count] | serve\n");
+                      "psp status|create <off>|destroy | vram <off> [count] | c3image <fw file> | serve\n");
       return 2;
    }
-   if (!strcmp(argv[1], "c3image"))
-      return argc >= 3 ? c3image(argv[2]) : 2;
+   if (!strcmp(argv[1], "c3image")) {
+      if (argc < 3) {
+         fprintf(stderr, "usage: phxctl c3image <dcn_3_2_0_dmcub.bin>\n");
+         return 1;
+      }
+      return c3image(argv[2]);
+   }
    if (open_kext())
       return 1;
 

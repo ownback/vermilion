@@ -131,27 +131,30 @@ static inline void nvmtl_sd_fail(unsigned *fails, uint64_t nowNs, uint64_t *unti
     *untilNs = nowNs + NVMTL_SD_COOLDOWN_NS;
 }
 
-/* Live switch-on. ws-direct is read every second; the plugin used to choose direct only when GPU present started, so a
-   file created while WindowServer ran did nothing until the next start. Now the copy path asks, once per frame boundary
-   (the end of a present, its fence waited: nothing of this plugin in flight) and at most every NVMTL_SD_LIVE_CHECK_NS,
-   whether a start now would choose direct (nvmtl_sd_start on the same inputs: pair known, formats, kext, async). If so it
-   ends the copy-path plane (release, as the switch-off does) and the next present starts again, binding the pair under
-   the start path's own drain. So every check the start makes is made again, by the start itself.
+/* Live switch-on. Host-tested only (tests/plugin/test_scan_direct.c); not run on hardware (unverified).
+   ws-direct is read every second; the plugin used to choose direct only when GPU present started, so a file created
+   while WindowServer ran did nothing until the next start. Now the copy path asks, at a frame boundary (the end of a
+   present: that present's copy has finished and its flip is made) and at most every NVMTL_SD_LIVE_CHECK_NS, whether a
+   start now would choose direct (nvmtl_sd_start on the same inputs: pair known, formats, kext, async). If so it ends the
+   copy-path plane (release, as the switch-off does) and the next present starts again, binding the pair under the start
+   path's own drain. So every check the start makes is made again, by the start itself.
    The move waits for a quiet moment (no full-screen write in flight: committed and not finished) for up to
    NVMTL_SD_LIVE_QUIET_MAX_NS, then goes anyway (the bind drains the queue and holds the submit lock). A failed bind counts
    as any direct failure (nvmtl_sd_fail); on top of that at most NVMTL_SD_LIVE_MAX_TRIES moves per process, at least
-   NVMTL_SD_LIVE_RETRY_NS apart, so a start that keeps choosing the copy path cannot make the plane flap. */
-#define NVMTL_SD_LIVE_CHECK_NS 250000000ull
-#define NVMTL_SD_LIVE_QUIET_MAX_NS 2000000000ull
-#define NVMTL_SD_LIVE_RETRY_NS 5000000000ull
-#define NVMTL_SD_LIVE_MAX_TRIES 3u
+   NVMTL_SD_LIVE_RETRY_NS apart, so a start that keeps choosing the copy path cannot make the plane flap. A move that
+   ends in a bind counts as a try too, and the count is never reset. */
+#define NVMTL_SD_LIVE_CHECK_NS 250000000ull       /* 250 ms: the copy path asks at most this often */
+#define NVMTL_SD_LIVE_QUIET_MAX_NS 2000000000ull  /* 2 s: the longest wait for a moment with no full-screen write in flight */
+#define NVMTL_SD_LIVE_RETRY_NS 5000000000ull      /* 5 s: at least this long between two moves */
+#define NVMTL_SD_LIVE_MAX_TRIES 3u                /* moves per process */
 typedef struct {
     unsigned tries;        /* moves made */
     uint64_t lastTryNs;    /* when the last one was made */
     uint64_t eligibleNs;   /* since when every check said "direct" without a move (0: not eligible now) */
 } nvmtl_sd_live;
-/* One check. s: the start's inputs now. writesInFlight: a full-screen write is committed and not finished. Updates
-   l->eligibleNs; returns 1 to move to direct (the caller then makes l->tries++, l->lastTryNs = nowNs). */
+/* One check. s: the start's inputs now (waitedNs 0: a pair still to be learned is "not direct" here). writesInFlight: a
+   full-screen write is committed and not finished. Updates l->eligibleNs; returns 1 to move to direct (the caller then
+   makes l->tries++, l->lastTryNs = nowNs). */
 static inline int nvmtl_sd_live_on(const nvmtl_sd_start_in *s, int writesInFlight, nvmtl_sd_live *l, uint64_t nowNs)
 {
     if (nvmtl_sd_start(s) != NVMTL_SD_START_DIRECT) { l->eligibleNs = 0; return 0; }
@@ -162,12 +165,13 @@ static inline int nvmtl_sd_live_on(const nvmtl_sd_start_in *s, int writesInFligh
     return 1;
 }
 
-/* Stale pages. While a display surface is bound its pages are not drawn into (the GPU writes the slot's VRAM), so a CPU
-   reader (screencapture) saw the frame from when the pair was bound. After a present the surface is dirty; once nothing
-   has been presented for NVMTL_SD_SYNC_IDLE_NS and no write to it is in flight, its VRAM is copied to its pages (read
-   only on the VRAM side, so HUBP0 is not disturbed) and it is clean until the next present. An animation is not
-   copied (a screenshot in the middle of one can still read a frame from before it began). */
-#define NVMTL_SD_SYNC_IDLE_NS 100000000ull
+/* Stale pages. Host-tested only; not run on hardware (unverified). While a display surface is bound its pages are not
+   drawn into (the GPU writes the slot's VRAM), so a CPU reader (screencapture) saw the frame from when the pair was
+   bound. After a present the surface is dirty; once nothing has been presented for NVMTL_SD_SYNC_IDLE_NS and no write to
+   it is in flight, its VRAM is copied to its pages (read only on the VRAM side, so HUBP0 is not disturbed) and it is
+   clean until the next present. An animation is not copied (a screenshot in the middle of one can still read a frame
+   from before it began). */
+#define NVMTL_SD_SYNC_IDLE_NS 100000000ull        /* 100 ms without a present: the desktop is still */
 static inline int nvmtl_sd_sync_due(int dirty, int writeInFlight, uint64_t sincePresentNs)
 {
     return dirty && !writeInFlight && sincePresentNs >= NVMTL_SD_SYNC_IDLE_NS;

@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 /* test_scan_direct.c - the decisions of direct scan-out (src/metal-plugin/nvmtl_scan_direct.h, used by nvmtl_scanout.c):
-   the display-surface pair, the start, the write gate (Linux's flip-complete test, the bounce, the timeout) the
-   failure cooldown, the live switch-on and the idle page sync. Also a model of two display surfaces flipping at vblank, driven through the gate, that checks no
-   write is ever let through to a surface HUBP0 may fetch and that the gate never stalls for good.
+   the display-surface pair, the start, the write gate (Linux's flip-complete test, the bounce, the timeout), the
+   failure cooldown, the live switch-on and the idle page sync. Also a model of two display surfaces flipping at vblank,
+   driven through the gate, that checks no write is ever let through to a surface HUBP0 may fetch and that the gate never
+   stalls for good.
    cc -Wall -Wextra -Werror -I src/metal-plugin tests/plugin/test_scan_direct.c -o /tmp/test_scan_direct && /tmp/test_scan_direct */
 #include <stdio.h>
 #include <string.h>

@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Vermilion contributors <vermilion@example.invalid>
+Date: Thu, 26 Nov 2026 00:00:00 +0000
+Subject: [PATCH 16/20] radv/darwin: Navi 31 (Mesa's navi31 entry, RX 7900 XTX)
+ as the default device
+
+The XTX is the only board Vermilion starts on (the kext's PhxGpuId.h board gate), so the
+default canned device is Mesa's own navi31 entry, a Linux dump of an RX 7900 XTX. With
+the kext's device info (0018) only the driver-side values of that entry remain in use.
+RADV_DARWIN_CANNED still picks another entry (the mock and the host tests use it).
+---
+ src/amd/common/darwin/ac_darwin_drm.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/amd/common/darwin/ac_darwin_drm.c b/src/amd/common/darwin/ac_darwin_drm.c
+index 317d4e4..835e2a4 100644
+--- a/src/amd/common/darwin/ac_darwin_drm.c
++++ b/src/amd/common/darwin/ac_darwin_drm.c
+@@ -95,7 +95,7 @@ const struct amdgpu_device *
+ acd_canned_device(void)
+ {
+    const char *name = getenv("RADV_DARWIN_CANNED");
+-   return find_canned(name && *name ? name : "phoenix");
++   return find_canned(name && *name ? name : "navi31");   /* navi31 fork: the RX 7900 XTX, Mesa's own entry */
+ }
+ 
+ uint32_t
+@@ -112,6 +112,7 @@ uint32_t
+ acd_canned_gc_version(const struct amdgpu_device *d)
+ {
+    switch (d->dev.family) {
++   case AMDGPU_FAMILY_GC_11_0_0: return (11u << 16) | (0u << 8) | 0u;   /* Navi 31 */
+    case AMDGPU_FAMILY_GC_11_0_1: return (11u << 16) | (0u << 8) | 1u;
+    case AMDGPU_FAMILY_GC_12_0_0: return (12u << 16) | (0u << 8) | 1u;
+    default: return 0;
+@@ -365,6 +366,8 @@ acd_get_marketing_name(acd_device_handle dev)
+ {
+    if (!strcmp(dev->canned->name, "phoenix"))
+       return "AMD Radeon 780M Graphics";
++   if (!strcmp(dev->canned->name, "navi31"))
++      return "AMD Radeon RX 7900 XTX";
+    return ACD_MARKETING_NAME;
+ }
+ 
+-- 
+2.50.1 (Apple Git-155)
+

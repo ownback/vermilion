@@ -140,6 +140,7 @@ IOReturn PhxBringup::gpuSubmit(uint32_t handle, bool gfx, const uint64_t *ibVa, 
     }
     __asm__ __volatile__("" ::: "memory");
     q.tail = q.tail + 1;
+    busyKick();   // b168: the busy sampler runs while the queues have work (PhxGpuStats.h)
     // BAR0 is write-combined: drain the WC buffers so the packets are in VRAM before the CP is told about them
     __asm__ __volatile__("sfence" ::: "memory");
     (void)*reinterpret_cast<volatile uint32_t *>(fbAper->getVirtualAddress() + q.ringOff);

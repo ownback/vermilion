@@ -58,6 +58,10 @@ int main() {
     CHECK(std::strcmp(name(Board::Xtx), "RX 7900 XTX") == 0 && std::strcmp(name(Board::Xt), "RX 7900 XT") == 0);
     CHECK(std::strcmp(name(Board::Gre), "RX 7900 GRE") == 0 && std::strcmp(name(Board::Mobile), "RX 7900M") == 0);
     CHECK(std::strlen(name(Board::OtherNavi31)) > 0 && std::strlen(name(Board::NotNavi31)) > 0);
+    // b168: the PCI device's "model" and the device info's name, as amdgpu.ids spells them
+    CHECK(std::strcmp(marketingName(Board::Xtx), "AMD Radeon RX 7900 XTX") == 0);
+    CHECK(std::strcmp(marketingName(Board::Xt), "AMD Radeon RX 7900 XT") == 0);
+    CHECK(std::strcmp(marketingName(Board::NotNavi31), "AMD Radeon Graphics") == 0);
     // the constants the kexts' Info.plists match on
     CHECK(kVendorAmd == 0x1002 && kDeviceNavi31 == 0x744c && kRevXtx == 0xc8);
     std::printf("gpu_id_test: %d/%d checks passed\n", gN - gF, gN);

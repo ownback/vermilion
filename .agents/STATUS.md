@@ -22,7 +22,7 @@ Ranked by what a Mac user notices, safety first. Each item is a branch and a PR.
 | 5 | **Replug, monitor power, input switch.** Black until a restart; then audio after a replug | Every monitor power-cycle needs a restart | L | D18, M |
 | 6 | **Display sleep** (DPMS off / on from the Linux capture) | The OLED never goes to standby | M | D9, TODO 05 |
 | 7 | **GPU hang recovery.** Per-submission timeout and amdgpu's queue recovery for Navi 31 (hw-safety); covers the clpeak MPS hang | One stuck shader ends the session | L | A6, A12 |
-| 8 | **Small visible fixes:** GPU name without "(RADV NAVI31) (NVMTL over ...)"; OpenGL on from NMXAccel's start; VRAM working set from the hardware, not 6 GiB (rule 3); Activity Monitor GPU utilization; DP audio name's stray byte; the Dock / Spotlight / Photos deny list tested and removed | The GPU looks wrong in the system | S each | A2, A3, A4, A9, A10, M |
+| 8 | **Small visible fixes:** GPU name without "(RADV NAVI31) (NVMTL over ...)"; OpenGL on from NMXAccel's start; VRAM working set from the hardware, not 6 GiB (rule 3); Activity Monitor GPU utilization (name, working set and utilization: branch `ownback/device-info`, not installed); DP audio name's stray byte; the Dock / Spotlight / Photos deny list tested and removed | The GPU looks wrong in the system | S each | A2, A3, A4, A9, A10, M |
 | 9 | **DDC/CI over DP AUX** (MonitorControl, BetterDisplay: brightness and volume) | Owner requirement; a known limit that must work | M | D21 |
 | 10 | **Video:** 4K AV1 frames in flight; WebGPU render bundles (Safari GPU process crash); H.264 decode; AV1 fallback | YouTube 4K stutters; WebGPU crashes take every tab's video | M-L | M, A15, TODO 13 items 11-13 |
 
@@ -145,7 +145,7 @@ mode setting).
 | Desktop compositing | works, not standard (system-memory surfaces, flip from user space, ~15x below Linux in Horizon) | Phase 4 | A5 |
 | Core Image, Core Animation | works | Speed only | A13 |
 | OpenGL 4.1 (Apple's renderer over our Metal) | works, not standard (on ~2 min after login) | Phase 2 item 8 | A10 |
-| OpenCL | works (6 GiB cap) | Phase 2 item 8 | A11 |
+| OpenCL | works (6 GiB cap) | Install `ownback/device-info` (b168: the pool from the hardware, 23696 MiB) | A11 |
 | MPS, Core ML | broken in part (clpeak hang) | Phase 2 item 7 | A12 |
 | WebGL in Safari | works, not standard (shader cache can't be stored) | Writable cache path | A14 |
 | WebGPU in Safari | broken (20 of 43 samples; render bundles crash the GPU process) | Phase 2 item 10 | A15 |
@@ -153,9 +153,9 @@ mode setting).
 | Games | slow (Horizon 292 vs 4370 fps on Linux) | Phase 4 | A17 |
 | Music, Maps | works, slow (crashes fixed by #25, #29; Maps choppy, tiles late: #31 live, WindowServer composite cost open; Music's 30 s first launch: passd, login agent + ryzentosh-sse) | Phase 2 item 2 | A7, A8 |
 | GPU hang or lost GPU | missing recovery | Phase 2 item 7 | A6 |
-| GPU name, VRAM size, Activity Monitor GPU history | broken / missing | Phase 2 item 8 | A2-A4 |
+| GPU name, VRAM size, Activity Monitor GPU history | broken / missing | Install `ownback/device-info` (name, a working set of about 23.4 GiB, `Device Utilization %`; unverified); per-process GPU time is C5 | A2-A4 |
 | Metal feature answers vs a real AMD Mac | not standard (untested claims, some wrong answers) | Conformance pass | A16 |
-| RADV device info (canned profile, constants) | not standard (rule 3) | Read GC config from the hardware | A19 |
+| RADV device info (canned profile, constants) | not standard (rule 3) | Install `ownback/device-info` (ABI 1.13: discovery table + GC harvest registers; flagged defaults left, [finding](findings/2026-11-26-device-info.md) section 3) | A19 |
 | VermilionAccel from the AuxKC (Allow click) | not standard (ROADMAP list) | Load from OpenCore (L; dependencies outside the Boot KC) | A20 |
 | VermilionTrust (fixed AMFI offsets) | works, not standard (ROADMAP list) | Find the slots at boot, refuse cleanly; cdhashes as data | A21 |
 | Plugin build (logging build daily, NVIDIA paths) | not standard | Release configuration; remove NVIDIA code (refactor) | A22 |
@@ -203,5 +203,5 @@ mode setting).
 
 - The XT question: decided 2026-11-25, the XT is dropped ([decisions.md](decisions.md), release decisions). #37
   (merged, not installed yet: VermilionBoot b161, VermilionAccel 0.1.1, VermilionAudio 1.7.3) makes the kexts
-  refuse every board but the XTX; the XT left in user space is plan item A9.
+  refuse every board but the XTX; the XT left in user space (plan A9) is removed on `ownback/device-info`.
 - HDMI output: after phase 2, before ryzentosh (owner, 2026-11-24).

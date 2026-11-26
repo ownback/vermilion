@@ -740,3 +740,24 @@ not the threat this guard answers: the machine lock and the review of every chan
 - **Why:** hard rule 1 (no message Linux doesn't send), and the Linux-like value at each state.
 - **Revisit:** if the load check at 240 Hz without FAMS underflows (finding section 7), or when K11 moves the UCLK
   rule into the kernel with DC's raise and lower.
+
+## The device info from the hardware, VRAM pools, GPU utilization (A4 / A19, 2026-11-26)
+
+- RADV's device info comes from the kext (ABI 1.13), which reads what Linux amdgpu reads: the IP discovery table at
+  the top of VRAM through the MM_INDEX window, the GC harvest registers and `GB_ADDR_CONFIG` at the table's bases (only
+  when they are this ASIC's), the NBIO revision strap, PCI config space. The only register writes are the window's
+  two index writes (MM_INDEX_HI, MM_INDEX), which Linux makes for the same read; no firmware message. Mesa's `navi31` entry keeps only what is the driver's own on Linux too, and answers alone with an older kext.
+  `navi31_xt` is gone ([finding](findings/2026-11-26-device-info.md)).
+- Values whose only source is firmware or the VBIOS (clocks, the timestamp clock, CP firmware versions, VRAM type and
+  width) are flagged defaults, not hidden constants: each has a bit in `phxn_devinfo.flags`. The per-SA CU masks are
+  flagged too: Linux reads them after a `GRBM_GFX_INDEX` select, a write that needs its own hw-safety pass.
+- The hi VRAM pool is sized from `RCC_CONFIG_MEMSIZE` (23696 MiB on 24 GiB, was 6 GiB): rule 3. While most hi BOs are
+  still system memory, all clients' system-memory hi BOs together stay under a quarter of the RAM (`max_mem / 4`):
+  Linux TTM allows half, but for swappable pages, and these are wired (a failed allocation harms one app, memory
+  pressure the whole system).
+- Activity Monitor's `Device Utilization %` comes from a fence sampler in the kext (a thread call every 2 ms, only while
+  the GFX / compute queues have work), not from the PMFW metrics table: no firmware message. The metrics-table source
+  is plan C5's, with the sampler as its fallback.
+- **Revisit:** the CU masks with the select once hw-safety clears it; VRAM type / width from the VBIOS `vram_info`;
+  the firmware versions from the files the daemon loads; the sampler if its cost shows up in a profile; the
+  `max_mem / 4` cap once VRAM BOs are the default for every process (TODO 13 item 3).

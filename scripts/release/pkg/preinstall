@@ -23,7 +23,7 @@ check_gpu
 U=$(console_user)
 [ -n "$U" ] || refuse "no desktop user could be found. Log in to the Mac's desktop as the user who will use it and run the installer again."
 
-# A manual install (INSTALL.md 2.2) uses the same daemon label and the same files: this install replaces them,
+# A manual install (docs/INSTALL.md) uses the same daemon label and the same files: this install replaces them,
 # and the rollback folder keeps what it replaces.
 if [ -f "$R/Library/LaunchDaemons/local.phxboot.plist" ] && [ ! -f "$SUPPORT/installed" ]; then
   say "note: an install that this package did not make was found (local.phxboot). Its files that this package replaces are kept in the rollback folder."

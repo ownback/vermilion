@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: MIT
 # check-snippet.py <config-snippet.plist>: exit 1 and name the path when the OpenCore snippet holds a key that
 # identifies a machine (SMBIOS, serial, MLB, ROM, UUID). Run as `python3 -I`. docs/RELEASE.md: the snippet carries
-# exactly the entries of INSTALL.md section 3 and no machine identity. Used by make-oc-zip.sh and tests/release.
+# exactly the entries of INSTALL.md section 1 and no machine identity. Used by make-oc-zip.sh and tests/release.
 import plistlib
 import sys
 

@@ -9,6 +9,16 @@ The evidence for every row is in the audit findings, by row number:
 [last threads' state](findings/2026-11-24-audit-thread-handover.md). States: **works**, **broken**, **missing**,
 **not standard** (works, but not as Apple would ship it). Size: S about a day, M days, L weeks.
 
+## Paused (2026-11-26 ~01:10, the owner's call)
+
+Live: EFI change 39 (VermilionBoot b162, NVMTLDriver 1c15df79, VermilionTrust 18 cdhashes), direct scan-out on.
+Owner's Maps test with direct scan-out: the same as before. WindowServer no longer copies (presents mostly < 8 ms
+apart), so the choppiness is Maps' own rendering in the Metal driver: the next item is measuring Maps' GPU passes.
+Open on resume, in order: the B1 design (`ownback/kernel-bringup-design`, stopped mid-work, its worktree kept);
+ryzentosh-sse `v0.1.0` (history rewritten and force-pushed by the owner); #43 (F1) clean-up pass, merge, deploy;
+package fixes (TODO 06); Maps per-frame measurement; boot C (our AIR reader, built in `~/vermilion-build/air`).
+No agent runs and no batch is scheduled.
+
 ## Boot B (2026-11-26 00:42, XTX machine): EFI change 39 passed; direct scan-out on
 
 NVMTLDriver 1c15df79 (#40 scan-out half, #34 passtime) and VermilionTrust with 18 cdhashes: `denied_unlisted=0`, the

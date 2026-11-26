@@ -5,9 +5,9 @@
 Parity week item B1 ([PLAN-parity-week.md](../PLAN-parity-week.md); STATUS rows D2, D3, D28, A1, A10, M "DP audio",
 M "GPU idle power", M "Release shape"). Design only: nothing here was built, installed or booted. Code read on
 `fork/main` (`ccfd909`, VermilionBoot b162). Measured read-only on the XTX machine (macOS 26.7.1 25G241, VermilionBoot
-b162 live), from `/var/log/phxboot.log`, the unified log and `ps` of the boot of 2026-11-26 00:51. Anything
-not tested on hardware is marked (unverified). Linux function names are from the amdgpu tree the repo's traces came
-from (6.8 for the PSP log, taken on upstream's XT; 7.2.15 for the display traces, taken on the XTX).
+b162 live), from `/var/log/phxboot.log`, the unified log and `ps` of the boot of 2026-11-26 00:51. Anything not tested
+on hardware is marked (unverified). Linux function names are from the amdgpu tree the repo's traces came from (6.8 for
+the PSP log, taken on upstream's XT; 7.2.15 for the display traces, taken on the XTX).
 
 **Earlier B1 work.** `git ls-remote fork 'refs/heads/ownback/kernel-bringup*'` found nothing. A local branch
 `ownback/kernel-bringup-design` (no commits of its own) has an uncommitted, unreviewed draft
@@ -23,9 +23,9 @@ AuxKC, not the bring-up, decides when Metal can exist.
   1.4), with exactly the writes and messages the daemon sends today (verified on the XTX machine) and that Linux amdgpu
   sends on Navi 31. Where Apple's block order and Linux's position of a write differ, Linux's position wins (the
   review: the GFXHUB can't be programmed before the RLC autoload). The daemon shrinks to a go/no-go (owner decision
-  D-K).
-- **A live problem the review found** (section 7, A): today's UCLK pin (`uclk.sh`, flag `uclk`, every boot) sends
-  the driver-mailbox `SetHardMinByFreq` (0x1B), which Linux never sends on SMU 13.0.0. Linux sets the UCLK hard
+  D-K, 2.3).
+- **A live problem the review found** (section 7, finding A): today's UCLK pin (`uclk.sh`, flag `uclk`, every boot)
+  sends the driver-mailbox `SetHardMinByFreq` (0x1B), which Linux never sends on SMU 13.0.0. Linux sets the UCLK hard
   minimum through the DAL mailbox from DC. That breaks hard rule 1 now, independent of B1: item U1.
 - **The measurement that shapes the plan** (1.1): the first WindowServer starts 2.6 s after boot, kernelmanagerd loads
   the AuxKC at 3.2 s, and VermilionAccel becomes loadable at 6.8 s. With VermilionAccel in the AuxKC (B3 dropped),
@@ -38,16 +38,15 @@ AuxKC, not the bring-up, decides when Metal can exist.
   VermilionBoot. No AMD byte in any release binary (F1). VermilionBoot checks each file's size and SHA-256 against a
   table generated from `fw.lock`. A root sysctl, the generalised #43 handover, is the second source.
 - **Fallbacks survive.** Under D-K option a (the only one the review accepts under hard rule 1), the kernel brings
-  the GPU up only after the daemon's go, which
-  the daemon gives after reading the kill switch, the pending mark and the record, as today. That costs nothing at
-  login, because the AuxKC is later than the daemon (1.1). The 3-minute watchdog stays with the daemon. The GOP
-  revert before the claim moves into the kernel with recovery-trap step 3.
-- **Steps:** 14 (K1-K14), one EFI change per boot (18-20 boots), plus the daemon-only test T1 and the
-  UCLK fix U1. The first two write nothing to the GPU (K1 a write trace and timestamps, K2 the firmware store); K3
-  moves today's writes into the kernel, in today's order, started by the daemon and proven equal by the trace. The
-  hw-safety review
-  cleared K1-K3 for implementation with conditions and sent the order moves back for redefinition; they are
-  redefined here (section 7).
+  the GPU up only after the daemon's go, which the daemon gives after reading the kill switch, the pending mark and
+  the record, as today. That costs nothing at login, because the AuxKC is later than the daemon (1.1). The 3-minute
+  watchdog stays with the daemon. The GOP revert before the claim moves into the kernel with recovery-trap step 3
+  (R3 below).
+- **Steps:** 14 (K1-K14), one EFI change per boot (18-20 boots), plus the daemon-only test T1 and the UCLK fix U1.
+  The first two write nothing to the GPU (K1 a write trace and timestamps, K2 the firmware store); K3 moves today's
+  writes into the kernel, in today's order, started by the daemon and proven equal by the trace. The hw-safety review
+  cleared K1-K3 for implementation with conditions and sent the order moves back for redefinition; they are redefined
+  here (section 7).
 - **Biggest risk:** T1. If the first WindowServer doesn't adopt the late Metal device, the restart stays until
   VermilionAccel loads before WindowServer (B3, dropped by the owner) or WindowServer is found to wait for something
   the kernel controls.
@@ -75,8 +74,8 @@ Times from the unified log and `ps`, relative to boot (t0 from IOPCIFamily's own
 | 241 | idle DPM on (UCLK free, FCLK switch allowed, DCFCLK messages) | daemon log |
 
 The scripted bring-up from the daemon's start to the claim took about 6 s. Linux's waits on the same sequence add up
-to about 1 s (EnableAllSmuFeatures ~135 ms, the RLC autoload ~745 ms; PSP log). The kernel's duration is (unverified)
-until K3 measures it.
+to about 1 s (EnableAllSmuFeatures ~135 ms, the RLC autoload ~745 ms; the PSP log, Linux 6.8 on upstream's XT). The
+kernel's duration is (unverified) until K3 measures it.
 
 ### 1.2 Every step
 
@@ -127,14 +126,14 @@ has for the step.
 | 38 | DP audio: `phxaudio apply` (90 DC audio writes for DIG1 from the EDID), `audio_match.sh on` (AppleGFXHDA attach through VermilionAudio) (flag `audio`) | DCN audio registers, IOKit | `writeReg`; VermilionAudio |
 | 39 | WindowServer hang watch for the boot; TERM trap at shutdown (guard on, re-arm) (`:1042`) | logs, NVRAM, restart | none |
 
-Two observations from the log, read-only:
+Three observations, read-only:
 - `sdma_idle.sh` prints `RLC_RLCS_SDMA_INT_STAT 0x00000300` on all 145 boots in `/var/log/phxboot.log`; its own
-  comment says `0x3` means both engines idle. So the check has never passed on this machine, although idle power
+  comment says `0x3` means both engines idle. So the check has never passed on the XTX machine, although idle power
   is as measured (28-33 W with idle DPM). The review: the register holds REQ_IDLE_HIST in bits 7:0 and REQ_BUSY_HIST
   in bits 15:8 (`gc_11_0_0_sh_mask.h`), so 0x300 records past busy requests, not the current state, and Linux never
   reads it (the HIST meaning is unverified). K4 logs it only and gates on Linux's `sdma_v6_0_is_idle` instead.
-- Step 27 (and `idle_dpm.sh`'s unpin and re-pin) sends the driver-mailbox SetHardMinByFreq. Linux never sends it on
-  SMU 13.0.0 (review A): U1.
+- Inventory step 27 (and `idle_dpm.sh`'s unpin and re-pin) sends the driver-mailbox SetHardMinByFreq. Linux never
+  sends it on SMU 13.0.0 (section 7, finding A): U1.
 - The daemon and its scripts run as root from the desktop user's `~/gpu` (TODO 06 item 3).
 
 ## 2. The target
@@ -241,7 +240,7 @@ exists. Linux and Apple's driver leave a failed device as it is and don't restar
   VermilionAccel can't load before ~6.8 s (1.1).
 - **b (Mac-like, later):** no gate. The engine starts at once; the escape for a bring-up that freezes every boot is
   Safe Mode or `-phxkupoff` at the picker, or removing `VermilionFirmware.kext` from the EFI. The kernel can't keep a
-  cross-boot record before the Data volume is mounted, and NVRAM writes don't reach this board's firmware
+  cross-boot record before the Data volume is mounted, and NVRAM writes don't reach the XTX machine's firmware
   (`DisableVariableWrite`). **The review: b leaves no watchdog and no pending mark, which breaks hard rule 1 unless
   the owner changes the rule.** So b is only possible after an owner decision on rule 1 itself.
 
@@ -300,8 +299,8 @@ neither `display_clock_voltage_request` nor `set_hard_freq_limited_range` (`smu_
 the only sender of that message (`smu_v13_0.c:1685`) is unreachable there. The values follow DC too (raise before a
 mode set, lower to the requested memory clock after it; review condition 15); 456 MHz is not a value Linux sends.
 Its own branch, hw-safety review and boot; then the driver-mailbox 0x19-0x1F entries leave the debug allow-list
-(`phx_debug.cpp:66-71`). Until U1 the daemon's pin stays as it is: it has run on every boot without a visible fault,
-and removing it brings back the display underflows it was added for.
+(`phx_debug.cpp:66-71`). Until U1 the daemon's pin stays as it is: it has run on every boot of the XTX machine without
+a visible fault, and removing it brings back the display underflows it was added for.
 
 | Step | Change | GPU programming / review | Machine change | Check | Rollback |
 |---|---|---|---|---|---|
@@ -313,9 +312,9 @@ and removing it brings back the display underflows it was added for.
 | K6 | GC: the GFXHUB GART right after the RS64 PCs, before `constants_init` (SH_MEM, CP_DEBUG) and the doorbells, where `gfx_v11_0_hw_init` has it | **yes**, with L1 | EFI | `up`; `gart: ack17` as today; Metal apps; no VM faults (`debug.phxvm`) | as K5 |
 | K7 | GVM: the MMHUB GART before the PSP, where `gmc_v11_0_gart_enable` has it (today it comes with VCN, after login) | **yes**, with L1; the MMHUB writes of `phx_vcn_mmhub.cpp` against `mmhub_v3_0` | EFI | `up`; `debug.phxmmvm_stat` as today; VCN decode after K12 | as K5 |
 | K8 | The engine starts from `start()` (D-K option a only): thread, go/no-go, firmware wait, refusals (D0 included), the kernel's claim, the in-boot GOP release on a failure before the claim (R3), IRQ waits and the fence step as kext defaults; the daemon drops its bring-up, arms the watchdog and answers go | **yes**: the start-time context (2.2), conditions 10-12; R3's review covers an IONDRV release after a partial bring-up; MSI and the IH at the claim get their own review against `ih_v6_0` | EFI + daemon | `up` before the daemon's log says go+2 s; no `navi31_up.sh` line; `SUCCESS`. Owner: power-off cold boot, restart, Safe Mode (GOP, no engine), `-phxkupoff` boot, a forced refusal (GOP picture in the same boot) | `EFI/OC.prev` + the daemon from `~/vermilion-rollback` |
-| K9 | DC audio in the kernel: `phxaudio_plan.h`'s writes once head 0's stream is up; around each mode set audio off (plan steps 1-2) before the stream change and on (steps 3-7) after it, serialized with the replay engine (Linux's order, decisions 2026-11-24); `phx-audio-ready` makes VermilionAudio attach AppleGFXHDA itself; AppleGFXHDA is never detached; BacoAudioD3PME stays unsent | **yes**, condition 14 | EFI (VermilionBoot + VermilionAudio) | `debug.phxaudio_stat` matched at the login window; the same 90 writes as `phxaudio apply` | `EFI/OC.prev` |
-| K10 | The first WindowServer is the accelerated one (only if T1 passed): VermilionAccel defaults (GL on, the pipe-0 mode list, VRR floor 60 with a boot-arg for another, HDR as the release decides, AGDC and the display pipe at start, the offer gate's need re-checked), a static Metal allow list, the plugin's WindowServer defaults (`NVMTL_WS_PRESENT_CDCOPY` behaviour); the daemon drops 28-33 | none new (defaults move into the kexts); review that nothing new is written | AuxKC (Allow click) + plugin (trust + EFI) + daemon: 2 boots | one WindowServer pid for the boot; the plugin log shows its Metal device; no guard or auto-login lines | previous kexts and daemon from `~/vermilion-rollback` |
-| K11 | DPM in the kext, after U1, as `dcn32_update_clocks` does it: raise before each mode set (UCLK up, FCLK switch disallowed; today's switches run unpinned, which Linux doesn't do), lower after it (UCLK to the requested memory clock, 96 MHz in the traces; DCFCLK, deep sleep, NumOfDisplays); the DAL watermark table; the underflow watchdog as a kernel timer (reads), pinned again on an underflow | **yes**, conditions A and 15 | EFI | idle board power 28-33 W, UCLK 96, no underflow in 10 min, mode switches clean | `EFI/OC.prev` |
+| K9 | DC audio in the kernel: `phxaudio_plan.h`'s writes once head 0's stream is up; around each mode set audio off (plan steps 1-2) before the stream change and on (steps 3-7) after it, serialised with the replay engine (Linux's order, decisions 2026-11-24); `phx-audio-ready` makes VermilionAudio attach AppleGFXHDA itself; AppleGFXHDA is never detached; BacoAudioD3PME stays unsent | **yes**, condition 14 | EFI (VermilionBoot + VermilionAudio) | `debug.phxaudio_stat` matched at the login window; the same 90 writes as `phxaudio apply` | `EFI/OC.prev` |
+| K10 | The first WindowServer is the accelerated one (only if T1 passed): VermilionAccel defaults (GL on, the pipe-0 mode list, VRR floor 60 with a boot-arg for another, HDR as the release decides, AGDC and the display pipe at start, the offer gate's need re-checked), a static Metal allow list, the plugin's WindowServer defaults (`NVMTL_WS_PRESENT_CDCOPY` behaviour); the daemon drops inventory steps 28-33 | none new (defaults move into the kexts); review that nothing new is written | AuxKC (Allow click) + plugin (trust + EFI) + daemon: 2 boots | one WindowServer pid for the boot; the plugin log shows its Metal device; no guard or auto-login lines | previous kexts and daemon from `~/vermilion-rollback` |
+| K11 | DPM in the kext, after U1, as `dcn32_update_clocks` does it: raise before each mode set (UCLK up, FCLK switch disallowed; today's switches run unpinned, which Linux doesn't do), lower after it (UCLK to the requested memory clock, 96 MHz in the traces; DCFCLK, deep sleep, NumOfDisplays); the DAL watermark table; the underflow watchdog as a kernel timer (reads), pinned again on an underflow | **yes**, finding A and condition 15 | EFI | idle board power 28-33 W, UCLK 96, no underflow in 10 min, mode switches clean | `EFI/OC.prev` |
 | K12 | VCN in the kext, Linux's flow: S2A ENTRY_4/5 at hw_init, PowerUpVcn per instance (argument `inst << 16`) before the DPG start, DPG with the indirect SRAM loaded through the PSP, ring adopt; MMHUB first (K7) (a); then on first use, and after the idle timeout stop DPG, then PowerDownVcn, as Linux's idle work (b) | **yes**, each, condition 16 | EFI each: 2 boots | decode works; (b) PowerDownVcn at idle | `EFI/OC.prev` |
 | K13 | Quiesce at restart and shutdown (B5), Linux's order where it differs from Apple's: MP1 state UNLOAD, then the blocks suspended in reverse (display, MES, VCN, SDMA, GFX, SMU with PrepareMp1ForUnload, PSP last; `amdgpu_pci_shutdown`, `amdgpu_drv.c:2369-2386`); nothing sent to a GPU that never came up | **yes** (B5's own design), condition 17, L3 | EFI | no stall reports at restart; 5 restarts and a shutdown | `EFI/OC.prev` |
 | K14 | The daemon's bring-up path, `mesboot` use at boot, the flags and `~/gpu/fw` go (a refactor commit apart from the behaviour commit); `phxdebug=1` out of the release config; what's left per D-K | none | daemon + docs (+ EFI for the boot-args) | no bring-up lines from the daemon; a week of normal use | the K13 daemon from `~/vermilion-rollback` |
@@ -371,7 +370,8 @@ earlier if the owner wants sound sooner.
 - Check: `phx-fw-state: ok 12/12 3028964 B from VermilionFirmware`; `ioreg -lw0 | grep -c phx-fw` shows only the
   state line; PhxBringup's start time as in K1; wired memory up by about 3 MB, not more (the IOCatalogue keeps the
   personality too: measured, not assumed); the daemon's boot unchanged (`SUCCESS`, 240 Hz). If OpenCore or the kernel
-  refuses the plist, `phx-fw-state: none` and the rest boots as before: then B (or a data-only executable) is next.
+  refuses the plist, `phx-fw-state: none` and the rest boots as before: then option B of 2.4 (or a data-only
+  executable) is next.
 
 ### 3.3 K3: the engine, started by the daemon (VermilionBoot b166 + daemon, today's walk)
 
@@ -410,6 +410,8 @@ earlier if the owner wants sound sooner.
 
 ## 4. What changes for the user
 
+What the plan gives if every step passes (unverified: nothing here was built).
+
 - **No WindowServer restart, no login rewrites, no auto-login by the daemon** (K10, if T1 passes). The login window
   appears once, accelerated, with the account picture. Automatic login is the System Settings option a Mac has; the
   daemon never writes `autoLoginUser`, `SHOWFULLNAME` or deletes loginwindow's first-run marker again, and
@@ -436,8 +438,8 @@ earlier if the owner wants sound sooner.
    (from Cobalt64's work) that the first WindowServer never adopts the device; not re-tested with today's stack. If T1
    fails: REA on SkyLight for what it waits for, and whether NMXAccel registering before PhxAMDFB changes it; else the
    restart stays (it already happens before anyone logs in) until B3.
-2. **A ~4.1 MB `Info.plist` through OpenCore and the kernel** (K2, unverified). Fallbacks: B, a generated data-only
-   executable, D.
+2. **A ~4.1 MB `Info.plist` through OpenCore and the kernel** (K2, unverified). Fallbacks (2.4): option B, a generated
+   data-only executable, option D.
 3. **The start-time context** (K8, unverified): the engine would run ~1 s after boot instead of ~8 s, while other
    drivers still match. Nothing known breaks it; nothing tested it. Under D-K a, the go comes at ~4 s, which keeps the
    context close to today's.
@@ -447,7 +449,7 @@ earlier if the owner wants sound sooner.
    remaining gaps are (unverified) until K3 runs.
 5. **Order moves** (K5-K7): the PSP-side sequence comes from a Linux 6.8 log on upstream's XT; the XTX has no full
    Linux init trace in the repo, and the review read 6.8 and master, not 7.2.15. L1 confirms Linux's order on this
-   board before each move. The first version of this plan had all three moves wrong (section 7, B-D).
+   board before each move. The first version of this plan had all three moves wrong (section 7, findings B-D).
 6. **mesboot** was built from traces and tests, not from one end-to-end Linux trace. K3 ports it as it is; the review
    of K3's step table may find writes to question, which are existing differences and separate changes.
 7. **UCLK** (U1): today's pin is a message Linux doesn't send on this SMU, live on every boot. The fix moves it to the
@@ -484,7 +486,7 @@ How B1 leaves room for it:
 - **Display is the last block**, as in Apple's order. B1 doesn't touch the display: the GOP's DMCUB keeps running and
   the replay engine stays. The DMCU block is empty in B1, and B2 fills it: `dc_create` and `dmub_srv`, and the
   decision whether to load Linux's DMCUB through the PSP as Linux does (which would also give the firmware-assisted
-  memory clock switching the GOP's DMCUB reports as missing).
+  memory clock switching the GOP's DMCUB reports as missing; unverified).
 - **The store already holds `dcn_3_2_0_dmcub.bin`** whole, for that load.
 - **K9's audio and K11's clock steps sit behind small interfaces** (`phxdc::audio`, `phxdc::clocks`) that DC's
   `dce_audio`/stream encoder audio and `clk_mgr` dcn32 replace, with the same SMU and DAL messages (the DAL mailbox
@@ -502,7 +504,8 @@ master, read in a scratch folder outside git (7.2.15 not read). Its verdict:
 
 Per step: T1 safe; K1 safe with conditions 1-2; K2 safe with condition 3; K3 safe with conditions 1 and 4-9; K4, K5,
 K6, K7 unsafe as first written; K8 safe with conditions 10-12, option a only; K9 safe with condition 14; K10 safe with
-condition 12 if only defaults move; K11 needs A and 15; K12 safe with 16; K13 safe with 17 and L3; K14 safe.
+condition 12 if only defaults move; K11 needs finding A and condition 15; K12 safe with condition 16; K13 safe with
+condition 17 and L3; K14 safe.
 
 **The four unsafe findings, and what this version does with them:**
 
@@ -536,7 +539,7 @@ condition 12 if only defaults move; K11 needs A and 15; K12 safe with 16; K13 sa
 12. Every kernel DAL or SMU sender waits for `up`; no DAL message around LOAD_IP_FW SMC or before
     EnableAllSmuFeatures; the pipe-1 "no SMU message" guard carries over.
 13. K4 replaces only the early run; the re-run after VCN stays until K12.
-14. K9: audio off before a stream change, on after it, serialized with the replay engine; never detach AppleGFXHDA;
+14. K9: audio off before a stream change, on after it, serialised with the replay engine; never detach AppleGFXHDA;
     BacoAudioD3PME unsent.
 15. K11 follows `dcn32_update_clocks` (raise before a mode set, lower after it).
 16. K12 follows Linux's VCN flow (ENTRY_4/5 at hw_init, PowerUpVcn per instance before DPG, indirect SRAM through the

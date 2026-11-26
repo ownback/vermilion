@@ -25,11 +25,12 @@ Rules:
   is on by default but skips with a `missing` line on a stranger's install. (`phxaudio` and `audio_match.sh` ship.)
 - [ ] `bovram` names no process by default (the XTX machine's list is its two game processes, in its own file); decide
   a general rule (all but WindowServer?) after a measurement on another app.
-- [ ] Seen in the clean-up pass of #55, left alone because each changes what the daemon does or logs (the list is in
-  the PR's clean-up report): the `note:` text for `phxboot-nohdr`, `irqwait` / `waitstep` on the safe desktop,
-  `idle_dpm.sh`'s watchdog pin under `phxboot-uclk-off`, `recovery_install.sh` without the audio tools,
-  `phxboot-novrr` not renamed to the `-off` scheme, stale `phxboot-nohdr` / `phxboot-wscdcopy` comments in
-  `src/vermilion-accel/accel/phxfb.cpp` and `src/metal-plugin/nvmtl_scanout.c`.
+- [x] Fixed before #55's merge (seen in its clean-up pass): `irqwait` and `waitstep` no longer run on the safe
+  desktop (no `wscdcopy` line there either), the `phxboot-nohdr` note says HDR is off by default, and
+  `recovery_install.sh` (with `esp_stage.sh`) installs `phxaudio` and `audio_match.sh` like the package.
+- [ ] Left from #55's clean-up pass: `idle_dpm.sh`'s watchdog pins UCLK under `phxboot-uclk-off` (and `b15_boot.sh`
+  pins regardless); `phxboot-novrr` is not in the `-off` scheme; stale `phxboot-nohdr` / `phxboot-wscdcopy` comments
+  in `src/vermilion-accel/accel/phxfb.cpp` and `src/metal-plugin/nvmtl_scanout.c` (next kext / plugin change).
 
 ## Staged now
 

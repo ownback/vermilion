@@ -1031,8 +1031,10 @@ sc_vrrmin_safe() {      world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxbo
 sc_hdr_default() {      world; expect_writes '^-w debug.phxfb0_hdr=0$' 1; expect_log 'hdr: off .*the default; .*phxboot-hdr turns it on'; expect_nolog 'no longer needed.*nohdr'; expect_order 'hdr: off' 'NMXAccel up'; expect_log 'SUCCESS'; go hdr_default; }
 sc_hdr_optin() {        world; touch "$FR/gpu/phxboot-hdr"; expect_writes 'phxfb0_hdr' 0; expect_nolog 'hdr: '; expect_log 'SUCCESS'; go hdr_optin; }
 sc_hdr_optin_safe() {   world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-off" "$FR/gpu/phxboot-hdr"
-                        expect_log 'safe desktop up'; expect_log 'hdr: off .*the safe desktop'; expect_writes '^-w debug.phxfb0_hdr=0$' 1; expect_no_reboot; go hdr_optin_safe; }
-sc_hdr_off() {          world; touch "$FR/gpu/phxboot-nohdr"; expect_writes '^-w debug.phxfb0_hdr=0$' 1; expect_log 'hdr: off'; expect_log 'note: ~/gpu/phxboot-nohdr is no longer needed \(on by default\)'
+                        expect_log 'safe desktop up'; expect_log 'hdr: off .*the safe desktop'; expect_writes '^-w debug.phxfb0_hdr=0$' 1; expect_no_reboot
+                        expect_log 'irqwait: not on the safe desktop'; expect_log 'waitstep: not on the safe desktop'; expect_nolog 'wscdcopy:'
+                        expect_writes 'phxwait_irq|phxirq|phxeopirq|phxih|phxwait_step_us' 0; go hdr_optin_safe; }
+sc_hdr_off() {          world; touch "$FR/gpu/phxboot-nohdr"; expect_writes '^-w debug.phxfb0_hdr=0$' 1; expect_log 'hdr: off'; expect_log 'note: ~/gpu/phxboot-nohdr is no longer needed \(HDR is off by default\)'
                         expect_order 'hdr: off' 'NMXAccel up'; expect_log 'SUCCESS'; go hdr_off; }
 sc_hdr_safe() {         world; DESK=0; SIM_SQUAT=1; echo pending >"$FR/gpu/phxboot-nvstuck"; touch "$FR/gpu/phxboot-off"
                         expect_log 'safe desktop up'; expect_log 'hdr: off .*the safe desktop'; expect_writes '^-w debug.phxfb0_hdr=0$' 1; expect_no_reboot; go hdr_safe; }
@@ -1275,8 +1277,9 @@ sc_off_auto() {         world; feat_stubs; touch "$FR/gpu/phxboot-auto-off"; exp
 OLDF="auto sdma cg uclk vcn idledpm idledpm-dcf irqwait p0modes gl audio wscdcopy nohdr"
 sc_old_files() {        world; feat_stubs; local n; for n in $OLDF; do : >"$FR/gpu/phxboot-$n"; done
                         echo 456 >"$FR/gpu/phxboot-uclk"; feat_expect
-                        for n in $OLDF; do expect_log "^note: ~/gpu/phxboot-$n is no longer needed \\(on by default\\)\$"; done
-                        expect_cmd '[ "$(grep -c "no longer needed (on by default)" "$LOGF")" = 13 ]'; expect_writes '^-w debug.phxfb0_hdr=0$' 1
+                        for n in ${OLDF% nohdr}; do expect_log "^note: ~/gpu/phxboot-$n is no longer needed \\(on by default\\)\$"; done
+                        expect_log '^note: ~/gpu/phxboot-nohdr is no longer needed \(HDR is off by default\)$'
+                        expect_cmd '[ "$(grep -c "no longer needed (on by default)" "$LOGF")" = 12 ]'; expect_writes '^-w debug.phxfb0_hdr=0$' 1
                         expect_log 'SUCCESS'; expect_killall; go old_files; }
 # the file and its -off together: off wins, no note
 sc_old_and_off() {      world; feat_stubs; : >"$FR/gpu/phxboot-cg"; touch "$FR/gpu/phxboot-cg-off"; expect_nolog 'cg:'; expect_nolog 'phxboot-cg is no longer needed'; expect_log 'sdma: sdma_idle.sh stub'; expect_log 'SUCCESS'; go old_and_off; }

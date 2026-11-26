@@ -525,8 +525,8 @@ diagnostics and the kill switch `phxboot-off`.
 | GFX clock gating (`cg`) | `phxboot-cg-off` | on | yes |
 | memory clock pin (`uclk`) | `phxboot-uclk-off` | on (top level; the file's content is not read) | yes |
 | 1440p modes (`p0modes`) | `phxboot-p0modes-off` | on | yes |
-| fence waits by interrupt (`irqwait`) | `phxboot-irqwait-off` | on | yes |
-| fence wait step (`waitstep`) | `phxboot-waitstep-off` | `200` us (`phxboot-waitstep` holds 20-1000) | no (the kext's wait timing) |
+| fence waits by interrupt (`irqwait`) | `phxboot-irqwait-off` | on (not on the safe desktop) | yes |
+| fence wait step (`waitstep`) | `phxboot-waitstep-off` | `200` us (`phxboot-waitstep` holds 20-1000; not on the safe desktop) | no (the kext's wait timing) |
 | CoreDisplay's surfaces for GPU present (`wscdcopy`) | `phxboot-wscdcopy-off` | on | no |
 | video decode engine (`vcn`) | `phxboot-vcn-off` | on | yes |
 | idle memory and fabric clocks (`idledpm`, `idledpm-dcf`) | `phxboot-idledpm-off`, `phxboot-idledpm-dcf-off` | on | yes |

@@ -59,9 +59,10 @@ fi
 # and everything the XTX machine does not run.
 feat_on(){ [ ! -e "$G/phxboot-$1-off" ]; }
 OLD_OPT_INS="auto sdma cg uclk vcn idledpm idledpm-dcf irqwait p0modes gl audio wscdcopy nohdr"
-old_notes(){ local n
+old_notes(){ local n why
   for n in $OLD_OPT_INS; do
-    [ -e "$G/phxboot-$n" ] && [ ! -e "$G/phxboot-$n-off" ] && echo "note: ~/gpu/phxboot-$n is no longer needed (on by default)"
+    why="on by default"; [ $n = nohdr ] && why="HDR is off by default"
+    [ -e "$G/phxboot-$n" ] && [ ! -e "$G/phxboot-$n-off" ] && echo "note: ~/gpu/phxboot-$n is no longer needed ($why)"
   done; return 0; }
 old_notes
 # First-WindowServer crash fix (11-03).
@@ -585,6 +586,7 @@ GPUPRESENT_OFF=${PHXBOOT_GPUPRESENT_OFF:-/Library/GPUBundles/nvmtl/ws-gpu-presen
 WSASYNC_OFF=${PHXBOOT_WSASYNC_OFF:-/Library/GPUBundles/nvmtl/ws-gpu-present-async-off}
 GPUPRESENT=0   # 1 from step 5a when GPU present is on this boot
 ws_cdcopy(){ feat_on wscdcopy || return 0
+  [ $SAFE = 1 ] && return 0   # no GPU present on the safe desktop, so nothing to say
   if [ "$GPUPRESENT" != 1 ] || [ -e "$WSASYNC_OFF" ]; then
     echo "wscdcopy: needs GPU present and async GPU present on (not the safe desktop, no $GPUPRESENT_OFF, no $WSASYNC_OFF): NVMTL_WS_PRESENT_CDCOPY not set"; return 0; fi
   if launchctl setenv NVMTL_WS_PRESENT_CDCOPY 1 2>/dev/null; then
@@ -606,8 +608,9 @@ ws_tiled(){ [ -e "$G/phxboot-wstiled" ] || return 0
 # written. A WAITSEQ that outlasts its 20 us spin sleeps in timed steps of this length while IRQ waits are off; the
 # kext's default is 50. 200 cut WindowServer's wakeups 5-15x and was not worse than 50 in a blind A/B (findings
 # 2026-11-19-gpu-present-flicker-heat.md, live test 4). Only 50 and 200 were tried on hardware. The sysctl resets to 50
-# at every boot; with the -off file nothing is written.
+# at every boot; with the -off file, or on the safe desktop, nothing is written.
 waitstep_boot(){ feat_on waitstep || return 0
+  [ $SAFE = 1 ] && { echo "waitstep: not on the safe desktop: debug.phxwait_step_us stays at the kext's default"; return 0; }
   local v out rc
   if [ -e "$G/phxboot-waitstep" ]; then v=$(tr -d ' \t\r\n' <"$G/phxboot-waitstep" 2>/dev/null); else v=200; fi; [ -n "$v" ] || v=200
   case "$v" in [1-9][0-9]|[1-9][0-9][0-9]|1000) ;; *) v=0;; esac
@@ -621,9 +624,10 @@ waitstep_boot(){ feat_on waitstep || return 0
 # the MSI (debug.phxirq), then WAITSEQ sleeping on it (debug.phxwait_irq), in that order, each read back. Measured live:
 # a short waited job 265 -> 114 us median (Linux 114), p99 lower too, 1.1 M MSIs without a storm (findings
 # 2026-11-23-perf-power.md, section 4). The kext keeps the timed steps when it sees a storm. Any step that doesn't read
-# back 1 turns all five off again (reverse order). The sysctls reset at every boot; with the -off file nothing is
-# written.
+# back 1 turns all five off again (reverse order). The sysctls reset at every boot; with the -off file, or on the safe
+# desktop (the recovery path stays on the kext's polled waits), nothing is written.
 irqwait_boot(){ feat_on irqwait || return 0
+  [ $SAFE = 1 ] && { echo "irqwait: not on the safe desktop: polled waits stay"; return 0; }
   local o out rc on=""
   sysctl -n debug.phxwait_irq >/dev/null 2>&1 || { echo "irqwait: PhxBringup without debug.phxwait_irq: polled waits stay"; return 0; }
   for o in phxih_vram phxih phxeopirq phxirq phxwait_irq; do

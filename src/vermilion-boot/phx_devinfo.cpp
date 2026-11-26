@@ -168,13 +168,14 @@ static void phxBusyTick(thread_call_param_t p0, thread_call_param_t) { static_ca
 void PhxBringup::busyKick() {
     const uint64_t now = mach_absolute_time();
     busySampler.lastSubmitNs = phxAbsNs(now);
-    if (!busyCall || busyStopping || gGpuBusyUs <= 0) return;
+    thread_call_t c = busyCall;   // busyStop sets busyStopping under gpuLock (held here) before it frees the call
+    if (!c || busyStopping || gGpuBusyUs <= 0) return;
     if (!OSCompareAndSwap(0, 1, &busyArmed)) return;
     busySampler.start(busySampler.lastSubmitNs);
     uint64_t period = 0;
     nanoseconds_to_absolutetime(static_cast<uint64_t>(gGpuBusyUs) * 1000, &period);
     busyNextAbs = now + period;
-    thread_call_enter_delayed(busyCall, busyNextAbs);
+    thread_call_enter_delayed(c, busyNextAbs);
 }
 
 void PhxBringup::busyTick() {
@@ -199,13 +200,19 @@ void PhxBringup::busyTick() {
     }
 }
 
+// stop(): no tick runs or is pending afterwards. busyStopping is set under gpuLock, so no busyKick arms the call after
+// it; a tick that started before it may re-arm once, which the second cancel-wait catches (a pending call can't be freed).
 void PhxBringup::busyStop() {
+    if (gpuLock) IOLockLock(gpuLock);
     busyStopping = 1;
-    if (busyCall) {
-        thread_call_cancel_wait(busyCall);
-        thread_call_free(busyCall);
-        busyCall = nullptr;
+    if (gpuLock) IOLockUnlock(gpuLock);
+    thread_call_t c = busyCall;
+    if (!c) return;
+    for (int i = 0; i < 4; i++) {
+        thread_call_cancel_wait(c);
+        if (thread_call_free(c)) { busyCall = nullptr; return; }
     }
+    IOLog("PhxBringup: the busy sampler's thread call stays pending; not freed\n");
 }
 
 void PhxBringup::gpuStats(phx_gpu_stats *s) {

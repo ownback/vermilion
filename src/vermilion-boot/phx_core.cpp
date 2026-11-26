@@ -62,7 +62,9 @@ bool PhxBringup::start(IOService *provider) {
         setProperty("phx-hdp-flush-dword", hdpFlushDword, 32);
     }
     devInfoEarly();   // b168: the device info (PhxDevInfo.h): PCI ids, link caps, the IP discovery table in VRAM
-    busyCall = thread_call_allocate(phxBusyTick, this);   // b168: the GPU busy sampler (PhxGpuStats.h)
+    // b168: the GPU busy sampler (PhxGpuStats.h). A "once" call: one tick at a time, and busyStop's cancel-wait also
+    // waits for a running tick (a plain call's cancel-wait doesn't when it cancelled a pending one).
+    busyCall = thread_call_allocate_with_options(phxBusyTick, this, THREAD_CALL_PRIORITY_KERNEL, THREAD_CALL_OPTIONS_ONCE);
     setProperty("phx-gpu-stats-fn", kOSBooleanTrue);   // b168: PhxAccel's statistics may call "phxGpuStats"
     clearRing();   // navi31: also sets up fw_buf (needs fbMcBase and fbAperLen from above)
     setProperty("phx-fwbuf-mc", fwBufMc, 64);

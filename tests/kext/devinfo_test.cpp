@@ -297,6 +297,12 @@ static void testLayouts() {
     CHECK(d.mallBytes == (2 + 0.5 + 0.5 + 1 + 1 + 1) * (16u << 20));
     build(d, early(), regsXtx(), &o, nullptr);
     CHECK(o.vram_bit_width == (24 - 4) * 16);
+    // a half-use mask with more bits than there are channels: no VRAM type / width (never a wrapped width)
+    s.mallHalfUse = 0xffffffffu;
+    x = make(s);
+    CHECK(parse(x.b.data(), x.b.size(), &d) == kOk);
+    build(d, early(), regsXtx(), &o, nullptr);
+    CHECK(o.vram_bit_width == 0 && o.vram_type == 0 && !(o.flags & PHXN_DEV_VRAM_FROM_UMC) && (o.flags & PHXN_DEV_VALID));
     // no MALL table: 0
     s = navi31();
     s.mallMajor = 0;

@@ -391,11 +391,12 @@ inline bool build(const Discovery &d, const Early &e, const GcRegs &r, phxn_devi
     o->cu_active_number = cus;
 
     // VRAM: Linux's vram_info (VBIOS) is not reachable; UMC 8.10: 2 UMCs x 2 channels per node, 16-bit GDDR6 channels
-    if (d.umcMajor == 8 && d.umcMinor == 10 && d.numUmc) {
+    // (a half-use mask with more bits than the UMCs have channels gives no width: a malformed table, not a wrap)
+    const uint32_t allChannels = 2 * 2 * d.numUmc, halfChannels = popcount(d.mallHalfUse) * 2;
+    if (d.umcMajor == 8 && d.umcMinor == 10 && d.numUmc && halfChannels < allChannels) {
         fl |= PHXN_DEV_VRAM_FROM_UMC;
         o->vram_type = kVramTypeGddr6;
-        const uint32_t channels = 2 * 2 * d.numUmc - popcount(d.mallHalfUse) * 2;
-        o->vram_bit_width = channels * 16;
+        o->vram_bit_width = (allChannels - halfChannels) * 16;
     }
     // PCIe: the GPU's own link capabilities and its partner's (amdgpu_device_partner_bandwidth), the lower of each
     const uint32_t cap = e.linkCap, pcap = e.partnerLinkCap ? e.partnerLinkCap : e.linkCap;

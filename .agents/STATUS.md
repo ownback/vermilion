@@ -40,8 +40,8 @@ No open PRs and no branches other than `main` on ownback/vermilion-xtx (2026-11-
 
 **Release gaps found and closed today:** the package would have armed a dark first boot (#48: the daemon arms it after
 a bring-up that needs the firmware and VermilionAccel); the Installer check could never run (#45); a stranger got no
-GPU present or direct scan-out (#53); a stranger got 5 of the reference machine's 18 `~/gpu/phxboot-*` features
-(#55: all on by default). **Still open:** video decode on a stranger's install (`vcnup/` needs data captured on the
+GPU present or direct scan-out (#53); a stranger's install turned on only the few features the package wrote a
+`~/gpu/phxboot-*` file for (#55: every proven feature on by default). **Still open:** video decode on a stranger's install (`vcnup/` needs data captured on the
 reference machine), `bovram` has no default list, and nothing of #43-#55 has run on hardware yet (the boot queue).
 
 **U1 and hard rule 1:** until boot 41, every boot still sends the driver-mailbox SMU message 0x1B (UCLK 456 MHz),

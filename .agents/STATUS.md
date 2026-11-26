@@ -22,9 +22,14 @@ the component a pinned download. The machine lock is held until the post-boot ch
 Merged 2026-11-26 morning: **#43** (F1: VermilionBoot b163 holds no AMD firmware; review fixes: `phxctl c3image`
 retries 5 s on EBUSY and exits 3, usage, index regenerates the hashes) and **#45** (package fixes; review fixes:
 `allow-external-scripts` for the Installer check, a spent rollback folder no longer decides a later uninstall).
-Open: **#46** (release-scan needs a valid EDID checksum: b163's 38 `edid-serial` findings were header-like bytes in
-code, none a real EDID; Fable pass running). Next: `.gitignore` for the old generated `phx_c3_image.inc` (AMD bytes,
-no longer ignored since #43; deleted here, still in six old thread worktrees on old branches).
+**#46** merged (release-scan needs a valid EDID checksum: b163's 38 `edid-serial` findings were header-like bytes in
+code, none a real EDID; the scan moves on one byte after a rejected match; `.gitignore` again covers the old generated
+`phx_c3_image.inc`, AMD bytes, still present in six old thread worktrees on old branches).
+**#47** open: the B1 design (K1-K14, T1, U1; 18-20 boots; hw-safety review folded in; Fable pass running).
+**U1, hard rule 1, live:** `uclk.sh pin` sends the driver-mailbox SMU message 0x1B (SetHardMinByFreq, UCLK 456 MHz,
+`/var/log/phxboot.log`: `msg 0x1b arg 0x000201c8`) on every boot; #47's review says Linux sets UCLK on SMU 13.0.0
+through the DAL mailbox from its display code instead. Removing the pin brings back the display underflows it was added
+for. Owner's call asked (2026-11-26): keep it until U1 is designed, reviewed and booted, or stop it now.
 b163 built from main `cddcdd9` in `~/vermilion-build/b163` (release-scan clean with #46). It is **EFI change 41**,
 after 40 passes: b163 + `phxctl` + `m7_boot.sh` from main into `~/gpu`. The C3 path runs only for a second monitor
 (`~/gpu/phxboot-m7`, not set here), so on this machine the check is `phx-build` 163, `debug.phxc3_image` reads 0,
